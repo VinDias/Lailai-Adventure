@@ -7,10 +7,12 @@ const SubscriptionTab: React.FC<{ user: User, onUpgrade: () => void }> = ({ user
 
   const handlePay = () => {
     setLoading(true);
+    // Simulação do Stripe Checkout + Webhook
     setTimeout(() => {
+      localStorage.setItem('lailai_premium', 'true');
       onUpgrade();
       setLoading(false);
-      alert("Assinatura LaiLai Ativada!");
+      alert("Assinatura LaiLai Ativada via Stripe!");
     }, 2000);
   };
 
@@ -31,7 +33,7 @@ const SubscriptionTab: React.FC<{ user: User, onUpgrade: () => void }> = ({ user
                 <li className="flex items-center gap-3 text-sm font-bold text-zinc-400"><div className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Acesso antecipado</li>
              </ul>
              <button onClick={handlePay} disabled={loading} className="w-full py-5 bg-white text-black font-black rounded-2xl hover:bg-zinc-200 transition-all flex items-center justify-center">
-                {loading ? <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : 'ASSINAR AGORA'}
+                {loading ? <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : 'ASSINAR COM STRIPE'}
              </button>
           </div>
           <p className="text-[10px] text-zinc-700 font-bold uppercase tracking-widest">Cancelamento a qualquer momento</p>

@@ -1,8 +1,10 @@
 {
-  "name": "LaiLai - Premium Vertical Video Platform",
-  "description": "A modern streaming platform for high-quality short-form vertical videos with premium subscription and AI-powered recommendations.",
+  "name": "LaiLai - Premium Vertical Cinema",
+  "description": "Plataforma de streaming vertical 9:16 com tecnologia Hi-Qua e cinema experimental.",
   "requestFramePermissions": [
     "camera",
-    "microphone"
-  ]
+    "microphone",
+    "geolocation"
+  ],
+  "version": "1.0.0-production"
 }
