@@ -52,9 +52,12 @@ export const MOCK_EPISODES: Episode[] = [
   {
     id: 1,
     channelId: 1,
+    // Fix: Added missing required episode_number property
+    episode_number: 1,
     title: "Samurai Neon 1080p",
     description: "Masterizado em H.265 para cores ultra vibrantes. Um guerreiro solitário contra o xogunato corporativo.",
-    videoUrl: "https://v.ftcdn.net/05/56/67/02/700_F_556670233_G9O8h6e9r6M1X6P2A2D9qG6v9zL6x8P9_ST.mp4",
+    // Fix: Updated videoUrl to video_url to match Episode interface and HiQuaFeed usage
+    video_url: "https://v.ftcdn.net/05/56/67/02/700_F_556670233_G9O8h6e9r6M1X6P2A2D9qG6v9zL6x8P9_ST.mp4",
     duration: 210,
     thumbnail: "https://picsum.photos/seed/neo/1080/1920",
     likes: 12400,
@@ -63,9 +66,12 @@ export const MOCK_EPISODES: Episode[] = [
   {
     id: 2,
     channelId: 2,
+    // Fix: Added missing required episode_number property
+    episode_number: 1,
     title: "Ecos da Cidade HD",
     description: "Captura cinematográfica em FullHD. Uma jornada atmosférica pelas ruas chuvosas de uma metrópole esquecida.",
-    videoUrl: "https://v.ftcdn.net/04/81/76/89/700_F_481768913_uS6WqT7pG1E8j6hA2D9Xq7v9zL6x8P9_ST.mp4",
+    // Fix: Updated videoUrl to video_url to match Episode interface and HiQuaFeed usage
+    video_url: "https://v.ftcdn.net/04/81/76/89/700_F_481768913_uS6WqT7pG1E8j6hA2D9Xq7v9zL6x8P9_ST.mp4",
     duration: 210,
     thumbnail: "https://picsum.photos/seed/rain/1080/1920",
     likes: 3400,
@@ -148,7 +154,8 @@ export const MOCK_ADS: Ad[] = [
     id: 999,
     advertiserId: 'system',
     title: "Destaque da Comunidade",
-    videoUrl: "https://v.ftcdn.net/04/55/67/02/700_F_455670233_uG6WqT7pG1E8j6hA2D9Xq7v9zL6x8P9_ST.mp4",
+    // Fix: Updated videoUrl to video_url to match Ad interface and HiQuaFeed usage
+    video_url: "https://v.ftcdn.net/04/55/67/02/700_F_455670233_uG6WqT7pG1E8j6hA2D9Xq7v9zL6x8P9_ST.mp4",
     duration: 90,
     views: 0,
     maxViews: 5000,

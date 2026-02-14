@@ -1,0 +1,76 @@
+
+import React, { useState, useEffect } from 'react';
+import { Series, User, Episode } from '../types';
+import { api } from '../services/api';
+
+const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => void }> = ({ user, onOpen }) => {
+  const [series, setSeries] = useState<Series[]>([]);
+  const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
+  const [content, setContent] = useState<{seasons: any[], episodes: Episode[]} | null>(null);
+
+  useEffect(() => {
+    api.getSeries().then(data => setSeries(data.filter(s => s.content_type === 'hqcine')));
+  }, []);
+
+  const handleOpenSeries = async (s: Series) => {
+    setSelectedSeries(s);
+    const data = await api.getSeriesContent(s.id);
+    setContent(data);
+  };
+
+  return (
+    <div className="h-full w-full bg-[#050505] overflow-y-auto pb-40 scrollbar-hide">
+      <header className="p-8 pt-16 md:p-12">
+        <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">HQCINE</h1>
+        <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Apple Vertical Originals</p>
+      </header>
+
+      <section className="px-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+          {series.map(s => (
+            <div key={s.id} onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
+              <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[0.98] group-hover:ring-rose-500/50">
+                <img src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-700" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent" />
+                <div className="absolute bottom-6 left-6 right-6">
+                   <h3 className="text-lg font-black text-white leading-tight">{s.title}</h3>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {selectedSeries && content && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-3xl z-[1500] animate-apple p-8 overflow-y-auto">
+           <button onClick={() => setSelectedSeries(null)} className="absolute top-8 right-8 text-white/40 hover:text-white transition-all"><svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+           <div className="max-w-4xl mx-auto pt-20">
+              <div className="flex flex-col md:flex-row gap-12 mb-16">
+                 <img src={selectedSeries.cover_image} className="w-64 aspect-[9/16] rounded-[2.5rem] object-cover shadow-2xl" />
+                 <div className="flex-1">
+                    <h2 className="text-6xl font-black text-white mb-6 tracking-tighter">{selectedSeries.title}</h2>
+                    <p className="text-zinc-400 text-lg leading-relaxed mb-8">{selectedSeries.description}</p>
+                    <button className="px-12 py-5 bg-white text-black font-black rounded-2xl hover:bg-zinc-200 transition-all">SEGUIR SÉRIE</button>
+                 </div>
+              </div>
+              <div className="space-y-4">
+                 {content.episodes.map(ep => (
+                   <div key={ep.id} onClick={() => onOpen(ep, selectedSeries)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
+                      <div className="w-20 h-28 bg-black rounded-2xl overflow-hidden shrink-0">
+                         <img src={ep.thumbnail} className="w-full h-full object-cover opacity-60" />
+                      </div>
+                      <div>
+                         <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Episódio {ep.episode_number}</span>
+                         <h4 className="text-white font-bold text-lg">{ep.title}</h4>
+                      </div>
+                   </div>
+                 ))}
+              </div>
+           </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default HQCine;

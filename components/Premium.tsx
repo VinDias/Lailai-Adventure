@@ -46,11 +46,13 @@ const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase
     
     setLoading(true);
     setTimeout(() => {
+      // Create ad object ensuring properties match the Ad interface
       const newAd: Ad = {
         id: Date.now(),
         advertiserId: user.id,
         title: campaignData.title,
-        videoUrl: campaignData.videoUrl,
+        // Fix: Ensure video_url is used instead of videoUrl to match the interface
+        video_url: campaignData.videoUrl,
         duration: 90,
         views: 0,
         maxViews: campaignData.impressions,

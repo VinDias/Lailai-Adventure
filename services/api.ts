@@ -1,5 +1,5 @@
 
-import { Episode, Comic, Lesson, Ad, Channel, User } from '../types';
+import { Episode, Series, Ad, User, Channel } from '../types';
 
 const API_URL = 'http://localhost:5000/api';
 
@@ -16,62 +16,48 @@ class ApiService {
     return ApiService.instance;
   }
 
-  public setToken(token: string) {
-    this.token = token;
-    localStorage.setItem('lailai_token', token);
-  }
-
   private async request(path: string, options: RequestInit = {}) {
     const headers = {
       'Content-Type': 'application/json',
       ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
       ...options.headers,
     };
-
     const response = await fetch(`${API_URL}${path}`, { ...options, headers });
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error || 'Erro na requisição');
+      throw new Error(errorData.error || 'Erro na API');
     }
     return response.json();
   }
 
-  // Canais
-  async getMyChannels(): Promise<Channel[]> {
-    return this.request('/my-channels');
-  }
-
-  async createChannel(data: any): Promise<Channel> {
-    return this.request('/channels', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
-  }
-
-  // Auth & Conteúdo
-  async login(credentials: any) {
-    const data = await this.request('/auth/login', { method: 'POST', body: JSON.stringify(credentials) });
-    this.setToken(data.token);
+  // Auth
+  async login(creds: any) {
+    const data = await this.request('/auth/login', { method: 'POST', body: JSON.stringify(creds) });
+    this.token = data.token;
+    localStorage.setItem('lailai_token', data.token);
     return data.user;
   }
 
-  async getEpisodes(): Promise<Episode[]> { return this.request('/episodes'); }
-  async saveEpisode(ep: any): Promise<Episode> { return this.request('/episodes', { method: 'POST', body: JSON.stringify(ep) }); }
+  // Series
+  async getSeries(): Promise<Series[]> { return this.request('/series'); }
+  async createSeries(data: any): Promise<Series> { return this.request('/series', { method: 'POST', body: JSON.stringify(data) }); }
   
-  // Fix: Added missing getComics method to support App.tsx
-  async getComics(): Promise<Comic[]> { return this.request('/comics'); }
-  // Fix: Added missing saveComic method to support App.tsx
-  async saveComic(comic: any): Promise<Comic> { return this.request('/comics', { method: 'POST', body: JSON.stringify(comic) }); }
+  // Fix: Added missing getSeriesContent method used in HQCine and other content components
+  async getSeriesContent(seriesId: number): Promise<{seasons: any[], episodes: Episode[]}> {
+    return this.request(`/series/${seriesId}/content`);
+  }
 
-  // Fix: Added missing getLessons method to support App.tsx
-  async getLessons(): Promise<Lesson[]> { return this.request('/lessons'); }
-  // Fix: Added missing saveLesson method to support App.tsx
-  async saveLesson(lesson: any): Promise<Lesson> { return this.request('/lessons', { method: 'POST', body: JSON.stringify(lesson) }); }
+  // Episodes
+  async getEpisodes(): Promise<Episode[]> { return this.request('/episodes'); }
+  async getEpisodesBySeries(seriesId: number): Promise<Episode[]> { return this.request(`/series/${seriesId}/episodes`); }
+  async saveEpisode(data: any): Promise<Episode> { return this.request('/episodes', { method: 'POST', body: JSON.stringify(data) }); }
 
-  async getAds(): Promise<Ad[]> { return this.request('/ads/active'); }
-  // Fix: Added missing saveAd method to support App.tsx
-  async saveAd(ad: any): Promise<Ad> { return this.request('/ads', { method: 'POST', body: JSON.stringify(ad) }); }
-  async incrementAdView(adId: number): Promise<void> { return this.request(`/ads/impression/${adId}`, { method: 'POST' }); }
+  // Ads
+  async getRandomAd(): Promise<Ad> { return this.request('/ads/random'); }
+
+  // Profile/Channel Management
+  async getMyChannels(): Promise<Channel[]> { return this.request('/channels/me'); }
+  async createChannel(data: any): Promise<Channel> { return this.request('/channels', { method: 'POST', body: JSON.stringify(data) }); }
 }
 
 export const api = ApiService.getInstance();
