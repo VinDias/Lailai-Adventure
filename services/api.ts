@@ -1,14 +1,12 @@
 
-import { Series, Episode, User, Ad, Channel, Panel, Chapter } from '../types';
+import { Series, Episode, User, Ad, Panel, Channel } from '../types';
 import API_URL from '../config/api';
-import { MOCK_CHANNELS, MOCK_EPISODES, MOCK_ADS } from './mockData';
 
 class ApiService {
   private static instance: ApiService;
-  private token: string | null = localStorage.getItem('lailai_token');
+  private accessToken: string | null = null;
   public isOffline: boolean = false;
   private onStatusChange: ((offline: boolean) => void) | null = null;
-  private cache: Map<string, any> = new Map();
 
   public static getInstance() {
     if (!ApiService.instance) ApiService.instance = new ApiService();
@@ -20,23 +18,31 @@ class ApiService {
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+    // Garante que o path comece com /
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    const fullUrl = `${API_URL}${cleanPath}`;
+    
     const headers = {
       'Content-Type': 'application/json',
-      ...(this.token ? { 'Authorization': `Bearer ${this.token}` } : {}),
+      ...(this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {}),
       ...options.headers,
     };
 
     try {
-      const response = await fetch(`${API_URL}${path}`, { ...options, headers });
-      
+      const response = await fetch(fullUrl, { 
+        ...options, 
+        headers,
+        credentials: 'include' 
+      });
+
       if (this.isOffline) {
         this.isOffline = false;
         this.onStatusChange?.(false);
       }
 
-      if (response.status === 401) {
-        this.logout();
-        throw new Error('Sessão expirada.');
+      if (response.status === 401 && !path.includes('/auth/')) {
+        const refreshed = await this.refreshToken();
+        if (refreshed) return this.request(path, options);
       }
 
       if (!response.ok) {
@@ -45,71 +51,72 @@ class ApiService {
       }
 
       return await response.json();
-    } catch (error) {
-      if (error instanceof TypeError) {
+    } catch (error: any) {
+      // Falha catastrófica de rede ou CORS
+      if (error instanceof TypeError || error.message?.includes('fetch')) {
+        console.warn(`[API] Falha de conexão com: ${fullUrl}`);
         this.isOffline = true;
         this.onStatusChange?.(true);
-        return this.localFallback<T>(path, options);
       }
       throw error;
     }
   }
 
-  private logout() {
-    this.token = null;
-    localStorage.removeItem('lailai_token');
+  private async refreshToken(): Promise<boolean> {
+    try {
+      const { accessToken } = await this.request<{ accessToken: string }>('/auth/refresh', { method: 'POST' });
+      this.accessToken = accessToken;
+      return true;
+    } catch (e) {
+      this.logout();
+      return false;
+    }
+  }
+
+  public logout() {
+    this.accessToken = null;
     localStorage.removeItem('lailai_session');
   }
 
-  private async localFallback<T>(path: string, options: RequestInit): Promise<T> {
-    // DB Simulado via LocalStorage para persistência entre reloads mesmo sem servidor
-    const db = (key: string) => JSON.parse(localStorage.getItem(`lailai_db_${key}`) || '[]');
-    
-    if (path.includes('/auth/login')) {
-      return { user: { id: 1, name: 'Usuário Local', isPremium: true, followingChannelIds: [] }, token: 'mock' } as any;
-    }
-
-    if (path === '/content/series') return db('series').length ? db('series') : seriesFallback as any;
-    if (path === '/content/episodes') return MOCK_EPISODES as any;
-    if (path.includes('/health')) return { status: 'offline' } as any;
-
-    // Added local fallbacks for missing endpoints used in components
-    if (path.includes('/channels/me')) return MOCK_CHANNELS.slice(0, 1) as any;
-    if (path === '/content/chapters' && options.method === 'POST') return { id: Date.now(), ...JSON.parse(options.body as string || '{}') } as any;
-    if (path === '/content/progress' && options.method === 'POST') return { success: true } as any;
-
-    return [] as any;
+  async login(credentials: any) {
+    const data = await this.request<{ user: User; accessToken: string }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(credentials)
+    });
+    this.accessToken = data.accessToken;
+    return data.user;
   }
 
-  async checkHealth() { return this.request('/health'); }
+  async checkHealth() { 
+    // Tenta primeiro a rota com prefixo /api, depois a rota raiz
+    try {
+      return await this.request('/health');
+    } catch (e) {
+      // Fallback para a raiz se o prefixo /api falhar
+      const rootUrl = API_URL.replace('/api', '') + '/health';
+      return fetch(rootUrl).then(r => r.json());
+    }
+  }
+  
   async getSeries() { return this.request<Series[]>('/content/series'); }
   async getSeriesContent(id: number) { return this.request<any>(`/content/series/${id}`); }
-  async getEpisodesBySeries(id: number) { return this.request<Episode[]>(`/content/series/${id}/episodes`); }
-  async getPanels(episodeId: number) { return this.request<Panel[]>(`/content/episodes/${episodeId}/panels`); }
-  async getChapterPanels(chapterId: number) { return this.getPanels(chapterId); }
   async getEpisodes() { return this.request<Episode[]>('/content/episodes'); }
-  async getRandomAd() { return this.request<Ad | null>('/ads/random'); }
+  async getPanels(episodeId: number) { return this.request<Panel[]>(`/content/episodes/${episodeId}/panels`); }
+  async createStripeSession() { return this.request<{ url: string }>('/subscription/create-checkout', { method: 'POST' }); }
+  async getMyChannels() { return this.request<Channel[]>('/channels/me'); }
   async createChannel(data: any) { return this.request<Channel>('/channels', { method: 'POST', body: JSON.stringify(data) }); }
   async createSeries(data: any) { return this.request<Series>('/content/series', { method: 'POST', body: JSON.stringify(data) }); }
-  async saveEpisode(data: any) { return this.request<Episode>('/content/episodes', { method: 'POST', body: JSON.stringify(data) }); }
-
-  // Fix: Added missing method required by Profile.tsx to fetch user-owned channels
-  async getMyChannels() { return this.request<Channel[]>('/channels/me'); }
-
-  // Fix: Added missing method required by AdminDashboard.tsx to publish new comic chapters
   async createChapter(data: any) { return this.request<any>('/content/chapters', { method: 'POST', body: JSON.stringify(data) }); }
-
-  // Fix: Added missing method required by WebtoonReader.tsx to track user reading progress
+  async saveEpisode(data: any) { return this.request<Episode>('/content/episodes', { method: 'POST', body: JSON.stringify(data) }); }
+  async getEpisodesBySeries(seriesId: number) { return this.request<Episode[]>(`/content/series/${seriesId}/episodes`); }
+  async getChapterPanels(chapterId: number) { return this.request<Panel[]>(`/content/chapters/${chapterId}/panels`); }
+  async getRandomAd() { return this.request<Ad>('/ads/random'); }
   async saveReadingProgress(episodeId: number, progress: number) { 
-    return this.request<any>('/content/progress', { 
+    return this.request(`/content/episodes/${episodeId}/progress`, { 
       method: 'POST', 
-      body: JSON.stringify({ episodeId, progress }) 
+      body: JSON.stringify({ progress }) 
     }); 
   }
 }
-
-const seriesFallback = [
-  { id: 1, title: "Samurai Neon (Local)", cover_image: "https://picsum.photos/seed/neo/1080/1920", genre: "Cyberpunk" }
-];
 
 export const api = ApiService.getInstance();

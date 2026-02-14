@@ -3,11 +3,24 @@ export interface User {
   id: number;
   email: string;
   name: string;
-  address?: string;
   isPremium: boolean;
+  isEmailVerified: boolean;
+  stripeCustomerId?: string;
+  subscriptionStatus?: 'active' | 'expired' | 'canceled' | 'none';
   avatar?: string;
-  // Added followingChannelIds property to support social features
   followingChannelIds: number[];
+}
+
+// Added missing Channel interface
+export interface Channel {
+  id: number;
+  name: string;
+  handle: string;
+  avatar: string;
+  banner: string;
+  description: string;
+  followerCount: number;
+  isMonetized: boolean;
 }
 
 export interface Series {
@@ -22,20 +35,17 @@ export interface Series {
 
 export interface Episode {
   id: number;
-  // Made season_id optional as mock data sometimes omits it
-  season_id?: number;
   episode_number: number;
   title: string;
-  // Added description property used in mock data and feeds
   description?: string;
   video_url?: string;
-  duration?: number;
   thumbnail: string;
-  // Added metadata properties used for feed display and engagement
+  series_title?: string;
+  // Added missing channelId property
   channelId?: number;
+  duration?: number;
   likes?: number;
   comments?: number;
-  series_title?: string;
 }
 
 export interface Panel {
@@ -47,32 +57,19 @@ export interface Panel {
 
 export interface Ad {
   id: number;
-  // Added advertiserId to support business features
-  advertiserId?: number | string;
-  title: string;
   video_url: string;
-  duration: number;
-  // Added monetization metrics and technical metadata
-  views: number;
-  maxViews: number;
   active: boolean;
-  format: string;
-  resolution: string;
+  // Added missing properties used in mockData and Premium components
+  advertiserId?: string | number;
+  title?: string;
+  duration?: number;
+  views?: number;
+  maxViews?: number;
+  format?: 'H.264' | 'H.265';
+  resolution?: string;
 }
 
-// Added missing Channel interface for studio/creator management
-export interface Channel {
-  id: number;
-  name: string;
-  handle: string;
-  avatar: string;
-  banner: string;
-  description: string;
-  followerCount: number;
-  isMonetized: boolean;
-}
-
-// Added missing Lesson interface for educational/category content
+// Added missing Lesson interface
 export interface Lesson {
   id: number;
   channelId: number;
@@ -86,7 +83,7 @@ export interface Lesson {
   likes: number;
 }
 
-// Added missing Comic interface for Hi-Qua reader
+// Added missing Comic interface
 export interface Comic {
   id: number;
   channelId: number;
@@ -99,7 +96,7 @@ export interface Comic {
   comments: number;
 }
 
-// Added missing Chapter interface used in HQCine vertical stories
+// Added missing Chapter interface
 export interface Chapter {
   id: number;
   series_id: number;
