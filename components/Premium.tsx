@@ -1,29 +1,67 @@
 
 import React, { useState } from 'react';
 import { ICONS } from '../constants';
+import { User, Ad } from '../types';
 
 interface PremiumProps {
+  user: User;
   onUpgradeComplete: () => void;
+  onAdPurchase: (ad: Ad) => void;
   onBack: () => void;
 }
 
 type TabType = 'user' | 'business';
-type Step = 'selection' | 'form';
+type Step = 'selection' | 'form' | 'payment';
 
-const Premium: React.FC<PremiumProps> = ({ onUpgradeComplete, onBack }) => {
-  // Fix: Corrected useState syntax for TabType and added missing brackets
+const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase, onBack }) => {
   const [activeTab, setActiveTab] = useState<TabType>('user');
   const [step, setStep] = useState<Step>('selection');
   const [loading, setLoading] = useState(false);
 
-  const [userData, setUserData] = useState({ nome: '', endereco: '', telefone: '', email: '' });
-  const [campaignData, setCampaignData] = useState({ nome: '', url: '', descricao: '', publico: '' });
+  // Business Form State
+  const [campaignData, setCampaignData] = useState({
+    title: '',
+    videoUrl: '',
+    description: '',
+    format: 'H.264' as 'H.264' | 'H.265',
+    impressions: 1000
+  });
 
-  const handlePayment = () => {
+  const CPM_RATE = 15.00; // R$ 15,00 por 1000 impressões
+  const totalPrice = (campaignData.impressions / 1000) * CPM_RATE;
+
+  const handleUserUpgrade = () => {
     setLoading(true);
     setTimeout(() => {
       onUpgradeComplete();
       setLoading(false);
+    }, 1500);
+  };
+
+  const validateAndPayAd = () => {
+    if (!campaignData.title || !campaignData.videoUrl) {
+      alert("Preencha todos os campos obrigatórios.");
+      return;
+    }
+    
+    setLoading(true);
+    setTimeout(() => {
+      const newAd: Ad = {
+        id: Date.now(),
+        advertiserId: user.id,
+        title: campaignData.title,
+        videoUrl: campaignData.videoUrl,
+        duration: 90,
+        views: 0,
+        maxViews: campaignData.impressions,
+        active: true,
+        format: campaignData.format,
+        resolution: '1080x1920'
+      };
+      onAdPurchase(newAd);
+      setLoading(false);
+      alert(`Campanha ativada! Investimento: R$ ${totalPrice.toFixed(2)}`);
+      onBack();
     }, 2000);
   };
 
@@ -31,55 +69,95 @@ const Premium: React.FC<PremiumProps> = ({ onUpgradeComplete, onBack }) => {
     <div className="h-full w-full bg-[#0A0A0B] text-white overflow-y-auto font-lailai animate-apple pb-48 md:pb-32">
       <div className="max-w-4xl mx-auto px-6 pt-12 md:pt-20">
         <header className="flex justify-between items-center mb-16">
-          <button onClick={step === 'form' ? () => setStep('selection') : onBack} className="p-3 bg-[#1C1C1E] rounded-2xl border border-white/5 hover:bg-[#2C2C2E] transition-all text-zinc-400 hover:text-white">
+          <button onClick={step !== 'selection' ? () => setStep('selection') : onBack} className="p-3 bg-[#1C1C1E] rounded-2xl border border-white/5 hover:bg-[#2C2C2E] transition-all text-zinc-400 hover:text-white">
             <svg className="w-6 h-6 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
           </button>
-          <div className="text-[10px] font-black tracking-[0.3em] text-zinc-600 uppercase">Assinantes</div>
+          <div className="text-[10px] font-black tracking-[0.3em] text-zinc-600 uppercase">Premium & Ads</div>
         </header>
 
         {step === 'selection' ? (
           <div className="animate-apple text-center">
-            <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter mb-6 premium-text">Assinantes e Anunciantes</h1>
-            <p className="text-zinc-500 text-lg md:text-xl max-w-lg mx-auto mb-12">Escolha sua forma de apoiar e brilhar na plataforma.</p>
+            <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter mb-6 premium-text">Subscribers & Businesses</h1>
+            <p className="text-zinc-500 text-lg md:text-xl max-w-lg mx-auto mb-12">Impulsione sua marca ou sua experiência de cinema.</p>
 
             <div className="flex p-1 bg-[#1C1C1E] rounded-2xl w-full max-w-sm mx-auto mb-16 border border-white/5">
-              <button onClick={() => setActiveTab('user')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'user' ? 'bg-[#2C2C2E] text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>Para Você</button>
-              <button onClick={() => setActiveTab('business')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'business' ? 'bg-[#2C2C2E] text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>Para Empresas</button>
+              <button onClick={() => setActiveTab('user')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'user' ? 'bg-[#2C2C2E] text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>Assinante</button>
+              <button onClick={() => setActiveTab('business')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${activeTab === 'business' ? 'bg-[#2C2C2E] text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}>Anunciante</button>
             </div>
 
             <div className="grid grid-cols-1 gap-8 max-w-2xl mx-auto">
               <div onClick={() => setStep('form')} className="group bg-[#1C1C1E] border border-white/5 rounded-[2.5rem] p-10 flex flex-col items-center cursor-pointer transition-all hover:bg-[#2C2C2E] hover:scale-[1.02]">
                 <div className={`w-20 h-20 rounded-[1.5rem] flex items-center justify-center mb-8 ${activeTab === 'user' ? 'bg-rose-600/10 text-rose-500' : 'bg-indigo-600/10 text-indigo-500'}`}>
-                   {activeTab === 'user' ? <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> : <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>}
+                   {activeTab === 'user' ? ICONS.Premium : ICONS.AI}
                 </div>
-                <h3 className="text-3xl font-extrabold mb-4">{activeTab === 'user' ? 'Zero Anúncios' : 'Promover Arte'}</h3>
-                <p className="text-zinc-500 mb-10 text-sm">{activeTab === 'user' ? 'Assista sem interrupções e desbloqueie a Biblioteca.' : 'Sua campanha exibida para toda a comunidade.'}</p>
-                <div className={`w-full py-5 font-black rounded-2xl ${activeTab === 'user' ? 'bg-white text-black' : 'border border-white/10 text-white hover:bg-white/5'}`}>
-                  {activeTab === 'user' ? 'Assinar R$ 9,90/mês' : 'Criar Campanha'}
+                <h3 className="text-3xl font-extrabold mb-4">{activeTab === 'user' ? 'Lailai Premium' : 'Anunciante Cinema'}</h3>
+                <p className="text-zinc-500 mb-10 text-sm text-center">
+                  {activeTab === 'user' 
+                    ? 'Assista a 1080p nativo, 60 FPS, sem anúncios e com áudio espacial.' 
+                    : 'Alcance 1.000 pessoas por apenas R$ 15,00. Vídeos de 90s em FullHD.'}
+                </p>
+                <div className={`w-full py-5 font-black rounded-2xl ${activeTab === 'user' ? 'bg-white text-black' : 'bg-indigo-600 text-white'}`}>
+                  {activeTab === 'user' ? 'Assinar R$ 3,99/mês' : 'Contratar CPM R$ 15,00'}
                 </div>
               </div>
             </div>
           </div>
         ) : (
           <div className="max-w-md mx-auto animate-apple">
-             <h2 className="text-3xl font-extrabold tracking-tight mb-8">{activeTab === 'user' ? 'Dados para Pagamento' : 'Configurar Anúncio'}</h2>
-             <div className="space-y-4">
-               {activeTab === 'user' ? (
-                 <>
-                   <input type="text" placeholder="Nome Completo" value={userData.nome} onChange={(e) => setUserData({...userData, nome: e.target.value})} className="w-full bg-[#1C1C1E] border border-white/5 rounded-2xl px-6 py-4 focus:outline-none focus:border-rose-500/50 transition-all text-white placeholder:text-zinc-600" />
-                   <input type="text" placeholder="Endereço" value={userData.endereco} onChange={(e) => setUserData({...userData, endereco: e.target.value})} className="w-full bg-[#1C1C1E] border border-white/5 rounded-2xl px-6 py-4 focus:outline-none focus:border-rose-500/50 transition-all text-white placeholder:text-zinc-600" />
-                   <input type="tel" placeholder="Telefone" value={userData.telefone} onChange={(e) => setUserData({...userData, telefone: e.target.value})} className="w-full bg-[#1C1C1E] border border-white/5 rounded-2xl px-6 py-4 focus:outline-none focus:border-rose-500/50 transition-all text-white placeholder:text-zinc-600" />
-                 </>
-               ) : (
-                 <>
-                   <input type="text" placeholder="Título da Campanha" value={campaignData.nome} onChange={(e) => setCampaignData({...campaignData, nome: e.target.value})} className="w-full bg-[#1C1C1E] border border-white/5 rounded-2xl px-6 py-4 focus:outline-none text-white placeholder:text-zinc-600" />
-                   <input type="text" placeholder="URL do Vídeo (MP4)" value={campaignData.url} onChange={(e) => setCampaignData({...campaignData, url: e.target.value})} className="w-full bg-[#1C1C1E] border border-white/5 rounded-2xl px-6 py-4 focus:outline-none text-white placeholder:text-zinc-600" />
-                 </>
-               )}
-               <button onClick={handlePayment} className={`w-full py-5 rounded-2xl font-black mt-8 shadow-2xl transition-all ${activeTab === 'user' ? 'bg-white text-black hover:bg-zinc-200' : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}>
-                 {loading ? <div className="w-5 h-5 border-2 border-current/30 border-t-current rounded-full animate-spin mx-auto" /> : 'Ir para Mercado Pago'}
-               </button>
-             </div>
+             <h2 className="text-3xl font-extrabold tracking-tight mb-8 text-center">
+               {activeTab === 'user' ? 'Confirmação de Plano' : 'Nova Campanha'}
+             </h2>
+             
+             {activeTab === 'user' ? (
+               <div className="space-y-4">
+                 <div className="p-6 bg-white/5 rounded-3xl border border-white/10 mb-6">
+                    <ul className="space-y-3 text-sm text-zinc-400">
+                      <li className="flex items-center gap-2 font-bold text-white"><div className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Cinema em 60 FPS nativo</li>
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Zero anúncios no feed</li>
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Suporte prioritário</li>
+                    </ul>
+                 </div>
+                 <button onClick={handleUserUpgrade} className="w-full py-5 bg-white text-black rounded-2xl font-black hover:bg-zinc-200 transition-all flex items-center justify-center">
+                   {loading ? <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : 'Confirmar R$ 3,99'}
+                 </button>
+               </div>
+             ) : (
+               <div className="space-y-5">
+                 <div className="bg-indigo-500/10 border border-indigo-500/20 p-5 rounded-2xl mb-4">
+                    <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest mb-2">Checklist Técnico</p>
+                    <ul className="text-[10px] text-zinc-500 space-y-1">
+                      <li>• Resolução: 1080x1920 (Vertical)</li>
+                      <li>• Frame Rate: 30 a 60 FPS</li>
+                      <li>• Duração Máxima: 90 Segundos</li>
+                      <li>• Custo: R$ 15,00 por 1.000 views</li>
+                    </ul>
+                 </div>
+
+                 <input type="text" placeholder="Título do Anúncio" value={campaignData.title} onChange={e => setCampaignData({...campaignData, title: e.target.value})} className="w-full bg-[#1C1C1E] border border-white/5 rounded-2xl px-6 py-4 focus:outline-none text-white placeholder:text-zinc-700" />
+                 <input type="text" placeholder="URL do Vídeo MP4 (Direct Link)" value={campaignData.videoUrl} onChange={e => setCampaignData({...campaignData, videoUrl: e.target.value})} className="w-full bg-[#1C1C1E] border border-white/5 rounded-2xl px-6 py-4 focus:outline-none text-white placeholder:text-zinc-700" />
+                 
+                 <div className="flex gap-4">
+                    <select value={campaignData.format} onChange={e => setCampaignData({...campaignData, format: e.target.value as any})} className="flex-1 bg-[#1C1C1E] border border-white/5 rounded-2xl px-4 py-4 text-white text-sm">
+                      <option value="H.264">H.264 (Compatibilidade)</option>
+                      <option value="H.265">H.265 (Qualidade)</option>
+                    </select>
+                    <select value={campaignData.impressions} onChange={e => setCampaignData({...campaignData, impressions: parseInt(e.target.value)})} className="flex-1 bg-[#1C1C1E] border border-white/5 rounded-2xl px-4 py-4 text-white text-sm">
+                      <option value="1000">1.000 Views (R$ 15)</option>
+                      <option value="5000">5.000 Views (R$ 75)</option>
+                      <option value="10000">10.000 Views (R$ 150)</option>
+                    </select>
+                 </div>
+
+                 <div className="p-6 bg-indigo-600/10 rounded-3xl border border-indigo-500/20 flex justify-between items-center">
+                    <span className="text-zinc-500 text-xs font-bold uppercase tracking-widest">Investimento</span>
+                    <span className="text-2xl font-black text-indigo-400">R$ {totalPrice.toFixed(2)}</span>
+                 </div>
+
+                 <button onClick={validateAndPayAd} className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-500 transition-all flex items-center justify-center">
+                   {loading ? <div className="w-5 h-5 border-2 border-black/30 border-t-white rounded-full animate-spin" /> : 'Ativar Campanha'}
+                 </button>
+               </div>
+             )}
           </div>
         )}
       </div>

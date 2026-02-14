@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Home, User, CreditCard, Sparkles, LogOut, ChevronUp, ChevronDown, MessageCircle, Heart, Share2, BookOpen, Volume2, VolumeX, Play, Pause } from 'lucide-react';
+import { Home, User, CreditCard, Sparkles, LogOut, ChevronUp, ChevronDown, MessageCircle, Heart, Share2, BookOpen, Volume2, VolumeX, Play, Pause, Search } from 'lucide-react';
 
 export const COLORS = {
   primary: '#E11D48', // Rose 600
@@ -24,4 +24,6 @@ export const ICONS = {
   Mute: <VolumeX className="w-6 h-6" />,
   Play: <Play className="w-12 h-12 fill-current" />,
   Pause: <Pause className="w-12 h-12 fill-current" />,
+  // Fix: Added missing Search icon
+  Search: <Search className="w-6 h-6" />,
 };
