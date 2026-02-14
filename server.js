@@ -12,16 +12,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Configuração do PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'lailai_secret_key_2024';
-const MAX_VIDEO_DURATION = 210; // 3min30s
+const MAX_VIDEO_DURATION = 210; 
 
-// Middleware de Autenticação
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -34,24 +32,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// --- ROTAS DE AUTENTICAÇÃO ---
-
-app.post('/api/auth/register', async (req, res) => {
-  const { email, password, name } = req.body;
-  const hashedPassword = await bcrypt.hash(password, 10);
-  try {
-    const result = await pool.query(
-      'INSERT INTO users (email, password, name, avatar) VALUES ($1, $2, $3, $4) RETURNING id, email, name, is_premium',
-      [email, hashedPassword, name, `https://picsum.photos/seed/${email}/200`]
-    );
-    const user = result.rows[0];
-    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET);
-    res.json({ token, user: { ...user, isPremium: user.is_premium } });
-  } catch (err) {
-    res.status(400).json({ error: "E-mail já cadastrado ou erro no servidor." });
-  }
-});
-
+// --- AUTH ---
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
@@ -59,32 +40,45 @@ app.post('/api/auth/login', async (req, res) => {
 
   if (user && await bcrypt.compare(password, user.password)) {
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET);
-    res.json({ 
-      token, 
-      user: { 
-        id: user.id, 
-        email: user.email, 
-        name: user.name, 
-        isPremium: user.is_premium,
-        avatar: user.avatar 
-      } 
-    });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, isPremium: user.is_premium, avatar: user.avatar } });
   } else {
     res.status(401).json({ error: "Credenciais inválidas." });
   }
 });
 
-// --- ROTAS DE VÍDEO (HQCINE & VE-FILME) ---
-
-app.get('/api/episodes', async (req, res) => {
-  const result = await pool.query('SELECT * FROM episodes ORDER BY created_at DESC');
-  res.json(result.rows);
+// --- CANAIS ---
+app.get('/api/my-channels', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM channels WHERE owner_id = $1', [req.user.id]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
+app.post('/api/channels', authenticateToken, async (req, res) => {
+  const { name, handle, description, avatar, banner } = req.body;
+  try {
+    const result = await pool.query(
+      'INSERT INTO channels (owner_id, name, handle, description, avatar, banner) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [req.user.id, name, handle.toLowerCase(), description, avatar, banner]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(400).json({ error: "Handle (ID do canal) já está em uso." });
+  }
+});
+
+// --- CONTEÚDO ---
 app.post('/api/episodes', authenticateToken, async (req, res) => {
   const { title, description, videoUrl, duration, channelId } = req.body;
   
-  // Validação Real no Backend
+  // Validação: O canal pertence ao usuário?
+  const channelCheck = await pool.query('SELECT owner_id FROM channels WHERE id = $1', [channelId]);
+  if (channelCheck.rows.length === 0 || channelCheck.rows[0].owner_id !== req.user.id) {
+    return res.status(403).json({ error: "Você não tem permissão para postar neste canal." });
+  }
+
   if (duration > MAX_VIDEO_DURATION) {
     return res.status(400).json({ error: "Duração excede 3min30s." });
   }
@@ -100,20 +94,10 @@ app.post('/api/episodes', authenticateToken, async (req, res) => {
   }
 });
 
-// --- ROTAS DE ANÚNCIOS ---
-
-app.get('/api/ads/active', async (req, res) => {
-  const result = await pool.query('SELECT * FROM ads WHERE active = true AND views < max_views');
+app.get('/api/episodes', async (req, res) => {
+  const result = await pool.query('SELECT e.*, c.name as channel_name, c.handle as channel_handle, c.avatar as channel_avatar FROM episodes e JOIN channels c ON e.channel_id = c.id ORDER BY e.created_at DESC');
   res.json(result.rows);
 });
 
-app.post('/api/ads/impression/:id', async (req, res) => {
-  const { id } = req.params;
-  await pool.query('UPDATE ads SET views = views + 1 WHERE id = $1', [id]);
-  await pool.query('UPDATE ads SET active = false WHERE id = $1 AND views >= max_views');
-  res.sendStatus(200);
-});
-
-// Inicialização
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`LaiLai Backend Rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`LaiLai Multi-Channel Backend Rodando`));
