@@ -97,7 +97,7 @@ const App: React.FC = () => {
       </main>
 
       <nav className="h-24 bg-black/80 backdrop-blur-3xl border-t border-white/5 flex items-center justify-around px-4 pb-6 z-[2000]">
-        <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={ICONS.Home} label="Feed" />
+        <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={ICONS.Home} label="HQCINE" />
         <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={ICONS.Comics} label="Hi-Qua" />
         <NavBtn active={view === ViewMode.VFILM} onClick={() => setView(ViewMode.VFILM)} icon={ICONS.Play} label="V-Film" />
         <NavBtn active={view === ViewMode.USER} onClick={() => setView(ViewMode.USER)} icon={ICONS.User} label="Perfil" />
