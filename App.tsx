@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { User, ViewMode } from './types';
+import { User, ViewMode, Episode, Comic, Lesson } from './types';
 import { MOCK_EPISODES, MOCK_COMICS, MOCK_LESSONS } from './services/mockData';
 import { ICONS } from './constants';
 import Auth from './components/Auth';
@@ -9,6 +10,7 @@ import Discover from './components/Discover';
 import Premium from './components/Premium';
 import Profile from './components/Profile';
 import Logout from './components/Logout';
+import AdminDashboard from './components/AdminDashboard';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewMode>(ViewMode.AUTH);
@@ -16,12 +18,25 @@ const App: React.FC = () => {
   const [showNotification, setShowNotification] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
 
+  // Content State (Lifted for Admin management)
+  const [episodes, setEpisodes] = useState<Episode[]>(MOCK_EPISODES);
+  const [comics, setComics] = useState<Comic[]>(MOCK_COMICS);
+  const [lessons, setLessons] = useState<Lesson[]>(MOCK_LESSONS);
+
   useEffect(() => {
     const savedUser = localStorage.getItem('lailai_session');
+    const savedEps = localStorage.getItem('lailai_eps');
+    const savedComs = localStorage.getItem('lailai_coms');
+    const savedLesss = localStorage.getItem('lailai_lesss');
+
     if (savedUser) {
       setUser(JSON.parse(savedUser));
       setView(ViewMode.FEED);
     }
+    if (savedEps) setEpisodes(JSON.parse(savedEps));
+    if (savedComs) setComics(JSON.parse(savedComs));
+    if (savedLesss) setLessons(JSON.parse(savedLesss));
+    
     setIsAppReady(true);
   }, []);
 
@@ -49,9 +64,29 @@ const App: React.FC = () => {
     localStorage.setItem('lailai_session', JSON.stringify(updatedUser));
   };
 
+  const addEpisode = (ep: Episode) => {
+    const newEps = [ep, ...episodes];
+    setEpisodes(newEps);
+    localStorage.setItem('lailai_eps', JSON.stringify(newEps));
+  };
+
+  const addComic = (comic: Comic) => {
+    const newComs = [comic, ...comics];
+    setComics(newComs);
+    localStorage.setItem('lailai_coms', JSON.stringify(newComs));
+  };
+
+  const addLesson = (lesson: Lesson) => {
+    const newLesss = [lesson, ...lessons];
+    setLessons(newLesss);
+    localStorage.setItem('lailai_lesss', JSON.stringify(newLesss));
+  };
+
   if (!isAppReady) return null;
 
   if (view === ViewMode.AUTH) return <Auth onLogin={handleLogin} />;
+
+  const isAdmin = user?.email === 'admin@lailai.com';
 
   return (
     <div className="h-screen w-full flex flex-col md:flex-row bg-[#0A0A0B] overflow-hidden font-lailai select-none">
@@ -79,7 +114,11 @@ const App: React.FC = () => {
         <NavButton active={view === ViewMode.PROFILE} onClick={() => setView(ViewMode.PROFILE)} icon={ICONS.User} label="Perfil" />
         
         {!user?.isPremium && (
-          <NavButton active={view === ViewMode.PREMIUM} onClick={() => setView(ViewMode.PREMIUM)} icon={ICONS.Premium} label="Cinema" className="text-amber-400" />
+          <NavButton active={view === ViewMode.PREMIUM} onClick={() => setView(ViewMode.PREMIUM)} icon={ICONS.Premium} label="Assinantes" className="text-amber-400" />
+        )}
+
+        {isAdmin && (
+          <NavButton active={view === ViewMode.ADMIN} onClick={() => setView(ViewMode.ADMIN)} icon={<div className="font-black text-xs">AD</div>} label="Painel" className="text-emerald-400" />
         )}
 
         <NavButton active={view === ViewMode.LOGOUT} onClick={() => setView(ViewMode.LOGOUT)} icon={ICONS.Logout} label="Sair" className="md:mt-auto" />
@@ -87,12 +126,13 @@ const App: React.FC = () => {
 
       <main className="flex-1 h-full overflow-hidden relative">
         <div className={`h-full w-full transition-opacity duration-500 ${isAppReady ? 'opacity-100' : 'opacity-0'}`}>
-          {view === ViewMode.FEED && <VideoFeed episodes={MOCK_EPISODES} user={user} onUpgrade={() => setView(ViewMode.PREMIUM)} />}
-          {view === ViewMode.COMICS && <ComicFeed comics={MOCK_COMICS} user={user} onUpgrade={() => setView(ViewMode.PREMIUM)} />}
-          {view === ViewMode.DISCOVER && <Discover lessons={MOCK_LESSONS} />}
+          {view === ViewMode.FEED && <VideoFeed episodes={episodes} user={user} onUpgrade={() => setView(ViewMode.PREMIUM)} />}
+          {view === ViewMode.COMICS && <ComicFeed comics={comics} user={user} onUpgrade={() => setView(ViewMode.PREMIUM)} />}
+          {view === ViewMode.DISCOVER && <Discover lessons={lessons} />}
           {view === ViewMode.PROFILE && user && <Profile user={user} onUpdate={handleUpdateUser} onBack={() => setView(ViewMode.FEED)} />}
           {view === ViewMode.PREMIUM && <Premium onUpgradeComplete={() => { if(user) handleUpdateUser({...user, isPremium: true}); setView(ViewMode.FEED); }} onBack={() => setView(ViewMode.FEED)} />}
           {view === ViewMode.LOGOUT && <Logout onLogout={handleLogout} onCancel={() => setView(ViewMode.FEED)} />}
+          {view === ViewMode.ADMIN && <AdminDashboard onAddEpisode={addEpisode} onAddComic={addComic} onAddLesson={addLesson} />}
         </div>
       </main>
     </div>
