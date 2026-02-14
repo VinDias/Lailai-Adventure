@@ -10,14 +10,20 @@ const dotenv = require('dotenv');
 dotenv.config();
 const app = express();
 
+// Segurança e CORS - Apenas origem do Frontend
 app.use(helmet());
 app.use(cors({ 
-  origin: process.env.FRONTEND_URL,
+  origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
   credentials: true 
 }));
 app.use(express.json());
 
-// Proteção Anti-DDoS e Brute Force
+// Rota de Health Check para diagnóstico
+app.get('/api/health', (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// Proteção Anti-DDoS
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -25,46 +31,40 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Pipeline de Processamento de Vídeo Profissional
-const processVideoToHLS = (inputPath, outputFolder) => {
-  return new Promise((resolve, reject) => {
-    ffmpeg(inputPath)
-      .outputOptions([
-        '-profile:v baseline',
-        '-level 3.0',
-        '-start_number 0',
-        '-hls_time 4',
-        '-hls_list_size 0',
-        '-f hls',
-        '-s 1080x1920', // Garantia de resolução vertical
-        '-r 30'         // Trava de FPS para economia de banda/fluidez
-      ])
-      .output(`${outputFolder}/index.m3u8`)
-      .on('end', resolve)
-      .on('error', reject)
-      .run();
-  });
-};
+// Mock Database (Para persistência local sem Postgres durante desenvolvimento)
+let seriesDB = [];
 
-// Middlewares de Segurança
+// Rotas de Produção
+app.get('/api/content/series', (req, res) => {
+  res.json(seriesDB);
+});
+
+app.post('/api/content/series', (req, res) => {
+  const newSeries = { id: Date.now(), ...req.body };
+  seriesDB.push(newSeries);
+  res.status(201).json(newSeries);
+});
+
+// Middleware de Autenticação
 const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: "Não autorizado" });
   
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
     next();
   } catch (e) {
     res.status(401).json({ error: "Token inválido" });
   }
 };
 
-// Rotas de Produção
-app.post('/api/upload', authenticate, async (req, res) => {
-  // Lógica de Multer para receber o arquivo
-  // processVideoToHLS(file.path, targetDir)
-  res.json({ message: "Processamento iniciado no background" });
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`
+  ---------------------------------------------------
+  🚀 LaiLai Production Server v1.1
+  ✅ Health Check: http://localhost:${PORT}/api/health
+  📡 API Base: http://localhost:${PORT}/api
+  ---------------------------------------------------
+  `);
 });
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`LaiLai Production Server v1.0 running on ${PORT}`));

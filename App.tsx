@@ -12,13 +12,28 @@ import SubscriptionTab from './components/SubscriptionTab';
 import VerticalPlayer from './components/VerticalPlayer';
 import WebtoonReader from './components/WebtoonReader';
 
+const ConnectionBanner: React.FC<{ isOffline: boolean }> = ({ isOffline }) => {
+  if (!isOffline) return null;
+  return (
+    <div className="fixed top-0 left-0 right-0 z-[10000] bg-amber-500 text-black py-1.5 px-4 text-center animate-apple">
+      <div className="flex items-center justify-center gap-2">
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01" /></svg>
+        <span className="text-[10px] font-black uppercase tracking-widest">Servidor Offline (localhost:3000) • Operando em Banco de Dados Local</span>
+      </div>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [view, setView] = useState<ViewMode>(ViewMode.AUTH);
   const [user, setUser] = useState<User | null>(null);
   const [activeEpisode, setActiveEpisode] = useState<Episode | null>(null);
   const [activeSeries, setActiveSeries] = useState<Series | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
+    api.setStatusCallback(setIsOffline);
+    
     const saved = localStorage.getItem('lailai_session');
     if (saved) {
       try {
@@ -28,6 +43,9 @@ const App: React.FC = () => {
         localStorage.removeItem('lailai_session');
       }
     }
+    
+    // Testar conexão inicial
+    api.checkHealth().catch(() => {});
   }, []);
 
   const handleLogin = (u: User) => {
@@ -52,6 +70,8 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen w-full flex flex-col bg-black overflow-hidden font-lailai">
+      <ConnectionBanner isOffline={isOffline} />
+      
       <main className="flex-1 relative overflow-hidden">
         {view === ViewMode.HQCINE && <HQCine user={user} onOpen={handleOpenPlayer} />}
         {view === ViewMode.HIQUA && <HiQua user={user} onOpen={handleOpenReader} />}
