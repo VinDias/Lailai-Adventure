@@ -1,8 +1,13 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0A0A0B">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
     <title>LaiLai - Vertical Cinema</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -29,12 +34,14 @@
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             letter-spacing: -0.015em;
+            touch-action: manipulation;
         }
 
         .glass-nav {
             background: rgba(10, 10, 11, 0.7);
             backdrop-filter: saturate(180%) blur(20px);
             -webkit-backdrop-filter: saturate(180%) blur(20px);
+            padding-bottom: env(safe-area-inset-bottom);
         }
 
         .glass-card {
@@ -56,14 +63,8 @@
             to { transform: translate(-50%, 0); opacity: 1; }
         }
 
-        /* Ocultar scrollbars padrão mas manter funcionalidade */
         ::-webkit-scrollbar { width: 0; height: 0; }
         
-        .video-feed {
-            scrollbar-width: none;
-            scroll-behavior: smooth;
-        }
-
         .premium-text {
             background: linear-gradient(135deg, #fff 0%, #a5a5a5 100%);
             -webkit-background-clip: text;
@@ -79,21 +80,9 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Estilização customizada da barra de rolagem quando habilitada */
-        .scrollbar-custom::-webkit-scrollbar {
-            width: 6px;
-        }
-        .scrollbar-custom::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 10px;
-        }
-        .scrollbar-custom::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-        }
-        .scrollbar-custom::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
+        .scrollbar-custom::-webkit-scrollbar { width: 6px; }
+        .scrollbar-custom::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); border-radius: 10px; }
+        .scrollbar-custom::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
     </style>
 <script type="importmap">
 {

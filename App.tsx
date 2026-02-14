@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { User, ViewMode, Episode, Comic, Lesson, Ad } from './types';
-import { MOCK_EPISODES, MOCK_COMICS, MOCK_LESSONS, MOCK_ADS } from './services/mockData';
+import { api } from './services/api';
 import { ICONS } from './constants';
 import Auth from './components/Auth';
 import VideoFeed from './components/VideoFeed';
@@ -18,31 +18,41 @@ const App: React.FC = () => {
   const [showNotification, setShowNotification] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
 
-  const [episodes, setEpisodes] = useState<Episode[]>(MOCK_EPISODES);
-  const [comics, setComics] = useState<Comic[]>(MOCK_COMICS);
-  const [lessons, setLessons] = useState<Lesson[]>(MOCK_LESSONS);
-  const [ads, setAds] = useState<Ad[]>(MOCK_ADS);
+  // Global Data State
+  const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [comics, setComics] = useState<Comic[]>([]);
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [ads, setAds] = useState<Ad[]>([]);
+
+  const loadAllData = useCallback(async () => {
+    try {
+      const [eps, coms, less, activeAds] = await Promise.all([
+        api.getEpisodes(),
+        api.getComics(),
+        api.getLessons(),
+        api.getAds()
+      ]);
+      setEpisodes(eps);
+      setComics(coms);
+      setLessons(less);
+      setAds(activeAds);
+    } catch (error) {
+      console.error("Erro ao carregar dados da API:", error);
+    }
+  }, []);
 
   useEffect(() => {
-    const savedSession = localStorage.getItem('lailai_session');
-    if (savedSession) {
-      const parsedUser = JSON.parse(savedSession);
-      setUser(parsedUser);
-      setView(ViewMode.FEED);
-    }
-    
-    const savedEps = localStorage.getItem('lailai_eps');
-    const savedComs = localStorage.getItem('lailai_coms');
-    const savedLesss = localStorage.getItem('lailai_lesss');
-    const savedAds = localStorage.getItem('lailai_ads');
-
-    if (savedEps) setEpisodes(JSON.parse(savedEps));
-    if (savedComs) setComics(JSON.parse(savedComs));
-    if (savedLesss) setLessons(JSON.parse(savedLesss));
-    if (savedAds) setAds(JSON.parse(savedAds));
-    
-    setIsAppReady(true);
-  }, []);
+    const initApp = async () => {
+      const savedSession = localStorage.getItem('lailai_session');
+      if (savedSession) {
+        setUser(JSON.parse(savedSession));
+        setView(ViewMode.FEED);
+      }
+      await loadAllData();
+      setIsAppReady(true);
+    };
+    initApp();
+  }, [loadAllData]);
 
   useEffect(() => {
     if (user && view !== ViewMode.AUTH) {
@@ -68,43 +78,41 @@ const App: React.FC = () => {
     localStorage.setItem('lailai_session', JSON.stringify(updatedUser));
   };
 
-  const addEpisode = (ep: Episode) => {
-    const newEps = [ep, ...episodes];
-    setEpisodes(newEps);
-    localStorage.setItem('lailai_eps', JSON.stringify(newEps));
+  const handleAddEpisode = async (ep: Episode) => {
+    await api.saveEpisode(ep);
+    await loadAllData();
   };
 
-  const addComic = (comic: Comic) => {
-    const newComics = [comic, ...comics];
-    setComics(newComics);
-    localStorage.setItem('lailai_coms', JSON.stringify(newComics));
+  const handleAddComic = async (comic: Comic) => {
+    await api.saveComic(comic);
+    await loadAllData();
   };
 
-  const addLesson = (lesson: Lesson) => {
-    const newLessons = [lesson, ...lessons];
-    setLessons(newLessons);
-    localStorage.setItem('lailai_lesss', JSON.stringify(newLessons));
+  const handleAddLesson = async (lesson: Lesson) => {
+    await api.saveLesson(lesson);
+    await loadAllData();
   };
 
-  const addAd = (newAd: Ad) => {
-    const updatedAds = [newAd, ...ads];
+  const handleAddAd = async (newAd: Ad) => {
+    await api.saveAd(newAd);
+    await loadAllData();
+  };
+
+  const handleAdImpression = async (adId: number) => {
+    await api.incrementAdView(adId);
+    // Silent update in background for the ad counter
+    const updatedAds = await api.getAds();
     setAds(updatedAds);
-    localStorage.setItem('lailai_ads', JSON.stringify(updatedAds));
   };
 
-  const incrementAdView = (adId: number) => {
-    const updatedAds = ads.map(ad => {
-      if (ad.id === adId) {
-        const newViews = ad.views + 1;
-        return { ...ad, views: newViews, active: newViews < ad.maxViews };
-      }
-      return ad;
-    });
-    setAds(updatedAds);
-    localStorage.setItem('lailai_ads', JSON.stringify(updatedAds));
-  };
+  if (!isAppReady) {
+    return (
+      <div className="h-screen w-full bg-[#0A0A0B] flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
 
-  if (!isAppReady) return null;
   if (view === ViewMode.AUTH) return <Auth onLogin={handleLogin} />;
 
   const isAdmin = user?.email === 'admin@lailai.com';
@@ -135,7 +143,7 @@ const App: React.FC = () => {
         <NavButton active={view === ViewMode.PROFILE} onClick={() => setView(ViewMode.PROFILE)} icon={ICONS.User} label="Perfil" />
         
         {!user?.isPremium && (
-          <NavButton active={view === ViewMode.PREMIUM} onClick={() => setView(ViewMode.PREMIUM)} icon={ICONS.Premium} label="Assinantes" className="text-amber-400" />
+          <NavButton active={view === ViewMode.PREMIUM} onClick={() => setView(ViewMode.PREMIUM)} icon={ICONS.Premium} label="Assinar" className="text-amber-400" />
         )}
 
         {isAdmin && (
@@ -147,13 +155,13 @@ const App: React.FC = () => {
 
       <main className="flex-1 h-full overflow-hidden relative">
         <div className="h-full w-full">
-          {view === ViewMode.FEED && <VideoFeed episodes={episodes} user={user} ads={ads} onAdImpression={incrementAdView} onUpgrade={() => setView(ViewMode.PREMIUM)} onUpdateUser={handleUpdateUser} />}
+          {view === ViewMode.FEED && <VideoFeed episodes={episodes} user={user} ads={ads} onAdImpression={handleAdImpression} onUpgrade={() => setView(ViewMode.PREMIUM)} onUpdateUser={handleUpdateUser} />}
           {view === ViewMode.COMICS && <ComicFeed comics={comics} user={user} onUpgrade={() => setView(ViewMode.PREMIUM)} onUpdateUser={handleUpdateUser} />}
           {view === ViewMode.DISCOVER && <VeFilme videos={lessons} user={user} onUpdateUser={handleUpdateUser} />}
           {view === ViewMode.PROFILE && user && <Profile user={user} onUpdate={handleUpdateUser} onBack={() => setView(ViewMode.FEED)} />}
-          {view === ViewMode.PREMIUM && user && <Premium user={user} onUpgradeComplete={() => { if(user) handleUpdateUser({...user, isPremium: true}); setView(ViewMode.FEED); }} onAdPurchase={addAd} onBack={() => setView(ViewMode.FEED)} />}
+          {view === ViewMode.PREMIUM && user && <Premium user={user} onUpgradeComplete={() => { if(user) handleUpdateUser({...user, isPremium: true}); setView(ViewMode.FEED); }} onAdPurchase={handleAddAd} onBack={() => setView(ViewMode.FEED)} />}
           {view === ViewMode.LOGOUT && <Logout onLogout={handleLogout} onCancel={() => setView(ViewMode.FEED)} />}
-          {view === ViewMode.ADMIN && <AdminDashboard onAddEpisode={addEpisode} onAddComic={addComic} onAddLesson={addLesson} />}
+          {view === ViewMode.ADMIN && <AdminDashboard onAddEpisode={handleAddEpisode} onAddComic={handleAddComic} onAddLesson={handleAddLesson} />}
         </div>
       </main>
     </div>
