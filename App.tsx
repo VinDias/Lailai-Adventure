@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { ViewMode, User, Series, Episode, Panel, Ad } from './types';
+import { ViewMode, User, Series, Episode } from './types';
 import { api } from './services/api';
 import { ICONS } from './constants';
 import Auth from './components/Auth';
@@ -15,11 +15,8 @@ import WebtoonReader from './components/WebtoonReader';
 const ConnectionBanner: React.FC<{ isOffline: boolean }> = ({ isOffline }) => {
   if (!isOffline) return null;
   return (
-    <div className="fixed top-0 left-0 right-0 z-[10000] bg-amber-500 text-black py-1.5 px-4 text-center animate-apple">
-      <div className="flex items-center justify-center gap-2">
-        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01" /></svg>
-        <span className="text-[10px] font-black uppercase tracking-widest">Servidor Offline (localhost:3000) • Operando em Banco de Dados Local</span>
-      </div>
+    <div className="fixed top-0 left-0 right-0 z-[10000] bg-rose-600 text-white py-2 px-4 text-center text-[10px] font-black uppercase tracking-[0.2em] shadow-xl animate-apple">
+      ⚠️ Servidor Offline (Porta 3000) • Simulando Localmente
     </div>
   );
 };
@@ -44,8 +41,7 @@ const App: React.FC = () => {
       }
     }
     
-    // Testar conexão inicial
-    api.checkHealth().catch(() => {});
+    api.checkHealth().catch(() => setIsOffline(true));
   }, []);
 
   const handleLogin = (u: User) => {
@@ -69,7 +65,7 @@ const App: React.FC = () => {
   if (view === ViewMode.AUTH) return <Auth onLogin={handleLogin} />;
 
   return (
-    <div className="h-screen w-full flex flex-col bg-black overflow-hidden font-lailai">
+    <div className="h-screen w-full flex flex-col bg-[#0A0A0B] overflow-hidden font-inter select-none">
       <ConnectionBanner isOffline={isOffline} />
       
       <main className="flex-1 relative overflow-hidden">
@@ -100,24 +96,20 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Apple-style Bottom Tab Bar */}
       <nav className="h-24 bg-black/80 backdrop-blur-3xl border-t border-white/5 flex items-center justify-around px-4 pb-6 z-[2000]">
-        <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={ICONS.Home} label="HQCINE" />
-        <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={ICONS.Comics} label="HI-QUA" />
+        <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={ICONS.Home} label="Feed" />
+        <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={ICONS.Comics} label="Hi-Qua" />
         <NavBtn active={view === ViewMode.VFILM} onClick={() => setView(ViewMode.VFILM)} icon={ICONS.Play} label="V-Film" />
         <NavBtn active={view === ViewMode.USER} onClick={() => setView(ViewMode.USER)} icon={ICONS.User} label="Perfil" />
-        {!user?.isPremium && (
-          <NavBtn active={view === ViewMode.SUBSCRIPTION} onClick={() => setView(ViewMode.SUBSCRIPTION)} icon={ICONS.Premium} label="Assinar" />
-        )}
       </nav>
     </div>
   );
 };
 
 const NavBtn: React.FC<{ active: boolean, onClick: () => void, icon: any, label: string }> = ({ active, onClick, icon, label }) => (
-  <button onClick={onClick} className={`flex flex-col items-center gap-1.5 transition-all ${active ? 'text-rose-500 scale-105' : 'text-zinc-600 hover:text-zinc-400'}`}>
-    <div className={`${active ? 'premium-text' : ''}`}>{icon}</div>
-    <span className="text-[10px] font-black uppercase tracking-widest">{label}</span>
+  <button onClick={onClick} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${active ? 'text-rose-500 scale-110' : 'text-zinc-600 hover:text-zinc-400'}`}>
+    <div className={`${active ? 'drop-shadow-[0_0_10px_rgba(225,29,72,0.5)]' : ''}`}>{icon}</div>
+    <span className="text-[9px] font-black uppercase tracking-widest">{label}</span>
   </button>
 );
 
