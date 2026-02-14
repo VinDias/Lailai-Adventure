@@ -14,7 +14,7 @@ export interface Episode {
   title: string;
   description: string;
   videoUrl: string;
-  duration: number; // 210s
+  duration: number;
   thumbnail: string;
   likes: number;
   comments: number;
@@ -25,7 +25,7 @@ export interface Lesson {
   title: string;
   category: string;
   videoUrl: string;
-  duration: number; // 180s (3 minutes)
+  duration: number;
   thumbnail: string;
   date: string;
 }
@@ -55,5 +55,6 @@ export enum ViewMode {
   AUTH = 'AUTH',
   PREMIUM = 'PREMIUM',
   PROFILE = 'PROFILE',
-  LOGOUT = 'LOGOUT'
+  LOGOUT = 'LOGOUT',
+  ADMIN = 'ADMIN'
 }

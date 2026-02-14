@@ -1,8 +1,9 @@
+
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export const getAIRecommendation = async (userPreferences: string) => {
+  // Fix: Create a new GoogleGenAI instance right before making an API call to ensure it always uses the most up-to-date API key from the execution context.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -20,6 +21,8 @@ export const getAIRecommendation = async (userPreferences: string) => {
 };
 
 export const getEpisodeSummary = async (title: string, description: string) => {
+  // Fix: Create a new GoogleGenAI instance right before making an API call to ensure it always uses the most up-to-date API key from the execution context.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",

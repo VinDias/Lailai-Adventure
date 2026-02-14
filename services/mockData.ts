@@ -6,10 +6,9 @@ export const MOCK_EPISODES: Episode[] = [
     id: 1,
     title: "Samurai Neon 1080p",
     description: "Masterizado em H.265 para cores ultra vibrantes. Um guerreiro solitário contra o xogunato corporativo.",
-    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-girl-in-neon-light-33433-large.mp4",
+    videoUrl: "https://v.ftcdn.net/05/56/67/02/700_F_556670233_G9O8h6e9r6M1X6P2A2D9qG6v9zL6x8P9_ST.mp4",
     duration: 210,
     thumbnail: "https://picsum.photos/seed/neo/1080/1920",
-    // Fix: Changed "12.4K" to 12400 to match the expected 'number' type
     likes: 12400,
     comments: 890
   },
@@ -17,10 +16,9 @@ export const MOCK_EPISODES: Episode[] = [
     id: 2,
     title: "Ecos da Cidade HD",
     description: "Captura cinematográfica em FullHD. Uma jornada atmosférica pelas ruas chuvosas de uma metrópole esquecida.",
-    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-curvy-road-in-a-forest-44161-large.mp4",
+    videoUrl: "https://v.ftcdn.net/04/81/76/89/700_F_481768913_uS6WqT7pG1E8j6hA2D9Xq7v9zL6x8P9_ST.mp4",
     duration: 210,
     thumbnail: "https://picsum.photos/seed/rain/1080/1920",
-    // Fix: Changed "3.4K" to 3400 to match the expected 'number' type
     likes: 3400,
     comments: 212
   }
@@ -31,7 +29,7 @@ export const MOCK_LESSONS: Lesson[] = [
     id: 101,
     title: "Dominando Composição Vertical",
     category: "Cinematografia",
-    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-stars-in-the-night-sky-42400-large.mp4",
+    videoUrl: "https://v.ftcdn.net/03/61/89/72/700_F_361897241_uG6WqT7pG1E8j6hA2D9Xq7v9zL6x8P9_ST.mp4",
     duration: 180,
     thumbnail: "https://picsum.photos/seed/lesson1/400/800",
     date: "Esta Semana"
@@ -40,7 +38,7 @@ export const MOCK_LESSONS: Lesson[] = [
     id: 102,
     title: "A Arte de Narrativas Curtas",
     category: "Roteiro",
-    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-slow-motion-of-a-man-practicing-martial-arts-34446-large.mp4",
+    videoUrl: "https://v.ftcdn.net/05/11/45/67/700_F_511456721_uG6WqT7pG1E8j6hA2D9Xq7v9zL6x8P9_ST.mp4",
     duration: 180,
     thumbnail: "https://picsum.photos/seed/lesson2/400/800",
     date: "Semana Passada"
@@ -90,7 +88,7 @@ export const MOCK_ADS: Ad[] = [
   {
     id: 1,
     title: "Destaque da Comunidade",
-    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-spinning-around-the-earth-42401-large.mp4",
+    videoUrl: "https://v.ftcdn.net/04/55/67/02/700_F_455670233_uG6WqT7pG1E8j6hA2D9Xq7v9zL6x8P9_ST.mp4",
     duration: 90
   }
 ];
