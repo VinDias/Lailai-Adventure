@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, ViewMode, Episode, Comic, Lesson } from './types';
-import { MOCK_EPISODES, MOCK_COMICS, MOCK_LESSONS } from './services/mockData';
+import { User, ViewMode, Episode, Comic, Lesson, Ad } from './types';
+import { MOCK_EPISODES, MOCK_COMICS, MOCK_LESSONS, MOCK_ADS } from './services/mockData';
 import { ICONS } from './constants';
 import Auth from './components/Auth';
 import VideoFeed from './components/VideoFeed';
 import ComicFeed from './components/ComicFeed';
-import Discover from './components/Discover';
+import VeFilme from './components/Discover';
 import Premium from './components/Premium';
 import Profile from './components/Profile';
 import Logout from './components/Logout';
@@ -18,31 +18,35 @@ const App: React.FC = () => {
   const [showNotification, setShowNotification] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
 
-  // Content State (Lifted for Admin management)
   const [episodes, setEpisodes] = useState<Episode[]>(MOCK_EPISODES);
   const [comics, setComics] = useState<Comic[]>(MOCK_COMICS);
   const [lessons, setLessons] = useState<Lesson[]>(MOCK_LESSONS);
+  const [ads, setAds] = useState<Ad[]>(MOCK_ADS);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('lailai_session');
+    const savedSession = localStorage.getItem('lailai_session');
+    if (savedSession) {
+      const parsedUser = JSON.parse(savedSession);
+      setUser(parsedUser);
+      setView(ViewMode.FEED);
+    }
+    
     const savedEps = localStorage.getItem('lailai_eps');
     const savedComs = localStorage.getItem('lailai_coms');
     const savedLesss = localStorage.getItem('lailai_lesss');
+    const savedAds = localStorage.getItem('lailai_ads');
 
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-      setView(ViewMode.FEED);
-    }
     if (savedEps) setEpisodes(JSON.parse(savedEps));
     if (savedComs) setComics(JSON.parse(savedComs));
     if (savedLesss) setLessons(JSON.parse(savedLesss));
+    if (savedAds) setAds(JSON.parse(savedAds));
     
     setIsAppReady(true);
   }, []);
 
   useEffect(() => {
     if (user && view !== ViewMode.AUTH) {
-      const timer = setTimeout(() => setShowNotification(true), 2500);
+      const timer = setTimeout(() => setShowNotification(true), 3500);
       return () => clearTimeout(timer);
     }
   }, [user, view]);
@@ -71,19 +75,36 @@ const App: React.FC = () => {
   };
 
   const addComic = (comic: Comic) => {
-    const newComs = [comic, ...comics];
-    setComics(newComs);
-    localStorage.setItem('lailai_coms', JSON.stringify(newComs));
+    const newComics = [comic, ...comics];
+    setComics(newComics);
+    localStorage.setItem('lailai_coms', JSON.stringify(newComics));
   };
 
   const addLesson = (lesson: Lesson) => {
-    const newLesss = [lesson, ...lessons];
-    setLessons(newLesss);
-    localStorage.setItem('lailai_lesss', JSON.stringify(newLesss));
+    const newLessons = [lesson, ...lessons];
+    setLessons(newLessons);
+    localStorage.setItem('lailai_lesss', JSON.stringify(newLessons));
+  };
+
+  const addAd = (newAd: Ad) => {
+    const updatedAds = [newAd, ...ads];
+    setAds(updatedAds);
+    localStorage.setItem('lailai_ads', JSON.stringify(updatedAds));
+  };
+
+  const incrementAdView = (adId: number) => {
+    const updatedAds = ads.map(ad => {
+      if (ad.id === adId) {
+        const newViews = ad.views + 1;
+        return { ...ad, views: newViews, active: newViews < ad.maxViews };
+      }
+      return ad;
+    });
+    setAds(updatedAds);
+    localStorage.setItem('lailai_ads', JSON.stringify(updatedAds));
   };
 
   if (!isAppReady) return null;
-
   if (view === ViewMode.AUTH) return <Auth onLogin={handleLogin} />;
 
   const isAdmin = user?.email === 'admin@lailai.com';
@@ -97,11 +118,11 @@ const App: React.FC = () => {
           <div className="w-12 h-12 bg-white rounded-[1rem] flex items-center justify-center text-black font-black text-sm italic shadow-lg">LL</div>
           <div className="flex-1">
             <div className="flex justify-between items-center mb-0.5">
-              <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">Academia</span>
+              <span className="text-[11px] font-bold text-white/40 uppercase tracking-widest">VE-FILME</span>
               <span className="text-[10px] text-white/30">Agora</span>
             </div>
-            <h4 className="text-[13px] font-bold text-white">Nova Masterclass</h4>
-            <p className="text-[12px] text-white/60 leading-tight">O segredo das cores verticais.</p>
+            <h4 className="text-[13px] font-bold text-white">Novo Ve-Filme</h4>
+            <p className="text-[12px] text-white/60 leading-tight">Assista o novo curta da CineVibe Brasil.</p>
           </div>
           <div className="w-2 h-2 bg-rose-500 rounded-full animate-pulse self-center" />
         </div>
@@ -110,7 +131,7 @@ const App: React.FC = () => {
       <nav className="fixed bottom-0 w-full glass-nav border-t border-white/5 z-[500] md:relative md:w-24 md:h-full md:border-t-0 md:border-r flex md:flex-col items-center justify-between md:justify-center gap-1 md:gap-8 py-3 md:py-8 px-2 md:px-4 pb-[safe-area-inset-bottom]">
         <NavButton active={view === ViewMode.FEED} onClick={() => setView(ViewMode.FEED)} icon={ICONS.Home} label="HQCine" />
         <NavButton active={view === ViewMode.COMICS} onClick={() => setView(ViewMode.COMICS)} icon={ICONS.Comics} label="Hi-Qua" />
-        <NavButton active={view === ViewMode.DISCOVER} onClick={() => setView(ViewMode.DISCOVER)} icon={ICONS.AI} label="Aulas" />
+        <NavButton active={view === ViewMode.DISCOVER} onClick={() => setView(ViewMode.DISCOVER)} icon={ICONS.AI} label="Ve-Filme" />
         <NavButton active={view === ViewMode.PROFILE} onClick={() => setView(ViewMode.PROFILE)} icon={ICONS.User} label="Perfil" />
         
         {!user?.isPremium && (
@@ -125,12 +146,12 @@ const App: React.FC = () => {
       </nav>
 
       <main className="flex-1 h-full overflow-hidden relative">
-        <div className={`h-full w-full transition-opacity duration-500 ${isAppReady ? 'opacity-100' : 'opacity-0'}`}>
-          {view === ViewMode.FEED && <VideoFeed episodes={episodes} user={user} onUpgrade={() => setView(ViewMode.PREMIUM)} />}
-          {view === ViewMode.COMICS && <ComicFeed comics={comics} user={user} onUpgrade={() => setView(ViewMode.PREMIUM)} />}
-          {view === ViewMode.DISCOVER && <Discover lessons={lessons} />}
+        <div className="h-full w-full">
+          {view === ViewMode.FEED && <VideoFeed episodes={episodes} user={user} ads={ads} onAdImpression={incrementAdView} onUpgrade={() => setView(ViewMode.PREMIUM)} onUpdateUser={handleUpdateUser} />}
+          {view === ViewMode.COMICS && <ComicFeed comics={comics} user={user} onUpgrade={() => setView(ViewMode.PREMIUM)} onUpdateUser={handleUpdateUser} />}
+          {view === ViewMode.DISCOVER && <VeFilme videos={lessons} user={user} onUpdateUser={handleUpdateUser} />}
           {view === ViewMode.PROFILE && user && <Profile user={user} onUpdate={handleUpdateUser} onBack={() => setView(ViewMode.FEED)} />}
-          {view === ViewMode.PREMIUM && <Premium onUpgradeComplete={() => { if(user) handleUpdateUser({...user, isPremium: true}); setView(ViewMode.FEED); }} onBack={() => setView(ViewMode.FEED)} />}
+          {view === ViewMode.PREMIUM && user && <Premium user={user} onUpgradeComplete={() => { if(user) handleUpdateUser({...user, isPremium: true}); setView(ViewMode.FEED); }} onAdPurchase={addAd} onBack={() => setView(ViewMode.FEED)} />}
           {view === ViewMode.LOGOUT && <Logout onLogout={handleLogout} onCancel={() => setView(ViewMode.FEED)} />}
           {view === ViewMode.ADMIN && <AdminDashboard onAddEpisode={addEpisode} onAddComic={addComic} onAddLesson={addLesson} />}
         </div>

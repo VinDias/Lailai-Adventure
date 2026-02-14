@@ -17,12 +17,14 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     e.preventDefault();
     setLoading(true);
     setTimeout(() => {
+      /* Fix: Added missing followingChannelIds property */
       const mockUser: User = {
         id: Date.now(),
         email: email,
         name: email.split('@')[0],
         isPremium: false,
-        avatar: `https://picsum.photos/seed/${email}/200`
+        avatar: `https://picsum.photos/seed/${email}/200`,
+        followingChannelIds: []
       };
       onLogin(mockUser);
       setLoading(false);
@@ -37,12 +39,14 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     setLoading(true);
     setTimeout(() => {
       const providerEmail = consentMode === 'google' ? 'usuario@gmail.com' : 'usuario@hotmail.com';
+      /* Fix: Added missing followingChannelIds property */
       const mockUser: User = {
         id: Date.now(),
         email: providerEmail,
         name: 'Usuário ' + (consentMode === 'google' ? 'Google' : 'Hotmail'),
         isPremium: false,
-        avatar: `https://picsum.photos/seed/${providerEmail}/200`
+        avatar: `https://picsum.photos/seed/${providerEmail}/200`,
+        followingChannelIds: []
       };
       onLogin(mockUser);
       setLoading(false);

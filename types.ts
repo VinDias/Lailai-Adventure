@@ -6,11 +6,23 @@ export interface User {
   phone?: string;
   isPremium: boolean;
   avatar?: string;
-  userAdUrl?: string;
+  followingChannelIds: number[];
+}
+
+export interface Channel {
+  id: number;
+  name: string;
+  handle: string;
+  avatar: string;
+  description: string;
+  banner: string;
+  followerCount: number;
+  isMonetized: boolean;
 }
 
 export interface Episode {
   id: number;
+  channelId: number;
   title: string;
   description: string;
   videoUrl: string;
@@ -22,16 +34,20 @@ export interface Episode {
 
 export interface Lesson {
   id: number;
+  channelId: number;
   title: string;
+  description: string;
   category: string;
   videoUrl: string;
   duration: number;
   thumbnail: string;
   date: string;
+  likes: number;
 }
 
 export interface Comic {
   id: number;
+  channelId: number;
   title: string;
   author: string;
   description: string;
@@ -43,9 +59,16 @@ export interface Comic {
 
 export interface Ad {
   id: number;
+  advertiserId: number | string;
   title: string;
   videoUrl: string;
-  duration: number;
+  duration: number; 
+  views: number;
+  maxViews: number;
+  active: boolean;
+  format: 'H.264' | 'H.265';
+  resolution: '1080x1920';
+  ctaUrl?: string;
 }
 
 export enum ViewMode {
