@@ -14,9 +14,17 @@ router.post("/create-checkout-session", verifyToken, async (req, res) => {
   }
 });
 
-// Webhook seguro (deve ser chamado com o body bruto)
+/**
+ * WEBHOOK STRIPE
+ * Deve usar express.raw ANTES do express.json() global no server.js
+ */
 router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const sig = req.headers["stripe-signature"];
+
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    console.error("STRIPE_WEBHOOK_SECRET não configurado.");
+    return res.status(500).send("Erro de configuração interna.");
+  }
 
   let event;
   try {
@@ -26,20 +34,16 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
       process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
+    console.error(`Webhook Error: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
-    
-    // Como estamos usando USERS_DB em server.js, a lógica de persistência 
-    // deve refletir onde os dados estão armazenados. 
-    // Em um sistema real, aqui iria: await User.findOneAndUpdate(...)
-    
     console.log(`[Stripe Webhook] Pagamento aprovado para: ${session.customer_email}`);
     
-    // Disparar evento de atualização (global ou DB)
-    // O server.js lida com a atualização do USERS_DB mockado se necessário.
+    // Lógica de ativação premium integrada com DB real no futuro
+    // Aqui atualizaríamos o campo isPremium e premiumExpiresAt
   }
 
   res.json({ received: true });
