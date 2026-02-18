@@ -1,17 +1,71 @@
 
 export interface User {
-  id: number;
+  id: string;
   email: string;
-  name: string;
-  isPremium: boolean;
-  isEmailVerified: boolean;
-  stripeCustomerId?: string;
-  subscriptionStatus?: 'active' | 'expired' | 'canceled' | 'none';
+  nome: string;
   avatar?: string;
+  isPremium: boolean;
+  provider: 'local' | 'google' | 'microsoft';
+  criadoEm: string;
   followingChannelIds: number[];
 }
 
-// Added missing Channel interface
+export interface Video {
+  id: string;
+  titulo: string;
+  categoria: string;
+  descricao: string;
+  duracao: number;
+  arquivoUrl: string;
+  thumbnailUrl: string; // 1080x1920
+  isPremium: boolean;
+  criadoEm: string;
+}
+
+export interface Webtoon {
+  id: string;
+  titulo: string;
+  categoria: string;
+  descricao: string;
+  numeroPaineis: number;
+  isPremium: boolean;
+  thumbnailUrl: string; // 160x151
+  criadoEm: string;
+}
+
+export interface Panel {
+  id: string;
+  webtoonId: string;
+  ordem: number;
+  imagemUrl: string;
+  image_url?: string; // Used in HQCineHome
+  largura: number;
+  altura: number;
+}
+
+export enum ViewMode {
+  AUTH = 'AUTH',
+  HOME_VIDEOS = 'HOME_VIDEOS',
+  HOME_WEBTOONS = 'HOME_WEBTOONS',
+  PLAYER = 'PLAYER',
+  READER = 'READER',
+  ADMIN = 'ADMIN',
+  PROFILE = 'PROFILE'
+}
+
+export interface Ad {
+  id: number;
+  advertiserId: string;
+  title: string;
+  video_url: string;
+  duration: number;
+  views: number;
+  maxViews: number;
+  active: boolean;
+  format: 'H.264' | 'H.265';
+  resolution: string;
+}
+
 export interface Channel {
   id: number;
   name: string;
@@ -27,49 +81,27 @@ export interface Series {
   id: number;
   title: string;
   description: string;
-  cover_image: string;
   genre: string;
+  cover_image: string;
+  isPremium: boolean;
   content_type: 'hqcine' | 'vfilm' | 'hiqua';
-  is_published: boolean;
 }
 
 export interface Episode {
   id: number;
+  channelId: number;
+  series_id?: number;
+  series_title?: string;
   episode_number: number;
   title: string;
-  description?: string;
-  video_url?: string;
-  thumbnail: string;
-  series_title?: string;
-  // Added missing channelId property
-  channelId?: number;
-  duration?: number;
-  likes?: number;
-  comments?: number;
-}
-
-export interface Panel {
-  id: number;
-  episode_id: number;
-  image_url: string;
-  order_index: number;
-}
-
-export interface Ad {
-  id: number;
+  description: string;
   video_url: string;
-  active: boolean;
-  // Added missing properties used in mockData and Premium components
-  advertiserId?: string | number;
-  title?: string;
-  duration?: number;
-  views?: number;
-  maxViews?: number;
-  format?: 'H.264' | 'H.265';
-  resolution?: string;
+  duration: number;
+  thumbnail: string;
+  likes: number;
+  comments: number;
 }
 
-// Added missing Lesson interface
 export interface Lesson {
   id: number;
   channelId: number;
@@ -83,7 +115,6 @@ export interface Lesson {
   likes: number;
 }
 
-// Added missing Comic interface
 export interface Comic {
   id: number;
   channelId: number;
@@ -96,21 +127,9 @@ export interface Comic {
   comments: number;
 }
 
-// Added missing Chapter interface
 export interface Chapter {
   id: number;
   series_id: number;
   chapter_number: number;
   title: string;
-}
-
-export enum ViewMode {
-  HQCINE = 'HQCINE',
-  HIQUA = 'HIQUA',
-  VFILM = 'VFILM',
-  USER = 'USER',
-  SUBSCRIPTION = 'SUBSCRIPTION',
-  AUTH = 'AUTH',
-  READER = 'READER',
-  PLAYER = 'PLAYER'
 }
