@@ -2,7 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const cookieParser = require('cookieParser');
+const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
@@ -28,7 +28,7 @@ const loginLimiter = rateLimit({
 });
 
 // 2. CONFIGURAÇÕES DE SEGURANÇA
-app.set('trust proxy', 1); // Necessário para rate limiting atrás de proxies
+app.set('trust proxy', 1);
 app.use(helmet({ 
   contentSecurityPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" }
@@ -41,28 +41,26 @@ app.use(cors({
 
 app.use(cookieParser());
 
-// 3. ROTAS DE PAGAMENTO (Protegendo Webhook contra Body Parser Global)
-// Injetado antes do express.json()
+// 3. ROTAS DE PAGAMENTO (Stripe + Mobile In-App)
 app.use("/api/payment", require("./routes/payment"));
+app.use("/mobile", require("./routes/mobilePayment")); // Adicionado suporte mobile
 
-app.use(express.json({ limit: '10kb' })); // Proteção contra payloads gigantes
+app.use(express.json({ limit: '10kb' }));
 
-// Mock Database (Em produção: MongoDB/PostgreSQL)
+// Mock Database
 let USERS_DB = [
   { id: '1', nome: 'Admin LaiLai', email: 'admin@lailai.com', password: 'admin', role: 'admin', isPremium: true, criadoEm: '2025-01-01' },
   { id: '2', nome: 'Usuário Pro', email: 'user@lailai.com', password: 'user', role: 'user', isPremium: false, criadoEm: '2025-02-15' }
 ];
 
-// 4. MIDDLEWARE DE VALIDAÇÃO PREMIUM (Hardening)
+// 4. MIDDLEWARE DE VALIDAÇÃO PREMIUM
 const validatePremiumStatus = async (req, res, next) => {
   if (req.user && req.user.isPremium && req.user.premiumExpiresAt) {
     if (new Date() > new Date(req.user.premiumExpiresAt)) {
-      // Atualização no banco de dados (Simulação)
       const userIndex = USERS_DB.findIndex(u => u.id === req.user.id);
       if (userIndex !== -1) {
         USERS_DB[userIndex].isPremium = false;
         req.user.isPremium = false;
-        console.log(`[LaiLai Security] Assinatura expirada para: ${req.user.email}`);
       }
     }
   }
@@ -85,7 +83,7 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
     httpOnly: true, 
     secure: isProduction, 
     sameSite: "strict",
-    maxAge: 86400000 // 24h
+    maxAge: 86400000 
   });
 
   res.json({ user, token });
@@ -99,7 +97,6 @@ app.get('/api/content/series', globalLimiter, (req, res) => {
   ]);
 });
 
-// 6. TRATAMENTO DE ERROS GLOBAL (Hardening)
 app.use((err, req, res, next) => {
   console.error(`[Error Handler]: ${err.stack}`);
   res.status(500).json({ 
