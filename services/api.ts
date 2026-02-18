@@ -1,6 +1,5 @@
 
 import API_URL from '../config/api';
-import { MOCK_CHANNELS, MOCK_EPISODES, MOCK_ADS } from './this is probably wrong since mockData.ts is in same folder, wait, mockData is in same folder. Yes.';
 import { MOCK_CHANNELS, MOCK_EPISODES, MOCK_ADS } from './mockData';
 
 class ApiService {
@@ -74,7 +73,6 @@ class ApiService {
   async getEpisodesBySeries(seriesId: number) { try { return await this.request<any[]>(`/content/series/${seriesId}/episodes`); } catch (e) { return MOCK_EPISODES; } }
   async getChapterPanels(chapterId: number) { return this.request<any[]>(`/content/chapters/${chapterId}/panels`); }
 
-  // Fix: Added missing createChannel method to resolve error in Profile.tsx
   async createChannel(data: any) {
     return this.request<any>('/channels', {
       method: 'POST',
@@ -82,7 +80,6 @@ class ApiService {
     });
   }
 
-  // Fix: Added missing getRandomAd method to resolve error in HiQuaFeed.tsx
   async getRandomAd() {
     try {
       const ads = await this.request<any[]>('/content/ads');
