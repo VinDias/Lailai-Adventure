@@ -55,7 +55,8 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack }) => {
 
         <div className="flex flex-col items-center mb-16">
           <img src={user.avatar} className="w-28 h-28 rounded-[2.5rem] mb-6 border-4 border-white/5 shadow-2xl" />
-          <h1 className="text-3xl font-black mb-1">{user.name || 'Usuário'}</h1>
+          {/* Fix: Changed user.name to user.nome */}
+          <h1 className="text-3xl font-black mb-1">{user.nome || 'Usuário'}</h1>
           <div className="px-4 py-1.5 rounded-full bg-white/5 text-[10px] font-black uppercase text-zinc-500 border border-white/5">Membro Premium</div>
         </div>
 

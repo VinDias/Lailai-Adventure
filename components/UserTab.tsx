@@ -12,7 +12,8 @@ const UserTab: React.FC<{ user: User | null, onLogout: () => void }> = ({ user, 
           <div className="w-32 h-32 rounded-[3rem] bg-gradient-to-br from-zinc-800 to-zinc-950 p-1 mb-8 shadow-2xl">
              <img src={user.avatar || `https://picsum.photos/seed/${user.email}/200`} className="w-full h-full object-cover rounded-[2.8rem]" />
           </div>
-          <h1 className="text-4xl font-black text-white mb-2 tracking-tighter">{user.name}</h1>
+          {/* Fix: Changed user.name to user.nome */}
+          <h1 className="text-4xl font-black text-white mb-2 tracking-tighter">{user.nome}</h1>
           <p className="text-zinc-600 font-bold uppercase text-[10px] tracking-widest mb-4">{user.email}</p>
           <div className={`px-5 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest ${user.isPremium ? 'border-amber-500/30 text-amber-500 bg-amber-500/5' : 'border-white/10 text-zinc-500'}`}>
             {user.isPremium ? 'Assinante Premium' : 'Membro Free'}
