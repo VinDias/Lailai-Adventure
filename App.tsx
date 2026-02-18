@@ -7,8 +7,9 @@ import VerticalPlayer from './components/VerticalPlayer';
 import WebtoonReader from './components/WebtoonReader';
 import AdminDashboard from './components/Admin/AdminDashboard';
 import HQCine from './components/HQCine';
-import VFilm from './components/VFilm'; // Usado como base para VCine
+import VFilm from './components/VFilm';
 import HiQua from './components/HiQua';
+import Ads from './components/Ads';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -42,11 +43,6 @@ const App: React.FC = () => {
     setView(ViewMode.AUTH);
   };
 
-  // --- RENDERIZAÇÃO ADMIN ---
-  if ([ViewMode.ADMIN_DASHBOARD, ViewMode.ADMIN_USERS, ViewMode.ADMIN_CONTENT, ViewMode.ADMIN_PAYMENTS].includes(view)) {
-    return <AdminDashboard onLogout={handleLogout} currentSubView={view} setSubView={setView} />;
-  }
-
   if (view === ViewMode.AUTH) return <Auth onLogin={handleLogin} />;
 
   return (
@@ -58,6 +54,13 @@ const App: React.FC = () => {
       )}
 
       <main className="flex-1 overflow-hidden relative">
+        {/* AdSense Condicional no Topo para não Premium */}
+        {!user?.isPremium && (
+          <div className="absolute top-0 left-0 right-0 z-[100] px-4">
+             <Ads />
+          </div>
+        )}
+
         {view === ViewMode.HQCINE && (
           <HQCine 
             user={user} 
@@ -129,14 +132,10 @@ const App: React.FC = () => {
             <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mb-12">{user?.email}</p>
             
             <div className="space-y-4">
-              {user?.role === 'admin' && (
-                <button onClick={() => setView(ViewMode.ADMIN_DASHBOARD)} className="w-full py-5 bg-white text-black font-black rounded-3xl flex items-center justify-center gap-3 transition-transform hover:scale-[1.02]">
-                  <ShieldAlert size={20} /> STUDIO CREATOR
-                </button>
+              {!user?.isPremium && (
+                <button onClick={() => setView(ViewMode.PROFILE)} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">ASSINAR PREMIUM (R$ 3,99)</button>
               )}
-              <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">
-                SAIR DA CONTA
-              </button>
+              <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">SAIR DA CONTA</button>
             </div>
           </div>
         )}
