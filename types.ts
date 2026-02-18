@@ -5,6 +5,8 @@ export interface User {
   nome: string;
   avatar?: string;
   isPremium: boolean;
+  premiumExpiresAt?: string; // Data de expiração da assinatura
+  role: 'user' | 'admin';
   provider: 'local' | 'google' | 'microsoft';
   criadoEm: string;
   followingChannelIds: number[];
@@ -17,9 +19,10 @@ export interface Video {
   descricao: string;
   duracao: number;
   arquivoUrl: string;
-  thumbnailUrl: string; // 1080x1920
+  thumbnailUrl: string; // 1080x1920 para HQCine/VCine
   isPremium: boolean;
   criadoEm: string;
+  type: 'hqcine' | 'vcine';
 }
 
 export interface Webtoon {
@@ -29,8 +32,31 @@ export interface Webtoon {
   descricao: string;
   numeroPaineis: number;
   isPremium: boolean;
-  thumbnailUrl: string; // 160x151
+  thumbnailUrl: string; // 160x151 para Hi-Qua
   criadoEm: string;
+}
+
+export enum ViewMode {
+  AUTH = 'AUTH',
+  HQCINE = 'HQCINE',
+  VCINE = 'VCINE',
+  HIQUA = 'HIQUA',
+  PLAYER = 'PLAYER',
+  READER = 'READER',
+  PROFILE = 'PROFILE',
+  // Rotas Administrativas
+  ADMIN_DASHBOARD = 'ADMIN_DASHBOARD',
+  ADMIN_USERS = 'ADMIN_USERS',
+  ADMIN_CONTENT = 'ADMIN_CONTENT',
+  ADMIN_PAYMENTS = 'ADMIN_PAYMENTS'
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  premiumUsers: number;
+  totalVideos: number;
+  totalWebtoons: number;
+  estimatedRevenue: number;
 }
 
 export interface Panel {
@@ -38,19 +64,34 @@ export interface Panel {
   webtoonId: string;
   ordem: number;
   imagemUrl: string;
-  image_url?: string; // Used in HQCineHome
+  image_url?: string;
   largura: number;
   altura: number;
 }
 
-export enum ViewMode {
-  AUTH = 'AUTH',
-  HOME_VIDEOS = 'HOME_VIDEOS',
-  HOME_WEBTOONS = 'HOME_WEBTOONS',
-  PLAYER = 'PLAYER',
-  READER = 'READER',
-  ADMIN = 'ADMIN',
-  PROFILE = 'PROFILE'
+export interface Series {
+  id: number;
+  title: string;
+  description: string;
+  genre: string;
+  cover_image: string;
+  isPremium: boolean;
+  content_type: 'hqcine' | 'vcine' | 'hiqua';
+}
+
+export interface Episode {
+  id: number;
+  series_id?: number;
+  channelId?: number;
+  episode_number: number;
+  title: string;
+  description: string;
+  video_url: string;
+  thumbnail: string;
+  duration?: number;
+  likes?: number;
+  comments?: number;
+  series_title?: string;
 }
 
 export interface Ad {
@@ -62,42 +103,18 @@ export interface Ad {
   views: number;
   maxViews: number;
   active: boolean;
-  format: 'H.264' | 'H.265';
+  format: string;
   resolution: string;
 }
 
-export interface Channel {
-  id: number;
-  name: string;
-  handle: string;
-  avatar: string;
-  banner: string;
-  description: string;
-  followerCount: number;
-  isMonetized: boolean;
-}
-
-export interface Series {
-  id: number;
-  title: string;
-  description: string;
-  genre: string;
-  cover_image: string;
-  isPremium: boolean;
-  content_type: 'hqcine' | 'vfilm' | 'hiqua';
-}
-
-export interface Episode {
+export interface Comic {
   id: number;
   channelId: number;
-  series_id?: number;
-  series_title?: string;
-  episode_number: number;
   title: string;
+  author: string;
   description: string;
-  video_url: string;
-  duration: number;
   thumbnail: string;
+  panels: string[];
   likes: number;
   comments: number;
 }
@@ -115,16 +132,15 @@ export interface Lesson {
   likes: number;
 }
 
-export interface Comic {
+export interface Channel {
   id: number;
-  channelId: number;
-  title: string;
-  author: string;
+  name: string;
+  handle: string;
+  avatar: string;
+  banner: string;
   description: string;
-  thumbnail: string;
-  panels: string[];
-  likes: number;
-  comments: number;
+  followerCount: number;
+  isMonetized: boolean;
 }
 
 export interface Chapter {

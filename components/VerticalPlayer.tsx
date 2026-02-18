@@ -16,33 +16,30 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const adContainerRef = useRef<HTMLDivElement>(null);
   const [isAdPlaying, setIsAdPlaying] = useState(!user?.isPremium);
   const [showMetadata, setShowMetadata] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(video.isPremium && !user?.isPremium);
 
   useEffect(() => {
+    if (accessDenied) return;
     if (isAdPlaying) {
       initializeAds();
     } else {
       initializeHLS();
     }
-  }, [isAdPlaying]);
+  }, [isAdPlaying, accessDenied]);
 
   const initializeAds = () => {
     if (typeof google === 'undefined' || !adContainerRef.current) {
       setIsAdPlaying(false);
       return;
     }
-    
-    // Simulação do IMA SDK Flow
     const adDisplayContainer = new google.ima.AdDisplayContainer(adContainerRef.current, videoRef.current);
     adDisplayContainer.initialize();
-    
-    // Fallback de 5s para demonstração
     setTimeout(() => setIsAdPlaying(false), 5000);
   };
 
   const initializeHLS = () => {
     if (!videoRef.current) return;
     const v = videoRef.current;
-
     if (Hls.isSupported()) {
       const hls = new Hls();
       hls.loadSource(video.arquivoUrl);
@@ -54,33 +51,33 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     }
   };
 
+  if (accessDenied) {
+    return (
+      <div className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center p-10 text-center animate-apple">
+        <div className="w-20 h-20 bg-amber-500/10 rounded-3xl flex items-center justify-center mb-8 text-amber-500">
+          <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 00-2 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+        </div>
+        <h2 className="text-3xl font-black text-white mb-4 tracking-tighter">Conteúdo Premium</h2>
+        <p className="text-zinc-500 mb-12 max-w-xs mx-auto">Esta produção é exclusiva para assinantes LaiLai Premium.</p>
+        <div className="flex flex-col gap-4 w-full max-w-xs">
+          <button onClick={onClose} className="py-5 bg-white text-black font-black rounded-2xl uppercase text-xs tracking-widest">Ver Outros</button>
+          <button onClick={onClose} className="py-5 bg-rose-600 text-white font-black rounded-2xl uppercase text-xs tracking-widest">Assinar Plano</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[1000] bg-black flex items-center justify-center animate-apple">
       <div className="relative w-full h-full max-w-[500px] overflow-hidden bg-zinc-900 shadow-2xl">
-        
         {isAdPlaying && (
           <div ref={adContainerRef} className="absolute inset-0 z-[1100] bg-black flex flex-col items-center justify-center">
             <div className="w-12 h-12 border-4 border-rose-500/30 border-t-rose-500 rounded-full animate-spin mb-4" />
-            <span className="text-white font-black text-[10px] tracking-widest uppercase">Publicidade LaiLai</span>
+            <span className="text-white font-black text-[10px] tracking-widest uppercase">Aguarde... Publicidade</span>
           </div>
         )}
-
-        <video 
-          ref={videoRef} 
-          className="w-full h-full object-cover" 
-          playsInline 
-          onClick={() => setShowMetadata(!showMetadata)}
-        />
-
-        {/* Header Control */}
-        <button 
-          onClick={onClose}
-          className="absolute top-12 left-6 z-[1200] p-3 bg-black/40 backdrop-blur-xl rounded-full border border-white/10 text-white"
-        >
-          <svg className="w-6 h-6 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        </button>
-
-        {/* Metadata Overlay Netflix-style */}
+        <video ref={videoRef} className="w-full h-full object-cover" playsInline onClick={() => setShowMetadata(!showMetadata)} />
+        <button onClick={onClose} className="absolute top-12 left-6 z-[1200] p-3 bg-black/40 backdrop-blur-xl rounded-full border border-white/10 text-white"><svg className="w-6 h-6 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
         <div className={`absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black via-black/80 to-transparent transition-opacity duration-500 ${showMetadata ? 'opacity-100' : 'opacity-0'}`}>
           <div className="flex items-center gap-2 mb-2">
             <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest">{video.categoria}</span>
@@ -88,11 +85,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
           </div>
           <h2 className="text-3xl font-black text-white mb-2 tracking-tighter">{video.titulo}</h2>
           <p className="text-zinc-400 text-sm mb-4 line-clamp-2">{video.descricao}</p>
-          <div className="flex items-center gap-4 text-xs font-bold text-zinc-500">
-            <span>{video.duracao} min</span>
-            <span className="w-1 h-1 rounded-full bg-zinc-700" />
-            <span>Full HD H.264</span>
-          </div>
         </div>
       </div>
     </div>
