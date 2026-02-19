@@ -28,13 +28,44 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center p-6 bg-black font-lailai">
+      <style>{`
+        .logo-container {
+          text-align: center;
+          margin-bottom: 30px;
+        }
+
+        .logo-symbol-new {
+          font-size: 60px;
+          font-weight: 700;
+          letter-spacing: 2px;
+          margin-bottom: 10px;
+          font-family: 'Segoe UI', sans-serif;
+          color: white;
+        }
+
+        .brand-name {
+          font-size: 42px;
+          font-weight: 600;
+          margin: 0;
+          color: white;
+          letter-spacing: -1px;
+        }
+
+        .brand-tagline {
+          font-size: 14px;
+          opacity: 0.7;
+          margin-top: 6px;
+          color: #a1a1aa;
+        }
+      `}</style>
+
       <div className="w-full max-w-sm animate-apple">
-        <div className="text-center mb-12">
-          <div className="w-16 h-16 bg-white rounded-[1.25rem] mx-auto flex items-center justify-center mb-8 shadow-2xl">
-            <span className="text-2xl font-black text-black italic">LL</span>
-          </div>
-          <h1 className="text-4xl font-extrabold tracking-tight mb-3 text-white">LaiLai</h1>
-          <p className="text-zinc-500 font-medium">Vertical Cinema. Production Mode.</p>
+        <div className="logo-container">
+          <div className="logo-symbol-new">L</div>
+          <h1 className="brand-name">LaiLai</h1>
+          <p className="brand-tagline">
+            O futuro é aqui. Entretenimento Vertical.
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
