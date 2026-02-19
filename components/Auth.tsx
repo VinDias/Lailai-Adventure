@@ -56,7 +56,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           <BrandLogo />
           <h1 className="brand-name">LaiLai</h1>
           <p className="brand-tagline">
-            O futuro é aqui. Entretenimento Vertical.
+            O Futuro É Aqui. Entretenimento Vertical.
           </p>
         </div>
 
