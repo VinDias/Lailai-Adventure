@@ -1,4 +1,3 @@
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -62,7 +61,34 @@ app.use("/api/payment", require("./routes/payment"));
 app.use("/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 
-// ROTA DE UPLOAD COM VALIDAÇÃO E TRANSCODIFICAÇÃO (Objetivo)
+// ROTA DE EXPLORADOR DE ARQUIVOS SEGURA (ANTI PATH TRAVERSAL)
+app.get("/api/admin/files", (req, res) => {
+  const baseDir = path.join(__dirname, "uploads");
+  const requestedPath = req.query.path || "";
+  
+  // Normaliza e remove tentativas de subir níveis (..)
+  const safePath = path.normalize(requestedPath).replace(/^(\.\.(\/|\\|$))+/, "");
+  const fullPath = path.join(baseDir, safePath);
+
+  if (!fullPath.startsWith(baseDir)) {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
+  fs.readdir(fullPath, { withFileTypes: true }, (err, files) => {
+    if (err) {
+      return res.status(500).json({ error: "Cannot read directory" });
+    }
+
+    const result = files.map(file => ({
+      name: file.name,
+      isDirectory: file.isDirectory()
+    }));
+
+    res.json(result);
+  });
+});
+
+// ROTA DE UPLOAD COM VALIDAÇÃO E TRANSCODIFICAÇÃO
 app.post('/api/admin/upload-content', upload.fields([
   { name: "video", maxCount: 1 },
   { name: "audioTrack1", maxCount: 1 },
@@ -72,7 +98,6 @@ app.post('/api/admin/upload-content', upload.fields([
 ]), (req, res) => {
   const { type, section } = req.body;
 
-  // Validação básica
   if (type === "webtoon" && section !== "HIQUA") {
     return res.status(400).json({ error: "Webtoons can only be published in HI-QUA section" });
   }
@@ -80,13 +105,11 @@ app.post('/api/admin/upload-content', upload.fields([
     return res.status(400).json({ error: "Videos cannot be published in HI-QUA section" });
   }
 
-  // Se for vídeo, disparar transcodificação HLS em background
   if (type === "video" && req.files['video']) {
     const videoFile = req.files['video'][0];
     const videoPath = videoFile.path;
     const folderPath = path.dirname(videoPath);
 
-    // Execução NÃO BLOQUEANTE
     setImmediate(async () => {
       try {
         const success = await transcodeToHLS(videoPath, folderPath);
