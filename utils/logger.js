@@ -8,11 +8,20 @@ if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir);
 }
 
-const rotateTransport = new transports.DailyRotateFile({
-  filename: path.join(logDir, "app-%DATE%.log"),
+const errorTransport = new transports.DailyRotateFile({
+  filename: path.join(logDir, "error-%DATE%.log"),
+  level: "error",
   datePattern: "YYYY-MM-DD",
   maxSize: "20m",
-  maxFiles: "14d",
+  maxFiles: "30d",
+  zippedArchive: true
+});
+
+const combinedTransport = new transports.DailyRotateFile({
+  filename: path.join(logDir, "combined-%DATE%.log"),
+  datePattern: "YYYY-MM-DD",
+  maxSize: "20m",
+  maxFiles: "30d",
   zippedArchive: true
 });
 
@@ -26,8 +35,8 @@ const logger = createLogger({
   ),
   defaultMeta: { service: "lailai-app" },
   transports: [
-    rotateTransport,
-    new transports.File({ filename: path.join(logDir, "error.log"), level: "error" })
+    errorTransport,
+    combinedTransport
   ]
 });
 

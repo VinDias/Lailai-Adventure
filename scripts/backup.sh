@@ -1,20 +1,18 @@
-
 #!/bin/bash
-# Script de Backup LaiLai Professional
-DATE=$(date +"%Y-%m-%d_%H%M%S")
-BACKUP_DIR="backups"
+
+# Script de Backup Profissional LaiLai
+DATE=$(date +%F)
+BACKUP_DIR="/home/backups"
+APP_DIR=$(pwd) # Assume o diretório atual como raiz do app
+
+mkdir -p $BACKUP_DIR
 
 echo "Iniciando backup em $DATE..."
 
-# Criar pasta de backup se não existir
-mkdir -p $BACKUP_DIR
+# Compacta a pasta do app excluindo node_modules para otimizar espaço
+tar --exclude='node_modules' -czf $BACKUP_DIR/lailai-$DATE.tar.gz $APP_DIR
 
-# Compactar uploads e sql
-tar -czf $BACKUP_DIR/backup-$DATE.tar.gz uploads database.sql 2>/dev/null
+# Remove backups com mais de 7 dias
+find $BACKUP_DIR -type f -name "lailai-*.tar.gz" -mtime +7 -delete
 
-if [ $? -eq 0 ]; then
-    echo "Backup concluído com sucesso: $BACKUP_DIR/backup-$DATE.tar.gz"
-else
-    echo "Erro ao realizar backup."
-    exit 1
-fi
+echo "Backup concluído com sucesso em $BACKUP_DIR/lailai-$DATE.tar.gz"

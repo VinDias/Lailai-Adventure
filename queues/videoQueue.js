@@ -2,7 +2,12 @@ const { Queue } = require("bullmq");
 const Redis = require("ioredis");
 const logger = require("../utils/logger");
 
-const redisUrl = process.env.REDIS_URL || "redis://127.0.0.1:6379";
+if (!process.env.REDIS_URL) {
+  logger.error("CRITICAL: REDIS_URL not defined in environment variables.");
+  throw new Error("REDIS_URL not defined");
+}
+
+const redisUrl = process.env.REDIS_URL;
 const connection = new Redis(redisUrl, {
   maxRetriesPerRequest: null
 });

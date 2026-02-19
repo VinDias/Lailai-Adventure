@@ -16,7 +16,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Importação de Utilitários e Middlewares
+// Importação de Modelos e Utils
 const logger = require("./utils/logger");
 const upload = require("./middlewares/uploadConfig");
 const verifyToken = require("./middlewares/verifyToken");
@@ -24,10 +24,17 @@ const requireAdmin = require("./middlewares/requireAdmin");
 const videoQueue = require("./queues/videoQueue");
 const { createContentFolder } = require("./utils/storageManager");
 const { createContentSchema } = require("./validators/contentValidator");
+const RefreshToken = require("./models/RefreshToken");
+const AdminLog = require("./models/AdminLog");
+const verifyMediaToken = require("./middlewares/verifyMediaToken");
 
-// 1. MONITORAMENTO DE ERROS (SENTRY)
+// 1. MONITORAMENTO DE ERROS (SENTRY PROFISSIONAL)
 if (process.env.SENTRY_DSN) {
-  Sentry.init({ dsn: process.env.SENTRY_DSN });
+  Sentry.init({ 
+    dsn: process.env.SENTRY_DSN,
+    tracesSampleRate: 1.0,
+    environment: process.env.NODE_ENV || 'development'
+  });
   app.use(Sentry.Handlers.requestHandler());
 }
 
@@ -55,24 +62,19 @@ const loginLimiter = rateLimit({
 app.use("/api", globalLimiter);
 
 // 4. PROTEÇÃO ANTI-HOTLINK E ARQUIVOS ESTÁTICOS
-const antiHotlink = (req, res, next) => {
-  if (isProduction) {
-    const referer = req.get("referer");
-    const allowed = process.env.FRONTEND_URL || "";
-    if (!referer || !referer.includes(allowed)) {
-      return res.status(403).send("Acesso direto aos arquivos de mídia proibido (Anti-Hotlink).");
-    }
-  }
-  next();
-};
-
-app.use("/uploads", antiHotlink, express.static(path.join(__dirname, "uploads"), {
+// Aplicando verifyMediaToken em uploads sensíveis (exemplo: videos HLS)
+app.use("/uploads/videos", verifyMediaToken, express.static(path.join(__dirname, "uploads/videos"), {
   dotfiles: "deny",
   index: false,
   maxAge: "7d"
 }));
 
-// Servir thumbnails com cache agressivo
+app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
+  dotfiles: "deny",
+  index: false,
+  maxAge: "7d"
+}));
+
 app.use("/thumbnails", express.static(path.join(__dirname, "uploads/thumbnails"), {
   maxAge: "30d"
 }));
@@ -84,8 +86,8 @@ app.use(cors({
   credentials: true 
 }));
 app.use(cookieParser());
+app.use(express.json({ limit: '10kb' }));
 
-// Bloquear cache em rotas de API
 app.use("/api", (req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();
@@ -97,14 +99,25 @@ app.use("/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 app.use("/api/admin/management", require("./routes/admin"));
 
-// UPLOAD ADMIN COM FILA ASSÍNCRONA
+// LOGOUT SEGURO COM REVOGAÇÃO
+app.post('/api/auth/logout', verifyToken, async (req, res) => {
+  try {
+    await RefreshToken.deleteMany({ userId: req.user.id });
+    res.clearCookie('accessToken');
+    res.json({ message: "Sessão encerrada com segurança em todos os dispositivos." });
+  } catch (err) {
+    logger.error("[Logout Error]", err);
+    res.status(500).json({ error: "Erro ao processar logout." });
+  }
+});
+
+// UPLOAD ADMIN COM FILA E LOG DE AÇÕES
 app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
   { name: "video", maxCount: 1 },
   { name: "thumbnail", maxCount: 1 },
   { name: "panels", maxCount: 120 }
 ]), async (req, res) => {
   try {
-    // Validação de Input com Joi
     const { error } = createContentSchema.validate(req.body);
     if (error) return res.status(400).json({ error: error.message });
 
@@ -114,13 +127,20 @@ app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
       const videoFile = req.files['video'][0];
       const folderPath = createContentFolder('videos', section, title);
       
-      // Adicionar à fila do BullMQ
       await videoQueue.add("process-video", {
         inputPath: videoFile.path,
         outputPath: folderPath
       });
       
-      logger.info(`[Queue] Vídeo '${title}' adicionado à fila de processamento.`);
+      // Log de ação administrativa
+      await AdminLog.create({
+        adminId: req.user.id,
+        action: "UPLOAD_VIDEO",
+        targetId: title,
+        details: { section, type }
+      });
+
+      logger.info(`[Admin] ${req.user.email} enviou vídeo: ${title}`);
     }
 
     res.json({ 
@@ -134,18 +154,33 @@ app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
   }
 });
 
-app.post('/api/auth/login', loginLimiter, (req, res) => {
-  // Lógica de login mantida
-  logger.info(`Login solicitado: ${req.body.email}`);
-  res.json({ success: true, role: 'admin', accessToken: "mock_token" });
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
+  // Lógica de login fictícia para demonstrar persistência de Refresh Token
+  const mockUser = { id: "user-123", email: req.body.email, role: 'admin' };
+  const accessToken = jwt.sign(mockUser, process.env.JWT_SECRET, { expiresIn: '15m' });
+  const refreshToken = jwt.sign(mockUser, process.env.REFRESH_SECRET, { expiresIn: '7d' });
+
+  // Salva Refresh Token no banco
+  await RefreshToken.create({ userId: mockUser.id, token: refreshToken });
+
+  logger.info(`Login realizado: ${req.body.email}`);
+  res.json({ success: true, role: mockUser.role, accessToken, refreshToken });
 });
 
-// Refresh Token Mock (Implementação completa exigiria persistência em banco)
 app.post('/api/auth/refresh-token', async (req, res) => {
   const { refreshToken } = req.body;
   if (!refreshToken) return res.sendStatus(401);
-  // Simulação de validação
-  res.json({ accessToken: "new_mock_access_token" });
+
+  const stored = await RefreshToken.findOne({ token: refreshToken });
+  if (!stored) return res.status(403).json({ error: "Token revogado ou inexistente." });
+
+  try {
+    const verified = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
+    const newAccessToken = jwt.sign({ id: verified.id, email: verified.email, role: verified.role }, process.env.JWT_SECRET, { expiresIn: '15m' });
+    res.json({ accessToken: newAccessToken });
+  } catch (err) {
+    res.status(403).json({ error: "Refresh token expirado." });
+  }
 });
 
 app.get('/api/content/series', (req, res) => {
