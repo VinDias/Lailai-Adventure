@@ -19,6 +19,8 @@ export interface Video {
   descricao: string;
   duracao: number;
   arquivoUrl: string;
+  audioTrack1Url?: string; // Nova trilha de áudio 1
+  audioTrack2Url?: string; // Nova trilha de áudio 2
   thumbnailUrl: string; // 1080x1920 para HQCine/VCine
   isPremium: boolean;
   criadoEm: string;
@@ -87,6 +89,8 @@ export interface Episode {
   title: string;
   description: string;
   video_url: string;
+  audio_track1?: string;
+  audio_track2?: string;
   thumbnail: string;
   duration?: number;
   likes?: number;

@@ -8,11 +8,32 @@ const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
+const { createContentFolder } = require("./utils/storageManager");
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
+
+// CONFIGURAÇÃO DO STORAGE COM PASTAS DINÂMICAS
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // Determina o tipo baseado no campo ou rota
+    const type = file.fieldname === 'panels' ? 'webtoons' : 'videos';
+    const folder = createContentFolder(type, req.body.title);
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+});
 
 // 1. RATE LIMITING (Hardening)
 const globalLimiter = rateLimit({
@@ -41,9 +62,24 @@ app.use(cors({
 
 app.use(cookieParser());
 
-// 3. ROTAS DE PAGAMENTO (Stripe + Mobile In-App)
+// 3. ROTAS DE PAGAMENTO E UPLOAD
 app.use("/api/payment", require("./routes/payment"));
-app.use("/mobile", require("./routes/mobilePayment")); // Adicionado suporte mobile
+app.use("/mobile", require("./routes/mobilePayment"));
+app.use("/donation", require("./routes/donation"));
+
+// ROTA DE UPLOAD MULTI-TRACK (Objetivo 2)
+app.post('/api/admin/upload-content', upload.fields([
+  { name: "video", maxCount: 1 },
+  { name: "audioTrack1", maxCount: 1 },
+  { name: "audioTrack2", maxCount: 1 },
+  { name: "thumbnail", maxCount: 1 },
+  { name: "panels", maxCount: 120 }
+]), (req, res) => {
+  res.json({ 
+    message: "Conteúdo enviado com sucesso", 
+    files: req.files 
+  });
+});
 
 app.use(express.json({ limit: '10kb' }));
 
