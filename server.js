@@ -13,9 +13,30 @@ const Sentry = require("@sentry/node");
 
 // Configurações Iniciais
 dotenv.config();
+
+// 0. PROTEÇÃO CONTRA CRASH E VALIDAÇÃO DE AMBIENTE
+process.on("unhandledRejection", err => {
+  console.error("Unhandled Rejection:", err);
+});
+
+process.on("uncaughtException", err => {
+  console.error("Uncaught Exception:", err);
+});
+
+if (!process.env.NODE_ENV) {
+  throw new Error("NODE_ENV not defined. Please check your environment configuration.");
+}
+
+if (process.env.NODE_ENV === "production" && process.env.DEBUG === "true") {
+  throw new Error("DEBUG mode cannot run in production environment for security reasons.");
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
+
+// 1. COMPATIBILIDADE COM NGINX (PROXY REVERSO)
+app.set("trust proxy", 1);
 
 // Importação de Modelos e Utils
 const logger = require("./utils/logger");
@@ -28,9 +49,9 @@ const { createContentSchema } = require("./validators/contentValidator");
 const RefreshToken = require("./models/RefreshToken");
 const AdminLog = require("./models/AdminLog");
 const verifyMediaToken = require("./middlewares/verifyMediaToken");
-const User = require("./models/User"); // Importação do Model User real
+const User = require("./models/User");
 
-// 1. MONITORAMENTO DE ERROS (SENTRY PROFISSIONAL)
+// 2. MONITORAMENTO DE ERROS (SENTRY PROFISSIONAL)
 if (process.env.SENTRY_DSN) {
   Sentry.init({ 
     dsn: process.env.SENTRY_DSN,
@@ -40,7 +61,29 @@ if (process.env.SENTRY_DSN) {
   app.use(Sentry.Handlers.requestHandler());
 }
 
-// 2. SEGURANÇA E PERFORMANCE GLOBAL
+// 3. HEALTHCHECK SISTEM
+app.get("/health", async (req, res) => {
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+    env: process.env.NODE_ENV
+  });
+});
+
+// 4. CONFIGURAÇÃO SEGURA DE CORS
+app.use(cors({ 
+  origin: process.env.FRONTEND_URL || "http://localhost:5173", 
+  credentials: true 
+}));
+
+// 5. PROTEÇÃO EXTRA STRIPE WEBHOOK (DEVE VIR ANTES DO express.json)
+const paymentRoutes = require("./routes/payment");
+// O webhook dentro de paymentRoutes já usa express.raw, 
+// mas garantimos que nada o consumiu antes.
+app.use("/api/payment", paymentRoutes);
+
+// 6. SEGURANÇA E PERFORMANCE GLOBAL
 app.disable("x-powered-by");
 app.use(helmet({ 
   contentSecurityPolicy: false,
@@ -48,7 +91,7 @@ app.use(helmet({
 }));
 app.use(compression());
 
-// 3. RATE LIMITS
+// 7. RATE LIMITS
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
@@ -63,7 +106,12 @@ const loginLimiter = rateLimit({
 
 app.use("/api", globalLimiter);
 
-// 4. PROTEÇÃO ANTI-HOTLINK E ARQUIVOS ESTÁTICOS
+// 8. CONFIGURAÇÕES EXPRESS E PARSERS
+app.use(cookieParser());
+app.use(express.json({ limit: process.env.MAX_UPLOAD_SIZE || '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// 9. PROTEÇÃO ANTI-HOTLINK E ARQUIVOS ESTÁTICOS
 app.use("/uploads/videos", verifyMediaToken, express.static(path.join(__dirname, "uploads/videos"), {
   dotfiles: "deny",
   index: false,
@@ -79,15 +127,6 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
 app.use("/thumbnails", express.static(path.join(__dirname, "uploads/thumbnails"), {
   maxAge: "30d"
 }));
-
-// 5. CONFIGURAÇÕES EXPRESS
-app.set('trust proxy', 1);
-app.use(cors({ 
-  origin: process.env.FRONTEND_URL || "http://localhost:5173", 
-  credentials: true 
-}));
-app.use(cookieParser());
-app.use(express.json({ limit: process.env.MAX_UPLOAD_SIZE || '10mb' }));
 
 app.use("/api", (req, res, next) => {
   res.set("Cache-Control", "no-store");
@@ -107,12 +146,11 @@ app.use(async (req, res, next) => {
   next();
 });
 
-// 6. ROTAS E ENDPOINTS
-app.use("/api/payment", require("./routes/payment"));
+// 10. DEMAIS ROTAS E ENDPOINTS
 app.use("/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 app.use("/api/admin/management", require("./routes/admin"));
-app.use("/api/admin/users", require("./routes/adminManagement")); // Novas rotas de Admin Management
+app.use("/api/admin/users", require("./routes/adminManagement"));
 
 // LOGOUT SEGURO COM REVOGAÇÃO
 app.post('/api/auth/logout', verifyToken, async (req, res) => {
@@ -169,7 +207,6 @@ app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
-  // Mantendo compatibilidade com mock se User model não retornar nada
   const mockUser = { id: "user-123", email: req.body.email, role: 'superadmin' };
   const accessToken = jwt.sign(mockUser, process.env.JWT_SECRET, { expiresIn: '15m' });
   const refreshToken = jwt.sign(mockUser, process.env.REFRESH_SECRET, { expiresIn: '7d' });
@@ -205,11 +242,26 @@ app.get('/api/content/series', (req, res) => {
   res.json(mockData.sort((a,b) => a.order_index - b.order_index));
 });
 
+// Handlers de Erro Sentry
 if (process.env.SENTRY_DSN) {
   app.use(Sentry.Handlers.errorHandler());
 }
 
+// 11. FRONTEND STATIC SERVING & FALLBACK
+app.use(express.static(path.join(__dirname, "frontend-dist")));
 app.use(express.static(path.join(__dirname, 'dist')));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
 
-app.listen(PORT, () => logger.info(`🚀 LAILAI SCALABLE & MULTI-ADMIN SERVER | PORT: ${PORT}`));
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith("/api") || req.path.startsWith("/health")) return next();
+  
+  // Tenta servir index.html do frontend-dist primeiro
+  const frontendPath = path.join(__dirname, "frontend-dist", "index.html");
+  if (fs.existsSync(frontendPath)) {
+    return res.sendFile(frontendPath);
+  }
+  
+  // Fallback para pasta dist original
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+app.listen(PORT, () => logger.info(`🚀 LAILAI PROD-READY SERVER | PORT: ${PORT} | ENV: ${process.env.NODE_ENV}`));

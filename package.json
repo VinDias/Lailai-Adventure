@@ -1,3 +1,4 @@
+
 {
   "name": "lailai-fullstack-production",
   "version": "2.3.0",
@@ -11,7 +12,9 @@
     "restart": "pm2 restart ecosystem.config.js",
     "build": "vite build",
     "preview": "vite preview",
-    "backup": "bash scripts/backup.sh"
+    "backup": "bash scripts/backup.sh",
+    "validate:env": "node scripts/validateEnv.js",
+    "build:frontend": "npm run build && mkdir -p frontend-dist && cp -r dist/* frontend-dist/"
   },
   "dependencies": {
     "@google/genai": "^1.41.0",
@@ -37,7 +40,8 @@
     "sharp": "^0.33.2",
     "stripe": "^14.0.0",
     "winston": "^3.11.0",
-    "winston-daily-rotate-file": "^5.0.0"
+    "winston-daily-rotate-file": "^5.0.0",
+    "bcrypt": "^5.1.1"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

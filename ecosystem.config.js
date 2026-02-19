@@ -6,6 +6,9 @@ module.exports = {
       script: "server.js",
       instances: 1,
       exec_mode: "fork",
+      watch: false,
+      autorestart: true,
+      max_memory_restart: "500M",
       env: {
         NODE_ENV: "production",
         PORT: 3000
@@ -18,9 +21,11 @@ module.exports = {
     {
       name: "lailai-video-worker",
       script: "workers/videoWorker.js",
-      // Modo Cluster: Escala automaticamente conforme o número de CPUs
       instances: "max", 
       exec_mode: "cluster",
+      watch: false,
+      autorestart: true,
+      max_memory_restart: "1G",
       env: {
         NODE_ENV: "production",
         WORKER_CONCURRENCY: 2

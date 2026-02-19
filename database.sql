@@ -1,4 +1,5 @@
 
+-- OBSOLETE FILE - Not used in current architecture (Mongoose/MongoDB implementation)
 -- LAILAI PROFESSIONAL SCHEMA 2025
 
 CREATE TABLE users (
