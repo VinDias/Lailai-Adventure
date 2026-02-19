@@ -13,20 +13,35 @@
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-SEU_CLIENT_ID" crossorigin="anonymous"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
     <style>
-        :root {
+        :root[data-theme="light"] {
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --nav-bg: rgba(255, 255, 255, 0.85);
+            --apple-bg: #ffffff;
+        }
+
+        :root[data-theme="dark"] {
+            --bg-color: #0f0f0f;
+            --text-color: #ffffff;
+            --nav-bg: rgba(0, 0, 0, 0.85);
             --apple-bg: #0A0A0B;
+        }
+
+        :root {
             --lailai-accent: #E11D48;
         }
+
         body {
             font-family: 'Inter', -apple-system, sans-serif;
-            background-color: var(--apple-bg);
-            color: #F5F5F7;
+            background-color: var(--bg-color);
+            color: var(--text-color);
             margin: 0;
             overflow: hidden;
             -webkit-font-smoothing: antialiased;
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
         .premium-text {
-            background: linear-gradient(135deg, #fff 0%, #86868B 100%);
+            background: linear-gradient(135deg, var(--text-color) 0%, #86868B 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }

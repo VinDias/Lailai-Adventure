@@ -10,6 +10,7 @@ import HQCine from './components/HQCine';
 import VFilm from './components/VFilm';
 import HiQua from './components/HiQua';
 import Ads from './components/Ads';
+import ThemeToggle from './components/ThemeToggle';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -43,10 +44,16 @@ const App: React.FC = () => {
     setView(ViewMode.AUTH);
   };
 
-  if (view === ViewMode.AUTH) return <Auth onLogin={handleLogin} />;
+  if (view === ViewMode.AUTH) return (
+    <>
+      <ThemeToggle />
+      <Auth onLogin={handleLogin} />
+    </>
+  );
 
   return (
-    <div className="h-screen w-full flex flex-col bg-[#0A0A0B] overflow-hidden font-inter select-none">
+    <div className="h-screen w-full flex flex-col bg-[var(--bg-color)] text-[var(--text-color)] overflow-hidden font-inter select-none transition-colors duration-300">
+      <ThemeToggle />
       {isOffline && (
         <div className="bg-rose-600 text-white text-[10px] font-black uppercase py-1 text-center tracking-widest z-[5000]">
           MODO OFFLINE ATIVO
@@ -128,7 +135,7 @@ const App: React.FC = () => {
               <img src={user?.avatar || 'https://picsum.photos/seed/user/200'} className="w-32 h-32 rounded-[3.5rem] border-4 border-white/5 shadow-2xl" />
               {user?.isPremium && <div className="absolute -bottom-2 -right-2 bg-amber-500 p-2 rounded-full border-4 border-[#0A0A0B]"><Sparkles size={16} className="text-black" /></div>}
             </div>
-            <h2 className="text-4xl font-black text-white mb-2 tracking-tighter">{user?.nome}</h2>
+            <h2 className="text-4xl font-black text-[var(--text-color)] mb-2 tracking-tighter">{user?.nome}</h2>
             <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mb-12">{user?.email}</p>
             
             <div className="space-y-4">
@@ -149,7 +156,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <nav className="h-28 bg-black/80 backdrop-blur-3xl border-t border-white/5 flex items-center justify-around px-4 pb-8 z-[900]">
+      <nav className="h-28 bg-[var(--nav-bg,rgba(0,0,0,0.8))] backdrop-blur-3xl border-t border-white/5 flex items-center justify-around px-4 pb-8 z-[900]">
         <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={<Play />} label="HQCine" />
         <NavBtn active={view === ViewMode.VCINE} onClick={() => setView(ViewMode.VCINE)} icon={<Film />} label="VCine" />
         <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={<BookOpen />} label="Hi-Qua" />
