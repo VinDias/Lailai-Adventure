@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -16,10 +17,20 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
-// EXPOR PASTA DE UPLOADS PARA O PLAYER ACESSAR M3U8/TS
+// Importação de middlewares e rotas novas
+const verifyToken = require("./middlewares/verifyToken");
+const requireAdmin = require("./middlewares/requireAdmin");
+
+// SEGURANÇA BÁSICA
+app.disable("x-powered-by");
+app.use(helmet({ 
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+// EXPOR PASTA DE UPLOADS
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// CONFIGURAÇÃO DO STORAGE COM PASTAS DINÂMICAS E VALIDAÇÃO DE SEÇÃO
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const type = (file.fieldname === 'panels' || req.body.type === 'webtoon') ? 'webtoons' : 'videos';
@@ -35,61 +46,31 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 500 * 1024 * 1024 } // Aumentado para 500MB para vídeos brutos
+  limits: { fileSize: 500 * 1024 * 1024 }
 });
 
-// 1. RATE LIMITING
-const globalLimiter = rateLimit({
+// RATE LIMITING APRIMORADO
+const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
-  message: { error: "Muitas requisições." }
+  max: 100,
+  message: { error: "Muitas requisições. Tente novamente mais tarde." }
 });
 
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10
-});
-
-// 2. SEGURANÇA
+app.use("/api", apiLimiter);
 app.set('trust proxy', 1);
-app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: isProduction ? process.env.DOMAIN : "http://localhost:5173", credentials: true }));
 app.use(cookieParser());
+app.use(express.json({ limit: '10kb' }));
 
-// 3. ROTAS DE PAGAMENTO
+// ROTAS PÚBLICAS/USUÁRIO
 app.use("/api/payment", require("./routes/payment"));
 app.use("/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 
-// ROTA DE EXPLORADOR DE ARQUIVOS SEGURA (ANTI PATH TRAVERSAL)
-app.get("/api/admin/files", (req, res) => {
-  const baseDir = path.join(__dirname, "uploads");
-  const requestedPath = req.query.path || "";
-  
-  // Normaliza e remove tentativas de subir níveis (..)
-  const safePath = path.normalize(requestedPath).replace(/^(\.\.(\/|\\|$))+/, "");
-  const fullPath = path.join(baseDir, safePath);
+// ROTAS ADMINISTRATIVAS PROTEGIDAS (Admin Only)
+app.use("/api/admin/management", require("./routes/admin"));
 
-  if (!fullPath.startsWith(baseDir)) {
-    return res.status(403).json({ error: "Access denied" });
-  }
-
-  fs.readdir(fullPath, { withFileTypes: true }, (err, files) => {
-    if (err) {
-      return res.status(500).json({ error: "Cannot read directory" });
-    }
-
-    const result = files.map(file => ({
-      name: file.name,
-      isDirectory: file.isDirectory()
-    }));
-
-    res.json(result);
-  });
-});
-
-// ROTA DE UPLOAD COM VALIDAÇÃO E TRANSCODIFICAÇÃO
-app.post('/api/admin/upload-content', upload.fields([
+app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
   { name: "video", maxCount: 1 },
   { name: "audioTrack1", maxCount: 1 },
   { name: "audioTrack2", maxCount: 1 },
@@ -98,13 +79,6 @@ app.post('/api/admin/upload-content', upload.fields([
 ]), (req, res) => {
   const { type, section } = req.body;
 
-  if (type === "webtoon" && section !== "HIQUA") {
-    return res.status(400).json({ error: "Webtoons can only be published in HI-QUA section" });
-  }
-  if (type === "video" && section === "HIQUA") {
-    return res.status(400).json({ error: "Videos cannot be published in HI-QUA section" });
-  }
-
   if (type === "video" && req.files['video']) {
     const videoFile = req.files['video'][0];
     const videoPath = videoFile.path;
@@ -112,40 +86,45 @@ app.post('/api/admin/upload-content', upload.fields([
 
     setImmediate(async () => {
       try {
-        const success = await transcodeToHLS(videoPath, folderPath);
-        if (!success) console.warn(`[HLS] Falha ao gerar HLS para: ${videoFile.filename}. Fallback para MP4 ativo.`);
+        await transcodeToHLS(videoPath, folderPath);
       } catch (err) {
-        console.error("[HLS] Erro no processo de background:", err.message);
+        console.error("[HLS] Erro no transcode:", err.message);
       }
     });
   }
 
-  res.json({ 
-    message: "Conteúdo recebido e processamento de mídia iniciado.", 
-    files: req.files,
-    location: `uploads/${type}/${section.toLowerCase()}`
+  res.json({ message: "Conteúdo publicado com sucesso pelo administrador.", files: req.files });
+});
+
+app.get("/api/admin/files", verifyToken, requireAdmin, (req, res) => {
+  const baseDir = path.join(__dirname, "uploads");
+  const requestedPath = req.query.path || "";
+  const safePath = path.normalize(requestedPath).replace(/^(\.\.(\/|\\|$))+/, "");
+  const fullPath = path.join(baseDir, safePath);
+
+  if (!fullPath.startsWith(baseDir)) return res.status(403).json({ error: "Access denied" });
+
+  fs.readdir(fullPath, { withFileTypes: true }, (err, files) => {
+    if (err) return res.status(500).json({ error: "Cannot read directory" });
+    res.json(files.map(file => ({ name: file.name, isDirectory: file.isDirectory() })));
   });
 });
 
-app.use(express.json({ limit: '10kb' }));
-
-// 5. API ROUTES
-app.post('/api/auth/login', loginLimiter, (req, res) => {
-  res.json({ success: true });
+app.post('/api/auth/login', (req, res) => {
+  // Mock login: em produção, injetar role: 'admin' no JWT se o usuário for administrador
+  res.json({ success: true, role: 'admin' });
 });
 
-app.get('/api/content/series', globalLimiter, (req, res) => {
-  const filter = req.query.section;
+app.get('/api/content/series', (req, res) => {
   const mockData = [
-    { id: 1, title: 'Samurai Neon', section: 'HQCINE', type: 'video' },
-    { id: 2, title: 'Experimental X', section: 'VCINE', type: 'video' },
-    { id: 3, title: 'Soul Transmit', section: 'HIQUA', type: 'webtoon' }
+    { id: 1, title: 'Samurai Neon', section: 'HQCINE', type: 'video', order_index: 0 },
+    { id: 2, title: 'Experimental X', section: 'VCINE', type: 'video', order_index: 1 },
+    { id: 3, title: 'Soul Transmit', section: 'HIQUA', type: 'webtoon', order_index: 2 }
   ];
-  const filtered = filter ? mockData.filter(i => i.section === filter) : mockData;
-  res.json(filtered);
+  res.json(mockData.sort((a,b) => a.order_index - b.order_index));
 });
 
 app.use(express.static(path.join(__dirname, 'dist')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
 
-app.listen(PORT, () => console.log(`🚀 MONETIZED SERVER SECURED | PORT: ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LAILAI SECURED SERVER | ADMIN EXCLUSIVE MODE | PORT: ${PORT}`));

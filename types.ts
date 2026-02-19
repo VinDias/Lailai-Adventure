@@ -5,7 +5,7 @@ export interface User {
   nome: string;
   avatar?: string;
   isPremium: boolean;
-  premiumExpiresAt?: string; // Data de expiração da assinatura
+  premiumExpiresAt?: string;
   role: 'user' | 'admin';
   provider: 'local' | 'google' | 'microsoft';
   criadoEm: string;
@@ -19,12 +19,13 @@ export interface Video {
   descricao: string;
   duracao: number;
   arquivoUrl: string;
-  audioTrack1Url?: string; // Nova trilha de áudio 1
-  audioTrack2Url?: string; // Nova trilha de áudio 2
-  thumbnailUrl: string; // 1080x1920 para HQCine/VCine
+  audioTrack1Url?: string;
+  audioTrack2Url?: string;
+  thumbnailUrl: string;
   isPremium: boolean;
   criadoEm: string;
   type: 'hqcine' | 'vcine';
+  order_index?: number;
 }
 
 export interface Webtoon {
@@ -34,8 +35,9 @@ export interface Webtoon {
   descricao: string;
   numeroPaineis: number;
   isPremium: boolean;
-  thumbnailUrl: string; // 160x151 para Hi-Qua
+  thumbnailUrl: string;
   criadoEm: string;
+  order_index?: number;
 }
 
 export enum ViewMode {
@@ -46,7 +48,6 @@ export enum ViewMode {
   PLAYER = 'PLAYER',
   READER = 'READER',
   PROFILE = 'PROFILE',
-  // Rotas Administrativas
   ADMIN_DASHBOARD = 'ADMIN_DASHBOARD',
   ADMIN_USERS = 'ADMIN_USERS',
   ADMIN_CONTENT = 'ADMIN_CONTENT',
@@ -59,47 +60,39 @@ export interface AdminStats {
   totalVideos: number;
   totalWebtoons: number;
   estimatedRevenue: number;
+  activeAds?: number;
 }
 
-export interface Panel {
-  id: string;
-  webtoonId: string;
-  ordem: number;
-  imagemUrl: string;
-  image_url?: string;
-  largura: number;
-  altura: number;
-}
-
-export interface Series {
+// Fix: Export missing Channel type
+export interface Channel {
   id: number;
-  title: string;
+  name: string;
+  handle: string;
+  avatar: string;
+  banner: string;
   description: string;
-  genre: string;
-  cover_image: string;
-  isPremium: boolean;
-  content_type: 'hqcine' | 'vcine' | 'hiqua';
+  followerCount: number;
+  isMonetized: boolean;
 }
 
+// Fix: Export missing Episode type
 export interface Episode {
   id: number;
-  series_id?: number;
   channelId?: number;
   episode_number: number;
   title: string;
   description: string;
   video_url: string;
-  audio_track1?: string;
-  audio_track2?: string;
+  duration: number;
   thumbnail: string;
-  duration?: number;
   likes?: number;
   comments?: number;
   series_title?: string;
 }
 
+// Fix: Export missing Ad type
 export interface Ad {
-  id: number;
+  id: number | string;
   advertiserId: string;
   title: string;
   video_url: string;
@@ -107,22 +100,11 @@ export interface Ad {
   views: number;
   maxViews: number;
   active: boolean;
-  format: string;
+  format: 'H.264' | 'H.265';
   resolution: string;
 }
 
-export interface Comic {
-  id: number;
-  channelId: number;
-  title: string;
-  author: string;
-  description: string;
-  thumbnail: string;
-  panels: string[];
-  likes: number;
-  comments: number;
-}
-
+// Fix: Export missing Lesson type
 export interface Lesson {
   id: number;
   channelId: number;
@@ -136,20 +118,46 @@ export interface Lesson {
   likes: number;
 }
 
-export interface Channel {
+// Fix: Export missing Comic type
+export interface Comic {
   id: number;
-  name: string;
-  handle: string;
-  avatar: string;
-  banner: string;
+  channelId: number;
+  title: string;
+  author: string;
   description: string;
-  followerCount: number;
-  isMonetized: boolean;
+  thumbnail: string;
+  panels: string[];
+  likes: number;
+  comments: number;
 }
 
+// Fix: Export missing Series type
+export interface Series {
+  id: number;
+  title: string;
+  genre: string;
+  description: string;
+  cover_image: string;
+  isPremium: boolean;
+  content_type?: string;
+  order_index?: number;
+}
+
+// Fix: Export missing Chapter type
 export interface Chapter {
   id: number;
   series_id: number;
   chapter_number: number;
   title: string;
+}
+
+// Fix: Export missing Panel type
+export interface Panel {
+  id: string | number;
+  webtoonId?: string;
+  ordem?: number;
+  imagemUrl?: string; // used in WebtoonReader
+  image_url?: string; // used in HQCineHome
+  largura?: number;
+  altura?: number;
 }
