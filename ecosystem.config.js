@@ -1,7 +1,6 @@
-
 module.exports = {
   apps: [{
-    name: "lailai-production-app",
+    name: "lailai-app",
     script: "server.js",
     instances: "max", // Utiliza todos os cores da CPU
     exec_mode: "cluster",
