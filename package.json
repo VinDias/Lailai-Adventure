@@ -1,11 +1,11 @@
-
 {
   "name": "lailai-fullstack-production",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "scripts": {
     "dev": "vite",
     "server": "node server.js",
+    "worker": "node workers/videoWorker.js",
     "start": "pm2 start ecosystem.config.js",
     "stop": "pm2 stop ecosystem.config.js",
     "restart": "pm2 restart ecosystem.config.js",
@@ -15,30 +15,36 @@
   },
   "dependencies": {
     "@google/genai": "^1.41.0",
-    "lucide-react": "^0.564.0",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "hls.js": "^1.5.7",
-    "express": "^4.18.2",
+    "@sentry/node": "^8.0.0",
+    "axios": "^1.6.2",
+    "bullmq": "^5.0.0",
+    "compression": "^1.7.4",
+    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "cookie-parser": "^1.4.6",
-    "helmet": "^7.1.0",
-    "jsonwebtoken": "^9.0.2",
+    "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "hls.js": "^1.5.7",
+    "ioredis": "^5.3.2",
+    "joi": "^17.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.564.0",
     "multer": "^1.4.5-lts.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "sharp": "^0.33.2",
-    "googleapis": "^128.0.0",
-    "axios": "^1.6.2",
-    "winston": "^3.11.0"
+    "stripe": "^14.0.0",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.0.0",
-    "vite": "^5.0.0",
-    "tailwindcss": "^3.4.0",
     "autoprefixer": "^10.4.17",
-    "postcss": "^8.4.35"
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
   }
 }
