@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
@@ -83,7 +82,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             disabled={loading}
             className="w-full bg-rose-600 text-white font-extrabold py-4 rounded-2xl transition-all hover:bg-rose-500 disabled:bg-zinc-800 disabled:text-zinc-500 flex items-center justify-center mt-4 shadow-lg shadow-rose-900/20"
           >
-            {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Entrar"}
+            {loading ? <div className="w-5 h-5 border-2 border-black/30 border-t-white rounded-full animate-spin" /> : "Entrar"}
           </button>
         </form>
 
@@ -92,7 +91,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             onClick={() => setIsLogin(!isLogin)}
             className="text-zinc-500 hover:text-rose-500 font-bold transition-colors text-sm"
           >
-            {isLogin ? "Criar conta profissional" : "Já sou membro"}
+            {isLogin ? "Criar Conta" : "Já Tenho Uma Conta"}
           </button>
         </div>
       </div>
