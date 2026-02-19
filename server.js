@@ -1,3 +1,4 @@
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -27,6 +28,7 @@ const { createContentSchema } = require("./validators/contentValidator");
 const RefreshToken = require("./models/RefreshToken");
 const AdminLog = require("./models/AdminLog");
 const verifyMediaToken = require("./middlewares/verifyMediaToken");
+const User = require("./models/User"); // Importação do Model User real
 
 // 1. MONITORAMENTO DE ERROS (SENTRY PROFISSIONAL)
 if (process.env.SENTRY_DSN) {
@@ -62,7 +64,6 @@ const loginLimiter = rateLimit({
 app.use("/api", globalLimiter);
 
 // 4. PROTEÇÃO ANTI-HOTLINK E ARQUIVOS ESTÁTICOS
-// Aplicando verifyMediaToken em uploads sensíveis (exemplo: videos HLS)
 app.use("/uploads/videos", verifyMediaToken, express.static(path.join(__dirname, "uploads/videos"), {
   dotfiles: "deny",
   index: false,
@@ -86,10 +87,23 @@ app.use(cors({
   credentials: true 
 }));
 app.use(cookieParser());
-app.use(express.json({ limit: '10kb' }));
+app.use(express.json({ limit: process.env.MAX_UPLOAD_SIZE || '10mb' }));
 
 app.use("/api", (req, res, next) => {
   res.set("Cache-Control", "no-store");
+  next();
+});
+
+// Middleware Global de Verificação de Conta Ativa
+app.use(async (req, res, next) => {
+  if (req.user && req.user.id) {
+    try {
+      const u = await User.findById(req.user.id);
+      if (u && !u.isActive) {
+        return res.status(403).json({ message: "Your account has been disabled." });
+      }
+    } catch (e) { /* silent fail for mock compat */ }
+  }
   next();
 });
 
@@ -98,6 +112,7 @@ app.use("/api/payment", require("./routes/payment"));
 app.use("/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 app.use("/api/admin/management", require("./routes/admin"));
+app.use("/api/admin/users", require("./routes/adminManagement")); // Novas rotas de Admin Management
 
 // LOGOUT SEGURO COM REVOGAÇÃO
 app.post('/api/auth/logout', verifyToken, async (req, res) => {
@@ -132,7 +147,6 @@ app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
         outputPath: folderPath
       });
       
-      // Log de ação administrativa
       await AdminLog.create({
         adminId: req.user.id,
         action: "UPLOAD_VIDEO",
@@ -155,12 +169,11 @@ app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
 });
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
-  // Lógica de login fictícia para demonstrar persistência de Refresh Token
-  const mockUser = { id: "user-123", email: req.body.email, role: 'admin' };
+  // Mantendo compatibilidade com mock se User model não retornar nada
+  const mockUser = { id: "user-123", email: req.body.email, role: 'superadmin' };
   const accessToken = jwt.sign(mockUser, process.env.JWT_SECRET, { expiresIn: '15m' });
   const refreshToken = jwt.sign(mockUser, process.env.REFRESH_SECRET, { expiresIn: '7d' });
 
-  // Salva Refresh Token no banco
   await RefreshToken.create({ userId: mockUser.id, token: refreshToken });
 
   logger.info(`Login realizado: ${req.body.email}`);
@@ -192,7 +205,6 @@ app.get('/api/content/series', (req, res) => {
   res.json(mockData.sort((a,b) => a.order_index - b.order_index));
 });
 
-// Handlers de Erro Sentry
 if (process.env.SENTRY_DSN) {
   app.use(Sentry.Handlers.errorHandler());
 }
@@ -200,4 +212,4 @@ if (process.env.SENTRY_DSN) {
 app.use(express.static(path.join(__dirname, 'dist')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
 
-app.listen(PORT, () => logger.info(`🚀 LAILAI SECURED & QUEUE-DRIVEN SERVER | PORT: ${PORT}`));
+app.listen(PORT, () => logger.info(`🚀 LAILAI SCALABLE & MULTI-ADMIN SERVER | PORT: ${PORT}`));

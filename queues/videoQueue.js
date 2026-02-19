@@ -1,5 +1,6 @@
+
 const { Queue } = require("bullmq");
-const Redis = require("ioredis");
+const IORedis = require("ioredis");
 const logger = require("../utils/logger");
 
 if (!process.env.REDIS_URL) {
@@ -7,16 +8,18 @@ if (!process.env.REDIS_URL) {
   throw new Error("REDIS_URL not defined");
 }
 
-const redisUrl = process.env.REDIS_URL;
-const connection = new Redis(redisUrl, {
-  maxRetriesPerRequest: null
+// Conexão Redis otimizada para BullMQ em produção (Horizontal Scaling)
+const connection = new IORedis(process.env.REDIS_URL, {
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false,
 });
 
 connection.on("error", (err) => {
   logger.error("[Redis Connection Error]", err);
 });
 
-const videoQueue = new Queue("video-processing", { 
+// Nome da fila fixo e global para permitir múltiplos workers simultâneos
+const videoQueue = new Queue("video-transcoding-queue", { 
   connection,
   defaultJobOptions: {
     attempts: 3,
