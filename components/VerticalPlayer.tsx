@@ -29,7 +29,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     if (isAdPlaying) {
       initializeAds();
     } else {
-      initializeHLS();
+      initializePlayback();
     }
   }, [isAdPlaying, accessDenied]);
 
@@ -77,15 +77,51 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     setTimeout(() => setIsAdPlaying(false), 5000);
   };
 
-  const initializeHLS = () => {
+  const initializePlayback = async () => {
     if (!videoRef.current) return;
     const v = videoRef.current;
-    if (Hls.isSupported()) {
-      const hls = new Hls();
-      hls.loadSource(video.arquivoUrl);
-      hls.attachMedia(v);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
-    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    
+    // Tenta determinar o URL do HLS baseado na estrutura de pastas
+    // Se o vídeo está em /uploads/videos/hqcine/titulo/video.mp4
+    // O master deve estar em /uploads/videos/hqcine/titulo/master.m3u8
+    const videoBaseUrl = video.arquivoUrl.substring(0, video.arquivoUrl.lastIndexOf('/'));
+    const hlsUrl = `${videoBaseUrl}/master.m3u8`;
+
+    try {
+      // Verifica se o master.m3u8 existe antes de tentar carregar
+      const response = await fetch(hlsUrl, { method: 'HEAD' });
+      const hlsExists = response.ok;
+
+      if (hlsExists && Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+        });
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(v);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
+        
+        // Error handling para HLS
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+             console.warn("[HLS] Erro fatal no streaming. Tentando fallback para MP4.");
+             hls.destroy();
+             v.src = video.arquivoUrl;
+             v.play();
+          }
+        });
+      } else if (hlsExists && v.canPlayType('application/vnd.apple.mpegurl')) {
+        // Suporte nativo Safari (iOS)
+        v.src = hlsUrl;
+        v.play();
+      } else {
+        // Fallback total para o arquivo original MP4
+        console.log("[Player] Usando arquivo original (MP4) como fallback.");
+        v.src = video.arquivoUrl;
+        v.play();
+      }
+    } catch (err) {
+      console.warn("[Player] Falha na detecção de HLS. Usando MP4 original.");
       v.src = video.arquivoUrl;
       v.play();
     }
@@ -96,7 +132,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     const v = videoRef.current;
     if (!v) return;
 
-    // Mutar as trilhas não utilizadas
     if (track === 'main') {
       v.muted = isMuted;
       if (audioTrack1Ref.current) audioTrack1Ref.current.muted = true;
@@ -140,7 +175,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     <div className="fixed inset-0 z-[1000] bg-black flex items-center justify-center animate-apple">
       <div className="relative w-full h-full max-w-[500px] overflow-hidden bg-zinc-900 shadow-2xl">
         
-        {/* Camada de Áudio Separado (Objetivo 3) */}
         {video.audioTrack1Url && (
           <audio ref={audioTrack1Ref} src={video.audioTrack1Url} muted={activeAudio !== 'track1'} />
         )}
@@ -163,7 +197,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
           muted={activeAudio !== 'main' || isMuted}
         />
 
-        {/* CONTROLES LATERAIS */}
         <div className="absolute right-4 bottom-32 flex flex-col gap-4 z-[1200]">
            <button onClick={() => setIsMuted(!isMuted)} className="p-3 bg-black/40 backdrop-blur-xl rounded-full border border-white/10 text-white">
              {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}

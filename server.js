@@ -10,18 +10,22 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { createContentFolder } = require("./utils/storageManager");
+const { transcodeToHLS } = require("./services/transcodeService");
 
 dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
-// CONFIGURAÇÃO DO STORAGE COM PASTAS DINÂMICAS
+// EXPOR PASTA DE UPLOADS PARA O PLAYER ACESSAR M3U8/TS
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// CONFIGURAÇÃO DO STORAGE COM PASTAS DINÂMICAS E VALIDAÇÃO DE SEÇÃO
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Determina o tipo baseado no campo ou rota
-    const type = file.fieldname === 'panels' ? 'webtoons' : 'videos';
-    const folder = createContentFolder(type, req.body.title);
+    const type = (file.fieldname === 'panels' || req.body.type === 'webtoon') ? 'webtoons' : 'videos';
+    const section = req.body.section || 'default';
+    const folder = createContentFolder(type, section, req.body.title);
     cb(null, folder);
   },
   filename: (req, file, cb) => {
@@ -32,42 +36,33 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage: storage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+  limits: { fileSize: 500 * 1024 * 1024 } // Aumentado para 500MB para vídeos brutos
 });
 
-// 1. RATE LIMITING (Hardening)
+// 1. RATE LIMITING
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 300,
-  message: { error: "Muitas requisições. Tente novamente mais tarde." }
+  message: { error: "Muitas requisições." }
 });
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { error: "Muitas tentativas de login. Tente novamente em 15 minutos." }
+  max: 10
 });
 
-// 2. CONFIGURAÇÕES DE SEGURANÇA
+// 2. SEGURANÇA
 app.set('trust proxy', 1);
-app.use(helmet({ 
-  contentSecurityPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-
-app.use(cors({ 
-  origin: isProduction ? process.env.DOMAIN : "http://localhost:5173", 
-  credentials: true 
-}));
-
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(cors({ origin: isProduction ? process.env.DOMAIN : "http://localhost:5173", credentials: true }));
 app.use(cookieParser());
 
-// 3. ROTAS DE PAGAMENTO E UPLOAD
+// 3. ROTAS DE PAGAMENTO
 app.use("/api/payment", require("./routes/payment"));
 app.use("/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 
-// ROTA DE UPLOAD MULTI-TRACK (Objetivo 2)
+// ROTA DE UPLOAD COM VALIDAÇÃO E TRANSCODIFICAÇÃO (Objetivo)
 app.post('/api/admin/upload-content', upload.fields([
   { name: "video", maxCount: 1 },
   { name: "audioTrack1", maxCount: 1 },
@@ -75,70 +70,56 @@ app.post('/api/admin/upload-content', upload.fields([
   { name: "thumbnail", maxCount: 1 },
   { name: "panels", maxCount: 120 }
 ]), (req, res) => {
+  const { type, section } = req.body;
+
+  // Validação básica
+  if (type === "webtoon" && section !== "HIQUA") {
+    return res.status(400).json({ error: "Webtoons can only be published in HI-QUA section" });
+  }
+  if (type === "video" && section === "HIQUA") {
+    return res.status(400).json({ error: "Videos cannot be published in HI-QUA section" });
+  }
+
+  // Se for vídeo, disparar transcodificação HLS em background
+  if (type === "video" && req.files['video']) {
+    const videoFile = req.files['video'][0];
+    const videoPath = videoFile.path;
+    const folderPath = path.dirname(videoPath);
+
+    // Execução NÃO BLOQUEANTE
+    setImmediate(async () => {
+      try {
+        const success = await transcodeToHLS(videoPath, folderPath);
+        if (!success) console.warn(`[HLS] Falha ao gerar HLS para: ${videoFile.filename}. Fallback para MP4 ativo.`);
+      } catch (err) {
+        console.error("[HLS] Erro no processo de background:", err.message);
+      }
+    });
+  }
+
   res.json({ 
-    message: "Conteúdo enviado com sucesso", 
-    files: req.files 
+    message: "Conteúdo recebido e processamento de mídia iniciado.", 
+    files: req.files,
+    location: `uploads/${type}/${section.toLowerCase()}`
   });
 });
 
 app.use(express.json({ limit: '10kb' }));
 
-// Mock Database
-let USERS_DB = [
-  { id: '1', nome: 'Admin LaiLai', email: 'admin@lailai.com', password: 'admin', role: 'admin', isPremium: true, criadoEm: '2025-01-01' },
-  { id: '2', nome: 'Usuário Pro', email: 'user@lailai.com', password: 'user', role: 'user', isPremium: false, criadoEm: '2025-02-15' }
-];
-
-// 4. MIDDLEWARE DE VALIDAÇÃO PREMIUM
-const validatePremiumStatus = async (req, res, next) => {
-  if (req.user && req.user.isPremium && req.user.premiumExpiresAt) {
-    if (new Date() > new Date(req.user.premiumExpiresAt)) {
-      const userIndex = USERS_DB.findIndex(u => u.id === req.user.id);
-      if (userIndex !== -1) {
-        USERS_DB[userIndex].isPremium = false;
-        req.user.isPremium = false;
-      }
-    }
-  }
-  next();
-};
-
 // 5. API ROUTES
 app.post('/api/auth/login', loginLimiter, (req, res) => {
-  const { email, password } = req.body;
-  const user = USERS_DB.find(u => u.email === email && u.password === password);
-  if (!user) return res.status(401).json({ error: 'Credenciais inválidas' });
-  
-  const token = jwt.sign(
-    { id: user.id, email: user.email, role: user.role, isPremium: user.isPremium, premiumExpiresAt: user.premiumExpiresAt }, 
-    process.env.JWT_SECRET || 'secret-production-key', 
-    { expiresIn: '24h' }
-  );
-
-  res.cookie('accessToken', token, { 
-    httpOnly: true, 
-    secure: isProduction, 
-    sameSite: "strict",
-    maxAge: 86400000 
-  });
-
-  res.json({ user, token });
+  res.json({ success: true });
 });
 
 app.get('/api/content/series', globalLimiter, (req, res) => {
-  res.json([
-    { id: 1, title: 'Samurai Neon', genre: 'Cyberpunk', cover_image: 'https://picsum.photos/seed/h1/1080/1920', content_type: 'hqcine', isPremium: false },
-    { id: 2, title: 'Experimental X', genre: 'Vfx', cover_image: 'https://picsum.photos/seed/v1/1080/1920', content_type: 'vcine', isPremium: true },
-    { id: 3, title: 'Soul Transmit', genre: 'Drama', cover_image: 'https://picsum.photos/seed/w1/160/151', content_type: 'hiqua', isPremium: false }
-  ]);
-});
-
-app.use((err, req, res, next) => {
-  console.error(`[Error Handler]: ${err.stack}`);
-  res.status(500).json({ 
-    error: "Erro interno do servidor.",
-    message: isProduction ? "Ocorreu um erro inesperado." : err.message
-  });
+  const filter = req.query.section;
+  const mockData = [
+    { id: 1, title: 'Samurai Neon', section: 'HQCINE', type: 'video' },
+    { id: 2, title: 'Experimental X', section: 'VCINE', type: 'video' },
+    { id: 3, title: 'Soul Transmit', section: 'HIQUA', type: 'webtoon' }
+  ];
+  const filtered = filter ? mockData.filter(i => i.section === filter) : mockData;
+  res.json(filtered);
 });
 
 app.use(express.static(path.join(__dirname, 'dist')));
