@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "backup": "bash scripts/backup.sh",
     "validate:env": "node scripts/validateEnv.js",
+    "seed:admin": "node scripts/seedAdmin.js",
     "build:frontend": "npm run build && mkdir -p frontend-dist && cp -r dist/* frontend-dist/"
   },
   "dependencies": {
