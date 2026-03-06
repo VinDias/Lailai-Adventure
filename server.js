@@ -13,6 +13,14 @@ const Sentry = require("@sentry/node");
 
 // Configurações Iniciais
 dotenv.config();
+const mongoose = require('mongoose');
+
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/loreflux')
+  .then(() => console.log('✅ MongoDB conectado'))
+  .catch(err => {
+    console.error('❌ Erro ao conectar MongoDB:', err);
+    process.exit(1);
+  });
 
 // 0. PROTEÇÃO CONTRA CRASH E VALIDAÇÃO DE AMBIENTE
 process.on("unhandledRejection", err => {
@@ -206,15 +214,104 @@ app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
   }
 });
 
+// REGISTRO DE NOVO USUÁRIO
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password, nome } = req.body;
+    if (!email || !password || !nome) {
+      return res.status(400).json({ error: "Email, senha e nome são obrigatórios." });
+    }
+
+    const existing = await User.findOne({ email: email.toLowerCase() });
+    if (existing) {
+      return res.status(409).json({ error: "Este email já está cadastrado." });
+    }
+
+    const bcrypt = require('bcrypt');
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    const user = await User.create({
+      email: email.toLowerCase(),
+      passwordHash,
+      nome,
+      role: 'user',
+      isPremium: false,
+      isActive: true,
+      provider: 'local'
+    });
+
+    const payload = { id: user._id, email: user.email, role: user.role };
+    const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: '7d' });
+
+    await RefreshToken.create({ userId: user._id, token: refreshToken });
+
+    logger.info(`Novo usuário registrado: ${email}`);
+    res.status(201).json({
+      success: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        nome: user.nome,
+        role: user.role,
+        isPremium: false
+      },
+      accessToken,
+      refreshToken
+    });
+  } catch (err) {
+    logger.error("[Register Error]", err);
+    res.status(500).json({ error: "Erro ao criar conta." });
+  }
+});
+
+// LOGIN COM BCRYPT E MONGODB
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
-  const mockUser = { id: "user-123", email: req.body.email, role: 'superadmin' };
-  const accessToken = jwt.sign(mockUser, process.env.JWT_SECRET, { expiresIn: '15m' });
-  const refreshToken = jwt.sign(mockUser, process.env.REFRESH_SECRET, { expiresIn: '7d' });
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email e senha são obrigatórios." });
+    }
 
-  await RefreshToken.create({ userId: mockUser.id, token: refreshToken });
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(401).json({ error: "Credenciais inválidas." });
+    }
 
-  logger.info(`Login realizado: ${req.body.email}`);
-  res.json({ success: true, role: mockUser.role, accessToken, refreshToken });
+    const bcrypt = require('bcrypt');
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ error: "Credenciais inválidas." });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ error: "Conta desativada." });
+    }
+
+    const payload = { id: user._id, email: user.email, role: user.role };
+    const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: '7d' });
+
+    await RefreshToken.create({ userId: user._id, token: refreshToken });
+
+    logger.info(`Login realizado: ${email}`);
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        nome: user.nome,
+        role: user.role,
+        isPremium: user.isPremium,
+        avatar: user.avatar
+      },
+      accessToken,
+      refreshToken
+    });
+  } catch (err) {
+    logger.error("[Login Error]", err);
+    res.status(500).json({ error: "Erro interno." });
+  }
 });
 
 app.post('/api/auth/refresh-token', async (req, res) => {
@@ -264,4 +361,4 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => logger.info(`🚀 LAILAI PROD-READY SERVER | PORT: ${PORT} | ENV: ${process.env.NODE_ENV}`));
+app.listen(PORT, () => logger.info(`🚀 LOREFLUX PROD-READY SERVER | PORT: ${PORT} | ENV: ${process.env.NODE_ENV}`));
