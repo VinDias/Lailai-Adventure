@@ -5,78 +5,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#000000">
+    <meta name="description" content="Loreflux - Cinematic Comics. Plataforma de streaming vertical e webtoons.">
     <link rel="manifest" href="/manifest.json" />
-    <title>LaiLai - Professional Vertical Cinema</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="https://imasdk.googleapis.com/js/sdkloader/ima3.js"></script>
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-SEU_CLIENT_ID" crossorigin="anonymous"></script>
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+    <title>Loreflux - Cinematic Comics</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
-    <style>
-        :root[data-theme="light"] {
-            --bg-color: #ffffff;
-            --text-color: #000000;
-            --nav-bg: rgba(255, 255, 255, 0.85);
-            --apple-bg: #ffffff;
-        }
-
-        :root[data-theme="dark"] {
-            --bg-color: #0f0f0f;
-            --text-color: #ffffff;
-            --nav-bg: rgba(0, 0, 0, 0.85);
-            --apple-bg: #0A0A0B;
-        }
-
-        :root {
-            --lailai-accent: #E11D48;
-        }
-
-        body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            overflow: hidden;
-            -webkit-font-smoothing: antialiased;
-            transition: background-color 0.3s ease, color 0.3s ease;
-        }
-        .premium-text {
-            background: linear-gradient(135deg, var(--text-color) 0%, #86868B 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .animate-apple {
-            animation: apple-in 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        @keyframes apple-in {
-            from { opacity: 0; transform: scale(0.95) translateY(20px); }
-            to { opacity: 1; transform: scale(1) translateY(0); }
-        }
-        ::-webkit-scrollbar { width: 0; display: none; }
-        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-        
-        .video-card-hover:hover {
-            box-shadow: 0 0 30px rgba(225, 29, 72, 0.2);
-        }
-    </style>
-<script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4",
-    "lucide-react": "https://esm.sh/lucide-react@^0.564.0",
-    "hls.js": "https://esm.sh/hls.js@1.5.7",
-    "@google/genai": "https://esm.sh/@google/genai@^1.41.0",
-    "vite": "https://esm.sh/vite@^7.3.1",
-    "express": "https://esm.sh/express@^5.2.1",
-    "jsonwebtoken": "https://esm.sh/jsonwebtoken@^9.0.3",
-    "stripe": "https://esm.sh/stripe@^20.3.1"
-  }
-}
-</script>
 </head>
 <body>
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>
 </body>
 </html>
