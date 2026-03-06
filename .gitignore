@@ -6,3 +6,4 @@ logs
 dist
 uploads/*
 !uploads/.gitkeep
+guide.md
