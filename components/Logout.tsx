@@ -8,7 +8,7 @@ interface LogoutProps {
 
 const Logout: React.FC<LogoutProps> = ({ onLogout, onCancel }) => {
   return (
-    <div className="min-h-screen w-full bg-[#0A0A0B] flex items-center justify-center p-6 font-lailai animate-apple">
+    <div className="min-h-screen w-full bg-[#0A0A0B] flex items-center justify-center p-6 font-inter animate-apple">
       <div className="w-full max-w-sm bg-[#1C1C1E] rounded-[3rem] p-12 border border-white/5 text-center shadow-2xl relative overflow-hidden">
         {/* Detalhe de luz de fundo */}
         <div className="absolute -top-24 -left-24 w-48 h-48 bg-rose-500/10 blur-[60px] rounded-full" />

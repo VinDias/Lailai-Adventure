@@ -22,25 +22,25 @@ const App: React.FC = () => {
 
   useEffect(() => {
     api.setStatusCallback(setIsOffline);
-    const saved = localStorage.getItem('lailai_pro_session');
+    const saved = localStorage.getItem('loreflux_session');
     if (saved) {
       try {
         const u = JSON.parse(saved);
         setUser(u);
         setView(ViewMode.HQCINE);
-      } catch (e) { localStorage.removeItem('lailai_pro_session'); }
+      } catch (e) { localStorage.removeItem('loreflux_session'); }
     }
   }, []);
 
   const handleLogin = (u: User) => {
     setUser(u);
-    localStorage.setItem('lailai_pro_session', JSON.stringify(u));
+    localStorage.setItem('loreflux_session', JSON.stringify(u));
     setView(ViewMode.HQCINE);
   };
 
   const handleLogout = () => {
     setUser(null);
-    localStorage.removeItem('lailai_pro_session');
+    localStorage.removeItem('loreflux_session');
     setView(ViewMode.AUTH);
   };
 

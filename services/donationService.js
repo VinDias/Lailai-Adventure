@@ -11,7 +11,7 @@ async function createDonationSession(amount) {
         price_data: {
           currency: "brl",
           product_data: {
-            name: "Doação Voluntária - LaiLai",
+            name: "Doação Voluntária - Loreflux",
             description: "Apoio voluntário à plataforma - sem benefícios digitais inclusos"
           },
           unit_amount: Math.round(amount * 100) // Converte para centavos

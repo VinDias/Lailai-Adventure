@@ -2,7 +2,7 @@
 module.exports = {
   apps: [
     {
-      name: "lailai-app",
+      name: "loreflux-app",
       script: "server.js",
       instances: 1,
       exec_mode: "fork",
@@ -19,7 +19,7 @@ module.exports = {
       merge_logs: true
     },
     {
-      name: "lailai-video-worker",
+      name: "loreflux-video-worker",
       script: "workers/videoWorker.js",
       instances: "max", 
       exec_mode: "cluster",

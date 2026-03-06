@@ -56,7 +56,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     return (
       <div className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center p-10 text-center">
         <h2 className="text-3xl font-black text-white mb-4 italic">Conteúdo Premium</h2>
-        <p className="text-zinc-500 mb-8">Esta obra é exclusiva para assinantes LaiLai Premium.</p>
+        <p className="text-zinc-500 mb-8">Esta obra é exclusiva para assinantes Loreflux Premium.</p>
         <button onClick={onClose} className="px-12 py-4 bg-rose-600 text-white font-black rounded-2xl">VOLTAR</button>
       </div>
     );

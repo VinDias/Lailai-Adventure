@@ -46,7 +46,7 @@ const Profile: React.FC<ProfileProps> = ({ user, onUpdate, onBack }) => {
   };
 
   return (
-    <div className="h-full w-full bg-[#0A0A0B] text-white overflow-y-auto font-lailai animate-apple pb-48 scrollbar-custom">
+    <div className="h-full w-full bg-[#0A0A0B] text-white overflow-y-auto font-inter animate-apple pb-48 scrollbar-custom">
       <div className="max-w-xl mx-auto px-6 pt-12">
         <header className="flex justify-between items-center mb-16">
           <button onClick={onBack} className="p-3 bg-[#1C1C1E] rounded-2xl border border-white/5 text-zinc-400"><svg className="w-6 h-6 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7" /></svg></button>
