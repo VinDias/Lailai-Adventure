@@ -159,6 +159,7 @@ app.use("/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 app.use("/api/admin/management", require("./routes/admin"));
 app.use("/api/admin/users", require("./routes/adminManagement"));
+app.use("/api/bunny", require("./routes/bunnyWebhook"));
 
 // LOGOUT SEGURO COM REVOGAÇÃO
 app.post('/api/auth/logout', verifyToken, async (req, res) => {
