@@ -111,21 +111,23 @@ const App: React.FC = () => {
         )}
 
         {view === ViewMode.HIQUA && (
-          <HiQua 
-            user={user} 
+          <HiQua
+            user={user}
             onOpen={(ep, series) => {
+              const epId = (ep as any)._id || ep.id.toString();
               setActiveWebtoon({
-                id: ep.id.toString(),
+                id: epId,
+                episodeId: epId,
                 titulo: ep.title,
                 categoria: series.genre,
                 descricao: ep.description,
-                numeroPaineis: 10,
+                numeroPaineis: (ep as any).panels?.length ?? 0,
                 isPremium: series.isPremium,
                 thumbnailUrl: ep.thumbnail,
                 criadoEm: new Date().toISOString()
               });
               setView(ViewMode.READER);
-            }} 
+            }}
           />
         )}
 
