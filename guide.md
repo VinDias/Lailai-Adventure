@@ -1,43 +1,44 @@
-# 📋 GUIA COMPLETO — Projeto Loreflux (ex-Lailai Adventure)
+# GUIA COMPLETO — Projeto Loreflux (ex-Lailai Adventure)
 
-> **Última atualização:** 6 de Março de 2026
-> **Branch:** `feat/loreflux-full-setup`
-> **Stack:** React 19 + Vite 5.4 + Tailwind 3.4 + Node/Express + MongoDB + Stripe
+> **Última atualização:** 7 de Março de 2026
+> **Branch:** `main` (merge de `feat/loreflux-full-setup`)
+> **Stack:** React 19 + Vite 5.4 + Tailwind 3.4 + Node/Express + MongoDB + Stripe + Bunny.net
 
 ---
 
-## 📊 PANORAMA GERAL DO PROJETO
+## PANORAMA GERAL DO PROJETO
 
 ### Status por Área
 
 | Área | Status | Detalhe |
 |------|--------|---------|
-| **Frontend (React/Vite)** | ✅ Concluído | Build compila, Tailwind via PostCSS, CSS vars com defaults |
-| **Backend (Node/Express)** | ✅ Concluído | MongoDB conectado, auth com bcrypt, JWT access+refresh |
-| **Autenticação** | ✅ Concluído | Login, registro, logout, refresh token, seed admin |
-| **Stripe (Pagamentos)** | ✅ Concluído | Checkout, webhook, status premium, doações |
-| **Rebranding** | ✅ Concluído | LaiLai → Loreflux em 23 arquivos |
-| **PWA** | ✅ Concluído | Manifest, service-worker, estrutura de ícones |
-| **Bunny.net (Vídeo)** | 🟡 Parcial | Serviço criado, webhook pronto — falta credenciais e testes |
-| **API de Conteúdo (CRUD)** | 🔴 Pendente | Só existe GET /api/content/series com dados mock |
-| **Admin Dashboard** | 🟡 Parcial | UI existe, stats são mock, sem queries reais |
-| **Redis/BullMQ (Filas)** | 🟡 Parcial | Código existe, falta instalar Redis |
-| **Storage S3/R2** | 🟡 Parcial | SDK instalado, falta endpoints de upload |
-| **Anúncios** | 🟡 Parcial | UI + mock data, sem persistência no banco |
-| **Sistema de Canais** | 🔴 Pendente | Endpoints referenciados no frontend, não implementados |
-| **Webtoon Panels** | 🔴 Pendente | Modelo tem campo panels[], sem endpoint de upload |
+| **Frontend (React/Vite)** | Concluído | Build compila, Tailwind via PostCSS, CSS vars com defaults |
+| **Backend (Node/Express)** | Concluído | MongoDB conectado, auth com bcrypt, JWT access+refresh |
+| **Autenticação** | Concluído | Login, registro, logout, refresh token, seed admin |
+| **Stripe (Pagamentos)** | Parcial | Checkout e webhook prontos — falta chaves de produção |
+| **Rebranding** | Concluído | LaiLai → Loreflux em 23 arquivos |
+| **PWA** | Concluído | Manifest, service-worker, estrutura de ícones |
+| **Bunny.net (Vídeo)** | Concluído | Credenciais configuradas, webhook persiste no MongoDB, endpoint de upload |
+| **API de Conteúdo (CRUD)** | Concluído | CRUD completo de Series e Episodes no MongoDB |
+| **Admin Dashboard** | Parcial | Stats reais do MongoDB prontos — falta conectar no frontend |
+| **Redis/BullMQ (Filas)** | Parcial | Código existe, falta instalar Redis no servidor |
+| **Storage S3/R2** | Parcial | SDK instalado, falta endpoints de upload |
+| **Anúncios** | Concluído | CRUD completo no banco, rastreamento de impressões e cliques |
+| **Sistema de Canais** | Concluído | API completa: criar, editar, follow/unfollow |
+| **Webtoon Panels** | Concluído | Endpoint POST /api/content/episodes/:id/panels implementado |
+| **Google AdSense** | Concluído | Script integrado no index.html (ca-pub-5972610130504852) |
 
 ---
 
-## ✅ O QUE JÁ ESTÁ PRONTO
+## O QUE JA ESTA PRONTO
 
 ### Infraestrutura
 - [x] Vite 5.4 + React plugin v4 + PostCSS/Tailwind compilando
 - [x] Express com helmet, cors, compression, rate limiting
 - [x] MongoDB Atlas conectado via Mongoose
-- [x] Modelos: User, Series, Episode, RefreshToken, AdminLog
+- [x] Modelos: User, Series, Episode, RefreshToken, AdminLog, Channel, Ad
 - [x] JWT (access 15min + refresh 7d) com revogação no logout
-- [x] `.env` preenchido com credenciais de desenvolvimento
+- [x] `.env` preenchido com credenciais (incluindo Bunny.net)
 - [x] Winston logger com rotação diária
 - [x] Sentry configurável (opcional)
 - [x] Healthcheck em `/health`
@@ -56,9 +57,46 @@
 - [x] `GET /api/payment/status` — retorna isPremium do usuário
 - [x] `POST /donation/create` — doação única (mode=payment)
 
-### Admin
-- [x] `POST /api/admin/upload-content` — upload com multer + fila BullMQ
-- [x] Admin routes: gerenciamento de usuários
+### API de Conteúdo — CRUD completo (routes/content.js)
+- [x] `GET /api/content/series` — listar séries do MongoDB (com filtro por ?type=)
+- [x] `GET /api/content/series/:id` — detalhes de uma série
+- [x] `POST /api/content/series` — criar série (admin)
+- [x] `PUT /api/content/series/:id` — editar série (admin)
+- [x] `DELETE /api/content/series/:id` — remover série e episódios (admin)
+- [x] `GET /api/content/series/:id/episodes` — listar episódios publicados
+- [x] `GET /api/content/episodes/:id` — detalhes + incrementa views
+- [x] `POST /api/content/episodes` — criar episódio (admin)
+- [x] `PUT /api/content/episodes/:id` — editar episódio (admin)
+- [x] `DELETE /api/content/episodes/:id` — remover episódio (admin)
+- [x] `POST /api/content/episodes/:id/panels` — adicionar painéis webtoon (admin)
+- [x] `GET /api/content/ads` — listar anúncios ativos
+
+### API de Canais (routes/channels.js)
+- [x] `GET /api/channels/me` — canais do usuário autenticado
+- [x] `GET /api/channels/:id` — detalhes do canal
+- [x] `POST /api/channels` — criar canal
+- [x] `PUT /api/channels/:id` — editar canal (apenas dono)
+- [x] `POST /api/channels/:id/follow` — seguir canal
+- [x] `DELETE /api/channels/:id/follow` — deixar de seguir
+
+### API de Anúncios (routes/ads.js)
+- [x] `GET /api/admin/ads` — listar todos (admin)
+- [x] `POST /api/admin/ads` — criar anúncio (admin)
+- [x] `PUT /api/admin/ads/:id` — editar anúncio (admin)
+- [x] `DELETE /api/admin/ads/:id` — remover anúncio (admin)
+- [x] `POST /api/admin/ads/:id/impression` — registrar impressão
+- [x] `POST /api/admin/ads/:id/click` — registrar clique
+
+### Bunny.net (routes/bunnyWebhook.js)
+- [x] `POST /api/bunny/webhook` — persiste status e URL HLS no MongoDB ao concluir encoding
+- [x] `POST /api/bunny/upload` — cria vídeo na biblioteca do Bunny Stream e vincula ao episódio
+- [x] Credenciais configuradas no .env: `BUNNY_API_KEY`, `BUNNY_LIBRARY_ID=612589`, `BUNNY_CDN_HOSTNAME=vz-fbaa1d24-d2c.b-cdn.net`
+
+### Admin Dashboard (routes/admin.js)
+- [x] `GET /api/admin/management/stats` — dados reais do MongoDB (totalUsers, premiumUsers, series, episódios, anúncios, receita estimada)
+- [x] `GET /api/admin/management/content` — listagem de séries paginada
+- [x] `PUT /api/admin/management/reorder` — salva nova ordem no MongoDB
+- [x] `PUT /api/admin/management/update-thumbnail/:id` — atualiza thumbnail
 - [x] AdminLog: registro de ações administrativas
 - [x] Middleware: requireAdmin, requireRole, requirePremium
 
@@ -72,86 +110,44 @@
 - [x] Profile, Premium, ThemeToggle, BrandLogo
 - [x] Admin Dashboard (UI)
 - [x] PWA (instalável, ícones configurados)
+- [x] Google AdSense integrado (ca-pub-5972610130504852)
 
 ---
 
-## 🔴 O QUE FALTA PARA FINALIZAR O PROJETO
+## O QUE AINDA FALTA
 
-### 1. Credenciais e Serviços Externos (depende do cliente)
+### 1. Ações Manuais (depende do cliente/servidor)
 
-#### Bunny.net Stream (Hospedagem de Vídeo)
-- [ ] Criar conta/library no bunny.net → Stream
-- [ ] Obter: `BUNNY_API_KEY`, `BUNNY_LIBRARY_ID`, `BUNNY_CDN_HOSTNAME`
-- [ ] Configurar webhook URL no painel Bunny: `https://SEU_DOMINIO/api/bunny/webhook`
+#### MongoDB — CRITICO
+- [ ] Substituir `<db_password>` no `MONGO_URI` do `.env` pela senha real do MongoDB Atlas
 
-#### Stripe (Produção)
-- [ ] Criar produto "Loreflux Premium" no dashboard Stripe
-- [ ] Criar price (ex: R$3,99/mês) e obter o `PRICE_ID` de produção
-- [ ] Gerar chaves live: `STRIPE_SECRET_KEY` (sk_live_...) e `STRIPE_WEBHOOK_SECRET`
-- [ ] Configurar webhook de produção: `https://SEU_DOMINIO/api/payment/webhook`
+#### Bunny.net — configurar webhook no painel
+- [ ] Entrar em dash.bunny.net → Library 612589 → Settings → Webhooks
+- [ ] Adicionar URL: `https://SEU_DOMINIO/api/bunny/webhook`
 
-#### S3/Cloudflare R2 (Storage de Imagens/Painéis) — Opcional
-- [ ] Criar bucket para thumbnails e painéis de webtoon
-- [ ] Obter: `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET_NAME`, `CDN_URL`
+#### Stripe — producao
+- [ ] Criar produto "Loreflux Premium" (R$3,99/mes) no dashboard Stripe
+- [ ] Copiar `PRICE_ID` e substituir `price_PLACEHOLDER` no `.env`
+- [ ] Configurar webhook: `https://SEU_DOMINIO/api/payment/webhook`
+- [ ] Atualizar `STRIPE_WEBHOOK_SECRET` no `.env`
 
-#### Redis (Filas de Processamento)
-- [ ] Instalar Redis no servidor de produção
-- [ ] Configurar `REDIS_URL` no `.env`
+#### Redis
+- [ ] Instalar Redis no servidor: `sudo apt install redis-server && sudo systemctl enable --now redis`
 
 #### Domínio e Deploy
-- [ ] Definir domínio de produção (ex: loreflux.com)
-- [ ] Configurar `FRONTEND_URL` no `.env`
-- [ ] Configurar `MEDIA_BASE_URL` no `.env`
-- [ ] SSL/HTTPS via Nginx + Let's Encrypt
+- [ ] Definir domínio e VPS
+- [ ] Atualizar `FRONTEND_URL` e `MEDIA_BASE_URL` no `.env`
+- [ ] Configurar Nginx + SSL (Let's Encrypt)
 
-### 2. Desenvolvimento Backend (implementação necessária)
+### 2. Desenvolvimento Frontend (a fazer)
 
-#### API de Conteúdo — CRUD completo
-- [ ] `GET /api/content/series` — listar séries do MongoDB (substituir mock atual)
-- [ ] `GET /api/content/series/:id` — detalhes de uma série
-- [ ] `POST /api/content/series` — criar série (admin)
-- [ ] `PUT /api/content/series/:id` — editar série (admin)
-- [ ] `DELETE /api/content/series/:id` — remover série (admin)
-- [ ] `GET /api/content/series/:id/episodes` — listar episódios de uma série
-- [ ] `GET /api/content/episodes/:id` — detalhes de um episódio
-- [ ] `POST /api/content/episodes` — criar episódio (admin)
-- [ ] `PUT /api/content/episodes/:id` — editar episódio (admin)
-- [ ] `DELETE /api/content/episodes/:id` — remover episódio (admin)
-- [ ] `POST /api/content/episodes/:id/panels` — upload de painéis webtoon (admin)
+- [ ] Conectar feeds (HQCine, VCine, HiQua) a `/api/content/series?type=hqcine` etc.
+- [ ] Remover fallback para MOCK_EPISODES, MOCK_CHANNELS, MOCK_ADS (api.ts)
+- [ ] Player de vídeo montar URL HLS real: `https://vz-fbaa1d24-d2c.b-cdn.net/{bunnyVideoId}/playlist.m3u8`
+- [ ] Admin Dashboard: conectar a `/api/admin/management/stats` para stats reais
+- [ ] Tela de upload de conteúdo para admin (UI para cadastrar série/episódio + enviar vídeo via Bunny)
 
-#### API de Canais
-- [ ] `GET /api/channels/me` — canais do usuário (substituir fallback mock)
-- [ ] `POST /api/channels` — criar canal
-- [ ] `GET /api/channels/:id` — detalhes do canal
-- [ ] `PUT /api/channels/:id` — editar canal
-- [ ] `POST /api/channels/:id/follow` — seguir canal
-- [ ] `DELETE /api/channels/:id/follow` — deixar de seguir
-
-#### API de Anúncios
-- [ ] `GET /api/content/ads` — listar anúncios ativos (substituir fallback mock)
-- [ ] `POST /api/admin/ads` — criar anúncio (admin)
-- [ ] `PUT /api/admin/ads/:id` — editar anúncio (admin)
-- [ ] `DELETE /api/admin/ads/:id` — remover anúncio (admin)
-
-#### Bunny.net Integration
-- [ ] Completar webhook handler (persistir status do vídeo no MongoDB)
-- [ ] Endpoint para iniciar upload de vídeo via Bunny API
-- [ ] Atualizar Episode com bunnyVideoId e video_url após processamento
-
-#### Admin Dashboard — Dados Reais
-- [ ] Substituir stats mock por aggregation queries do MongoDB
-- [ ] Total de usuários, premium ativos, receita, uploads
-- [ ] Listagem de conteúdo com paginação
-
-### 3. Desenvolvimento Frontend (ajustes necessários)
-
-- [ ] Conectar feeds (HQCine, VCine, HiQua) à API real ao invés de mock data
-- [ ] Remover dependência de MOCK_EPISODES, MOCK_CHANNELS, MOCK_ADS quando API estiver pronta
-- [ ] Implementar player com URL real do Bunny.net CDN
-- [ ] Admin Dashboard: conectar a endpoints reais de stats
-- [ ] Tela de upload de conteúdo para admin
-
-### 4. Conteúdo (depende do cliente)
+### 3. Conteúdo (depende do cliente)
 
 - [ ] Vídeos para HQCine e VCine (formato vertical 9:16 recomendado)
 - [ ] Thumbnails (1080x1920px recomendado)
@@ -159,52 +155,50 @@
 - [ ] Metadados de séries: títulos, descrições, gêneros
 - [ ] Ícones PWA reais (192px, 512px, maskable 512px) com logo Loreflux
 
-### 5. Infraestrutura de Produção
+### 4. Infraestrutura de Producao
 
 - [ ] Servidor VPS/Cloud (Node.js 18+, MongoDB, Redis, Nginx)
 - [ ] PM2 com ecosystem.config.js (já configurado)
 - [ ] Nginx como reverse proxy (porta 443 → 3000)
 - [ ] Backup automático (script scripts/backup.sh já existe)
 - [ ] Monitoramento (Sentry DSN opcional)
-- [ ] CI/CD (GitHub Actions ou similar)
 
 ---
 
-## 🔑 VARIÁVEIS DE AMBIENTE
+## VARIAVEIS DE AMBIENTE
 
 ```env
-# ✅ Já configuradas no .env
-MONGO_URI=mongodb+srv://...
+# Configuradas no .env
+MONGO_URI=mongodb+srv://omaxoficial_db_user:<db_password>@cluster0.vu1pltq.mongodb.net/  # FALTA senha
 NODE_ENV=development
 JWT_SECRET=...
 REFRESH_SECRET=...
 STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_PRICE_ID=price_...
+STRIPE_WEBHOOK_SECRET=whsec_PLACEHOLDER  # FALTA — configurar em producao
+STRIPE_PRICE_ID=price_PLACEHOLDER        # FALTA — gerar no Stripe
 FRONTEND_URL=http://localhost:5173
 PORT=3000
 
-# ❌ Faltam — precisam do cliente
-BUNNY_API_KEY=
-BUNNY_LIBRARY_ID=
-BUNNY_CDN_HOSTNAME=
+# Bunny.net — JA CONFIGURADO
+BUNNY_API_KEY=f76df9a8-146e-4ba9-98ca9b75d06a-633b-401c
+BUNNY_LIBRARY_ID=612589
+BUNNY_CDN_HOSTNAME=vz-fbaa1d24-d2c.b-cdn.net
 
-# ⚠️ Opcionais — para produção
+# Para producao — faltam
+FRONTEND_URL=https://SEU_DOMINIO
+MEDIA_BASE_URL=https://SEU_DOMINIO
+REDIS_URL=redis://localhost:6379
+SENTRY_DSN=
 S3_ENDPOINT=
 S3_ACCESS_KEY=
 S3_SECRET_KEY=
 S3_BUCKET_NAME=
 CDN_URL=
-REDIS_URL=redis://localhost:6379
-SENTRY_DSN=
-MEDIA_BASE_URL=
-MAX_ADMIN_COUNT=10
-MAX_UPLOAD_SIZE=10mb
 ```
 
 ---
 
-## 🗄️ MODELOS DO BANCO DE DADOS
+## MODELOS DO BANCO DE DADOS
 
 ### User
 ```
@@ -227,6 +221,18 @@ panels[], isPremium, status (draft|processing|published),
 views, order_index
 ```
 
+### Channel
+```
+ownerId (ref User), name, description, avatar, banner,
+followers[] (ref User), isActive
+```
+
+### Ad
+```
+title, image_url, link_url, advertiser, isActive,
+impressions, clicks, startsAt, endsAt
+```
+
 ### RefreshToken
 ```
 userId, token, createdAt
@@ -239,42 +245,42 @@ adminId, action, targetId, details, timestamp
 
 ---
 
-## 🛠️ COMANDOS
+## COMANDOS
 
 ```bash
 npm run dev          # Frontend Vite (porta 5173)
 npm run server       # Backend Express (porta 3000)
-npm run build        # Build de produção
+npm run build        # Build de producao
 npm run seed:admin   # Criar superadmin
-npm run validate:env # Validar variáveis de ambiente
-npm run worker       # Worker de processamento de vídeo
-npm run start        # PM2 produção (start all)
+npm run validate:env # Validar variaveis de ambiente
+npm run worker       # Worker de processamento de video
+npm run start        # PM2 producao (start all)
 npm run backup       # Backup do banco
 ```
 
 ---
 
-## 📁 ESTRUTURA DO PROJETO
+## ESTRUTURA DO PROJETO
 
 ```
-├── index.html              # Entry point HTML
+├── index.html              # Entry point HTML (AdSense incluido)
 ├── index.tsx               # React root mount
 ├── App.tsx                 # Componente principal (ViewMode routing)
 ├── types.ts                # Interfaces TypeScript
 ├── constants.tsx           # Constantes globais
 ├── server.js               # Express backend
-├── vite.config.ts          # Configuração Vite + proxy
-├── tailwind.config.js      # Configuração Tailwind
+├── vite.config.ts          # Configuracao Vite + proxy
+├── tailwind.config.js      # Configuracao Tailwind
 ├── src/index.css           # Tailwind directives + CSS vars
 ├── components/
-│   ├── Auth.tsx            # Login/Registro
-│   ├── HQCine.tsx          # Feed cinema em quadrinhos
-│   ├── VFilm.tsx           # Feed cinema vertical
-│   ├── HiQua.tsx           # Feed webtoons
-│   ├── VerticalPlayer.tsx  # Player de vídeo vertical
-│   ├── WebtoonReader.tsx   # Leitor de painéis
-│   ├── Profile.tsx         # Perfil do usuário
-│   ├── Premium.tsx         # Tela de assinatura
+│   ├── Auth.tsx
+│   ├── HQCine.tsx
+│   ├── VFilm.tsx
+│   ├── HiQua.tsx
+│   ├── VerticalPlayer.tsx
+│   ├── WebtoonReader.tsx
+│   ├── Profile.tsx
+│   ├── Premium.tsx
 │   ├── Admin/
 │   │   └── AdminDashboard.tsx
 │   └── ...
@@ -282,19 +288,35 @@ npm run backup       # Backup do banco
 │   ├── api.ts              # Cliente API (fetch + fallback mock)
 │   ├── mockData.ts         # Dados mock (substituir por API real)
 │   └── ...
-├── models/                 # Mongoose models
-├── routes/                 # Express routes
-├── middlewares/            # Auth, admin, upload, media token
-├── queues/                 # BullMQ video queue
-├── workers/                # Video processing worker
-├── scripts/                # Admin seed, backup, env validation
-├── utils/                  # Logger, storage manager, media token
-└── validators/             # Joi content validation
+├── models/
+│   ├── User.js
+│   ├── Series.js
+│   ├── Episode.js
+│   ├── Channel.js          # novo
+│   ├── Ad.js               # novo
+│   ├── RefreshToken.js
+│   └── AdminLog.js
+├── routes/
+│   ├── content.js          # novo — CRUD Series/Episodes/Panels/Ads
+│   ├── channels.js         # novo — CRUD Canais + follow
+│   ├── ads.js              # novo — CRUD Anuncios + metricas
+│   ├── bunnyWebhook.js     # atualizado — persiste status + endpoint upload
+│   ├── admin.js            # atualizado — stats reais do MongoDB
+│   ├── payment.js
+│   ├── donation.js
+│   ├── mobilePayment.js
+│   └── adminManagement.js
+├── middlewares/
+├── queues/
+├── workers/
+├── scripts/
+├── utils/
+└── validators/
 ```
 
 ---
 
-## 📝 HISTÓRICO DE COMMITS (branch feat/loreflux-full-setup)
+## HISTORICO DE COMMITS
 
 1. `e3974e5` — connect MongoDB, fix login with bcrypt, add register endpoint
 2. `97e78a6` — update User model with Stripe/provider fields, add admin seed script
@@ -302,4 +324,7 @@ npm run backup       # Backup do banco
 4. `3e9297d` — clean index.html, import Tailwind CSS in index.tsx
 5. `d90864e` — fix PWA manifest with Loreflux branding, setup public/icons
 6. `8e6345b` — complete Stripe checkout, webhook, subscription status, donations
-7. *(último)* — fix: resolve white screen (HTML, CSS vars, Tailwind config, Vite host)
+7. `b04712d` — fix: resolve white screen (HTML, CSS vars, Tailwind config, Vite host)
+8. `6eac6ff` — chore: update gitignore
+9. `82984e4` — feat: implement full content/channels/ads CRUD APIs + complete Bunny.net integration
+10. `e997c0d` — feat: add Google AdSense script to index.html
