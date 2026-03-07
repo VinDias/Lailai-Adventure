@@ -12,7 +12,7 @@ const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
   useEffect(() => {
     api.getSeries()
       .then(data => {
-        setSeries(data.filter(s => s.content_type === 'vfilm'));
+        setSeries(data.filter(s => s.content_type === 'vcine'));
         setLoading(false);
       })
       .catch(() => setLoading(false));

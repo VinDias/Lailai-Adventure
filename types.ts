@@ -30,6 +30,7 @@ export interface Video {
 
 export interface Webtoon {
   id: string;
+  episodeId?: string;
   titulo: string;
   categoria: string;
   descricao: string;
