@@ -159,7 +159,10 @@ app.use("/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 app.use("/api/admin/management", require("./routes/admin"));
 app.use("/api/admin/users", require("./routes/adminManagement"));
+app.use("/api/admin/ads", require("./routes/ads"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
+app.use("/api/content", require("./routes/content"));
+app.use("/api/channels", require("./routes/channels"));
 
 // LOGOUT SEGURO COM REVOGAÇÃO
 app.post('/api/auth/logout', verifyToken, async (req, res) => {
@@ -329,15 +332,6 @@ app.post('/api/auth/refresh-token', async (req, res) => {
   } catch (err) {
     res.status(403).json({ error: "Refresh token expirado." });
   }
-});
-
-app.get('/api/content/series', (req, res) => {
-  const mediaBase = process.env.MEDIA_BASE_URL || "";
-  const mockData = [
-    { id: 1, title: 'Samurai Neon', section: 'HQCINE', type: 'video', order_index: 0, isPremium: true, cover_image: `${mediaBase}/uploads/thumb1.jpg` },
-    { id: 2, title: 'Experimental X', section: 'VCINE', type: 'video', order_index: 1, isPremium: false, cover_image: `${mediaBase}/uploads/thumb2.jpg` }
-  ];
-  res.json(mockData.sort((a,b) => a.order_index - b.order_index));
 });
 
 // Handlers de Erro Sentry
