@@ -68,7 +68,7 @@ const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase
   };
 
   return (
-    <div className="h-full w-full bg-[#0A0A0B] text-white overflow-y-auto font-lailai animate-apple pb-48 md:pb-32">
+    <div className="h-full w-full bg-[#0A0A0B] text-white overflow-y-auto font-inter animate-apple pb-48 md:pb-32">
       <div className="max-w-4xl mx-auto px-6 pt-12 md:pt-20">
         <header className="flex justify-between items-center mb-16">
           <button onClick={step !== 'selection' ? () => setStep('selection') : onBack} className="p-3 bg-[#1C1C1E] rounded-2xl border border-white/5 hover:bg-[#2C2C2E] transition-all text-zinc-400 hover:text-white">
@@ -92,7 +92,7 @@ const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase
                 <div className={`w-20 h-20 rounded-[1.5rem] flex items-center justify-center mb-8 ${activeTab === 'user' ? 'bg-rose-600/10 text-rose-500' : 'bg-indigo-600/10 text-indigo-500'}`}>
                    {activeTab === 'user' ? ICONS.Premium : ICONS.AI}
                 </div>
-                <h3 className="text-3xl font-extrabold mb-4">{activeTab === 'user' ? 'Lailai Premium' : 'Anunciante Cinema'}</h3>
+                <h3 className="text-3xl font-extrabold mb-4">{activeTab === 'user' ? 'Loreflux Premium' : 'Anunciante Cinema'}</h3>
                 <p className="text-zinc-500 mb-10 text-sm text-center">
                   {activeTab === 'user' 
                     ? 'Assista a 1080p nativo, 60 FPS, sem anúncios e com áudio espacial.' 

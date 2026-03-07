@@ -1,6 +1,6 @@
 {
-  "name": "LaiLai - Premium Vertical Cinema",
-  "description": "Plataforma de streaming vertical 9:16 com tecnologia Hi-Qua e cinema experimental.",
+  "name": "Loreflux - Cinematic Comics",
+  "description": "Loreflux - Plataforma de cinematic storytelling com streaming vertical e webtoons.",
   "requestFramePermissions": [
     "camera",
     "microphone",

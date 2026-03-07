@@ -45,7 +45,7 @@ class ApiService {
       this.isOffline = true;
       this.onStatusChange?.(true);
       
-      console.warn(`[LaiLai] Fallback local ativado.`);
+      console.warn(`[Loreflux] Fallback local ativado.`);
       if (path.includes('/content/series')) {
         return [{ id: 1, title: 'Samurai Neon', genre: 'Cyberpunk', cover_image: 'https://picsum.photos/seed/offline1/1080/1920', content_type: 'hqcine' }] as unknown as T;
       }

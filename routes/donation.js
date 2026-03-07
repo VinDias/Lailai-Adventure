@@ -1,21 +1,35 @@
-
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const { createDonationSession } = require("../services/donationService");
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const verifyToken = require('../middlewares/verifyToken');
+const logger = require('../utils/logger');
 
-router.post("/create-donation-session", async (req, res) => {
+router.post('/create', verifyToken, async (req, res) => {
   try {
-    const { amount } = req.body;
-
-    if (!amount || amount < 1) {
-      return res.status(400).json({ error: "Valor de doação inválido" });
+    const { amount } = req.body; // valor em centavos (ex: 500 = R$ 5,00)
+    if (!amount || amount < 100) {
+      return res.status(400).json({ error: "Valor mínimo de doação: R$ 1,00" });
     }
 
-    const url = await createDonationSession(amount);
-    res.json({ url });
-  } catch (error) {
-    console.error("[Donation Route Error]", error);
-    res.status(500).json({ error: "Erro ao criar sessão de doação" });
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'brl',
+          product_data: { name: 'Doação para Loreflux' },
+          unit_amount: amount,
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: `${process.env.FRONTEND_URL}/?donation=success`,
+      cancel_url: `${process.env.FRONTEND_URL}/?donation=cancelled`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    logger.error("[Donation Error]", err);
+    res.status(500).json({ error: "Erro ao processar doação." });
   }
 });
 

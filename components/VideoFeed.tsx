@@ -22,9 +22,9 @@ const SeriesBrowse: React.FC<BrowseProps> = ({ user, onOpenSeries }) => {
   if (loading) return <div className="h-full w-full flex items-center justify-center bg-black"><div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>;
 
   return (
-    <div className="h-full w-full bg-[#050505] overflow-y-auto scrollbar-hide font-lailai pb-40">
+    <div className="h-full w-full bg-[#050505] overflow-y-auto scrollbar-hide font-inter pb-40">
       <header className="p-8 md:p-12">
-        <h1 className="text-4xl font-black premium-text tracking-tighter mb-2">Cinema LaiLai</h1>
+        <h1 className="text-4xl font-black premium-text tracking-tighter mb-2">Cinema Loreflux</h1>
         <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Originals • Exclusivo</p>
       </header>
 

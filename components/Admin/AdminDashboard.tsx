@@ -81,7 +81,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       <aside className="w-64 bg-[#0F0F12] border-r border-white/5 flex flex-col p-6">
         <div className="flex items-center gap-3 mb-12 px-2">
           <div className="w-10 h-10 bg-rose-600 rounded-xl flex items-center justify-center font-black italic">LL</div>
-          <h1 className="text-lg font-black tracking-tighter">LaiLai Studio</h1>
+          <h1 className="text-lg font-black tracking-tighter">Loreflux Studio</h1>
         </div>
 
         <nav className="flex-1 space-y-2">

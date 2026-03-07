@@ -38,7 +38,7 @@ const ComicFeed: React.FC<ComicFeedProps> = ({ comics, user, onUpgrade, onUpdate
   if (readingComic) {
     const channel = getChannel(readingComic.channelId);
     return (
-      <div className="fixed inset-0 h-screen w-full bg-[#0A0A0B] overflow-hidden flex justify-center font-lailai animate-apple z-[700]">
+      <div className="fixed inset-0 h-screen w-full bg-[#0A0A0B] overflow-hidden flex justify-center font-inter animate-apple z-[700]">
         <div className="video-feed h-full w-full max-w-md overflow-y-scroll bg-black relative scroll-smooth scrollbar-hide">
           <div className="sticky top-0 left-0 right-0 p-5 flex items-center justify-between glass-nav z-[100] border-b border-white/5">
             <button onClick={() => setReadingComic(null)} className="flex items-center gap-2 text-white/50 hover:text-white transition-all"><svg className="w-5 h-5 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg><span className="font-bold text-xs uppercase tracking-widest">Fechar</span></button>
@@ -102,7 +102,7 @@ const ComicFeed: React.FC<ComicFeedProps> = ({ comics, user, onUpgrade, onUpdate
   }
 
   return (
-    <div className="h-full w-full bg-[#050505] flex flex-col overflow-hidden font-lailai">
+    <div className="h-full w-full bg-[#050505] flex flex-col overflow-hidden font-inter">
       <div className="sticky top-0 z-50 p-6 md:px-12 md:py-8 glass-nav border-b border-white/5 flex flex-col gap-6">
         <h1 className="text-3xl font-black tracking-tighter premium-text">HI-QUA</h1>
         <div className="relative group w-full max-w-2xl">

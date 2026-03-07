@@ -1,6 +1,5 @@
-
 {
-  "name": "lailai-fullstack-production",
+  "name": "loreflux-platform",
   "version": "2.3.0",
   "private": true,
   "scripts": {
@@ -14,12 +13,16 @@
     "preview": "vite preview",
     "backup": "bash scripts/backup.sh",
     "validate:env": "node scripts/validateEnv.js",
+    "seed:admin": "node scripts/seedAdmin.js",
     "build:frontend": "npm run build && mkdir -p frontend-dist && cp -r dist/* frontend-dist/"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1003.0",
     "@google/genai": "^1.41.0",
     "@sentry/node": "^8.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
     "axios": "^1.6.2",
+    "bcrypt": "^5.1.1",
     "bullmq": "^5.0.0",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
@@ -40,8 +43,7 @@
     "sharp": "^0.33.2",
     "stripe": "^14.0.0",
     "winston": "^3.11.0",
-    "winston-daily-rotate-file": "^5.0.0",
-    "bcrypt": "^5.1.1"
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
