@@ -1,11 +1,11 @@
-# Loreflux - Documentação de Operação
+# Lorflux - Documentação de Operação
 
 ## Acesso ao Painel Admin
 
-1. Acesse `https://loreflux.com` e faça login com as credenciais de superadmin
+1. Acesse `https://lorflux.com` e faça login com as credenciais de superadmin
 2. O painel admin estará disponível na navegação para usuários com role `admin` ou `superadmin`
 3. Credenciais iniciais do admin:
-   - **Email:** `vin@loreflux.com`
+   - **Email:** `vin@lorflux.com`
    - **Senha:** Definida no seed (trocar após primeiro login)
 
 Para criar o admin inicial:
@@ -52,7 +52,7 @@ npm run seed:admin
    - `STRIPE_WEBHOOK_SECRET` → `whsec_...`
 4. Crie um **Product** com preço recorrente (R$ 3,99/mês) e copie o `STRIPE_PRICE_ID`
 5. Configure o webhook em produção:
-   - URL: `https://api.loreflux.com/api/payment/webhook`
+   - URL: `https://api.lorflux.com/api/payment/webhook`
    - Eventos: `checkout.session.completed`, `customer.subscription.deleted`
 6. Atualize as variáveis no servidor de produção
 
@@ -79,8 +79,8 @@ Ou crie um novo seed script modificando `scripts/seedAdmin.js`.
 
 | Serviço | URL |
 |---------|-----|
-| **Frontend (Vercel)** | `https://loreflux.com` |
-| **Backend API** | `https://api.loreflux.com` |
+| **Frontend (Vercel)** | `https://lorflux.com` |
+| **Backend API** | `https://api.lorflux.com` |
 | **MongoDB Atlas** | Configurado em `MONGO_URI` no `.env` |
 | **Bunny.net Stream** | Dashboard em [bunny.net](https://bunny.net) |
 | **Stripe Dashboard** | [dashboard.stripe.com](https://dashboard.stripe.com) |

@@ -4,9 +4,9 @@ const bcrypt = require('bcrypt');
 const User = require('../models/User');
 
 async function seed() {
-  await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/loreflux');
+  await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/lorflux');
   
-  const existing = await User.findOne({ email: 'vin@loreflux.com' });
+  const existing = await User.findOne({ email: 'vin@lorflux.com' });
   if (existing) {
     console.log('Admin já existe.');
     process.exit(0);
@@ -14,7 +14,7 @@ async function seed() {
 
   const hash = await bcrypt.hash('SENHA_TEMPORARIA_TROCAR', 12);
   await User.create({
-    email: 'vin@loreflux.com',
+    email: 'vin@lorflux.com',
     passwordHash: hash,
     nome: 'Vin Dias',
     role: 'superadmin',
@@ -23,7 +23,7 @@ async function seed() {
     provider: 'local'
   });
 
-  console.log('✅ Admin criado: vin@loreflux.com');
+  console.log('✅ Admin criado: vin@lorflux.com');
   process.exit(0);
 }
 

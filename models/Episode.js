@@ -9,7 +9,14 @@ const EpisodeSchema = new mongoose.Schema({
   bunnyVideoId: { type: String },
   thumbnail: { type: String },
   duration: { type: Number },
-  panels: [{ image_url: String, order: Number }],
+  panels: [{
+    image_url: String,
+    order: Number,
+    translationLayers: [{
+      language: { type: String, enum: ['pt', 'en', 'es', 'zh'] },
+      imageUrl: String
+    }]
+  }],
   isPremium: { type: Boolean, default: false },
   status: { type: String, enum: ['processing', 'published', 'draft'], default: 'draft' },
   views: { type: Number, default: 0 },

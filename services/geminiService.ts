@@ -7,7 +7,7 @@ export const getAIRecommendation = async (userPreferences: string) => {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `O usuário gosta de: ${userPreferences}. Sugira que tipo de conteúdo vertical ele deve assistir a seguir no Loreflux. Responda em Português Brasileiro. Seja curto e impactante.`,
+      contents: `O usuário gosta de: ${userPreferences}. Sugira que tipo de conteúdo vertical ele deve assistir a seguir no Lorflux. Responda em Português Brasileiro. Seja curto e impactante.`,
       config: {
         temperature: 0.7,
         topP: 0.95,

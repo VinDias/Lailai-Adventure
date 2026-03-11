@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Series = require('../models/Series');
 const Episode = require('../models/Episode');
+const Vote = require('../models/Vote');
 const verifyToken = require('../middlewares/verifyToken');
 const requireAdmin = require('../middlewares/requireAdmin');
 const logger = require('../utils/logger');
@@ -157,7 +158,7 @@ router.delete('/episodes/:id', verifyToken, requireAdmin, async (req, res) => {
 // POST /api/content/episodes/:id/panels — adicionar painéis webtoon (admin)
 router.post('/episodes/:id/panels', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { panels } = req.body; // [{ image_url, order }]
+    const { panels } = req.body; // [{ image_url, order, translationLayers? }]
     if (!Array.isArray(panels) || panels.length === 0) {
       return res.status(400).json({ error: 'panels deve ser um array não vazio.' });
     }
@@ -184,6 +185,89 @@ router.get('/ads', async (req, res) => {
     res.json(ads);
   } catch (err) {
     res.json([]); // fallback vazio se modelo não existir ainda
+  }
+});
+
+// ─── VOTES ───────────────────────────────────────────────────────────────────
+
+// GET /api/content/episodes/:id/vote — voto atual do usuário
+router.get('/episodes/:id/vote', verifyToken, async (req, res) => {
+  try {
+    const vote = await Vote.findOne({ userId: req.user.id, episodeId: req.params.id }).lean();
+    res.json(vote ? { type: vote.type } : null);
+  } catch (err) {
+    logger.error('[Content] GET /episodes/:id/vote', err);
+    res.status(500).json({ error: 'Erro ao buscar voto.' });
+  }
+});
+
+// POST /api/content/episodes/:id/vote — criar ou atualizar voto
+router.post('/episodes/:id/vote', verifyToken, async (req, res) => {
+  try {
+    const { type } = req.body;
+    if (!['like', 'dislike'].includes(type)) {
+      return res.status(400).json({ error: 'type deve ser "like" ou "dislike".' });
+    }
+
+    const vote = await Vote.findOneAndUpdate(
+      { userId: req.user.id, episodeId: req.params.id },
+      { type },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    res.json({ success: true, type: vote.type });
+  } catch (err) {
+    logger.error('[Content] POST /episodes/:id/vote', err);
+    res.status(500).json({ error: 'Erro ao registrar voto.' });
+  }
+});
+
+// DELETE /api/content/episodes/:id/vote — remover voto
+router.delete('/episodes/:id/vote', verifyToken, async (req, res) => {
+  try {
+    await Vote.findOneAndDelete({ userId: req.user.id, episodeId: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('[Content] DELETE /episodes/:id/vote', err);
+    res.status(500).json({ error: 'Erro ao remover voto.' });
+  }
+});
+
+// ─── TRANSLATION LAYERS ───────────────────────────────────────────────────────
+
+// PUT /api/content/episodes/:episodeId/panels/:panelIndex/translations — admin
+router.put('/episodes/:episodeId/panels/:panelIndex/translations', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const { language, imageUrl } = req.body;
+    if (!language || !imageUrl) {
+      return res.status(400).json({ error: 'language e imageUrl são obrigatórios.' });
+    }
+
+    const panelIndex = parseInt(req.params.panelIndex, 10);
+    const episode = await Episode.findById(req.params.episodeId);
+    if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    if (!episode.panels[panelIndex]) return res.status(404).json({ error: 'Painel não encontrado.' });
+
+    const panel = episode.panels[panelIndex];
+    const existingLayerIndex = panel.translationLayers
+      ? panel.translationLayers.findIndex(l => l.language === language)
+      : -1;
+
+    if (!panel.translationLayers) panel.translationLayers = [];
+
+    if (existingLayerIndex >= 0) {
+      panel.translationLayers[existingLayerIndex].imageUrl = imageUrl;
+    } else {
+      panel.translationLayers.push({ language, imageUrl });
+    }
+
+    episode.panels[panelIndex] = panel;
+    episode.markModified('panels');
+    await episode.save();
+
+    res.json({ success: true, panel: episode.panels[panelIndex] });
+  } catch (err) {
+    logger.error('[Content] PUT /episodes/:episodeId/panels/:panelIndex/translations', err);
+    res.status(500).json({ error: 'Erro ao atualizar camada de tradução.' });
   }
 });
 

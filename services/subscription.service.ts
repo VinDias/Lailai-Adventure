@@ -13,7 +13,7 @@ export class SubscriptionService {
         price_data: {
           currency: 'brl',
           product_data: {
-            name: 'Loreflux Premium - Cinema Vertical',
+            name: 'Lorflux Premium - Cinema Vertical',
             description: 'Acesso HLS 1080p, Zero Ads e Hi-Qua Webtoons.',
           },
           unit_amount: 399,

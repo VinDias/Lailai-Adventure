@@ -1,6 +1,6 @@
 {
-  "name": "Loreflux - Cinematic Comics",
-  "description": "Loreflux - Plataforma de cinematic storytelling com streaming vertical e webtoons.",
+  "name": "Lorflux - Cinematic Comics",
+  "description": "Lorflux - Plataforma de cinematic storytelling com streaming vertical e webtoons.",
   "requestFramePermissions": [
     "camera",
     "microphone",

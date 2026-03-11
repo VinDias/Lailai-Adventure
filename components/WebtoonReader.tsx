@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { Webtoon, User } from '../types';
 import API_URL from '../config/api';
+import { ThumbsUp, ThumbsDown } from 'lucide-react';
+import { api } from '../services/api';
 
 interface ReaderProps {
   webtoon: Webtoon;
@@ -9,20 +11,44 @@ interface ReaderProps {
   onClose: () => void;
 }
 
+interface TranslationLayer {
+  language: string;
+  imageUrl: string;
+}
+
 interface PanelItem {
   id: string | number;
   imagemUrl: string;
   ordem: number;
+  translationLayers?: TranslationLayer[];
 }
+
+type Language = 'pt' | 'en' | 'es' | 'zh';
+const LANGUAGES: { code: Language; label: string }[] = [
+  { code: 'pt', label: 'PT' },
+  { code: 'en', label: 'EN' },
+  { code: 'es', label: 'ES' },
+  { code: 'zh', label: 'ZH' },
+];
 
 const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
   const [paineis, setPaineis] = useState<PanelItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [language, setLanguage] = useState<Language>(() => {
+    return (localStorage.getItem('lorflux_language') as Language) || 'pt';
+  });
+  const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
 
   useEffect(() => {
     const episodeId = webtoon.episodeId || webtoon.id;
     loadPanels(episodeId);
   }, [webtoon.id]);
+
+  useEffect(() => {
+    if (!user || !webtoon.id) return;
+    const episodeId = webtoon.episodeId || webtoon.id;
+    api.getMyVote(episodeId).then(v => setMyVote(v?.type ?? null));
+  }, [webtoon.id, user]);
 
   const loadPanels = async (episodeId: string) => {
     setLoading(true);
@@ -36,7 +62,8 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
             .map((p: any, i: number) => ({
               id: p._id || i,
               imagemUrl: p.image_url,
-              ordem: p.order ?? i
+              ordem: p.order ?? i,
+              translationLayers: p.translationLayers || []
             }));
           setPaineis(mapped);
           setLoading(false);
@@ -44,17 +71,31 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
         }
       }
     } catch (e) {
-      // fallback abaixo
+      // empty state
     }
-
-    // Fallback com picsum enquanto não há painéis reais cadastrados
-    const fallback = Array.from({ length: 10 }, (_, i) => ({
-      id: `p${i}`,
-      imagemUrl: `https://picsum.photos/seed/webtoon-${episodeId}-${i}/800/1280`,
-      ordem: i
-    }));
-    setPaineis(fallback);
+    setPaineis([]);
     setLoading(false);
+  };
+
+  const changeLanguage = (lang: Language) => {
+    setLanguage(lang);
+    localStorage.setItem('lorflux_language', lang);
+  };
+
+  const handleVote = async (type: 'like' | 'dislike') => {
+    if (!user) return;
+    const episodeId = webtoon.episodeId || webtoon.id;
+    try {
+      if (myVote === type) {
+        await api.removeVote(episodeId);
+        setMyVote(null);
+      } else {
+        await api.vote(episodeId, type);
+        setMyVote(type);
+      }
+    } catch (e) {
+      // silently ignore
+    }
   };
 
   return (
@@ -68,7 +109,39 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
           <h1 className="text-xs font-black text-white uppercase tracking-widest truncate max-w-[200px]">{webtoon.titulo}</h1>
           <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">HI-QUA READER • {paineis.length} PAINÉIS</p>
         </div>
-        <div className="w-10" />
+        <div className="flex items-center gap-2">
+          {/* Seletor de idioma */}
+          <div className="flex gap-1">
+            {LANGUAGES.map(lang => (
+              <button
+                key={lang.code}
+                onClick={() => changeLanguage(lang.code)}
+                className={`px-2 py-1 text-[10px] font-black rounded-lg transition-all ${language === lang.code ? 'bg-rose-600 text-white' : 'bg-white/10 text-zinc-400 hover:text-white'}`}
+              >
+                {lang.label}
+              </button>
+            ))}
+          </div>
+          {/* Like/Dislike */}
+          {user && (
+            <div className="flex gap-1 ml-2">
+              <button
+                onClick={() => handleVote('like')}
+                className={`p-2 rounded-lg border transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}
+                aria-label="Curtir"
+              >
+                <ThumbsUp size={16} fill={myVote === 'like' ? 'currentColor' : 'none'} />
+              </button>
+              <button
+                onClick={() => handleVote('dislike')}
+                className={`p-2 rounded-lg border transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}
+                aria-label="Não curtir"
+              >
+                <ThumbsDown size={16} fill={myVote === 'dislike' ? 'currentColor' : 'none'} />
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
       <div className="flex flex-col items-center pt-20">
@@ -76,16 +149,33 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
           <div className="h-screen flex items-center justify-center">
             <div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" />
           </div>
+        ) : paineis.length === 0 ? (
+          <div className="h-screen flex items-center justify-center flex-col gap-4">
+            <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum painel disponível</p>
+          </div>
         ) : (
-          paineis.map(panel => (
-            <img
-              key={panel.id}
-              src={panel.imagemUrl}
-              className="w-full max-w-[800px] h-auto block"
-              loading="lazy"
-              alt={`Página ${panel.ordem + 1}`}
-            />
-          ))
+          paineis.map(panel => {
+            const translationLayer = panel.translationLayers?.find(l => l.language === language);
+            return (
+              <div key={panel.id} className="relative w-full max-w-[800px]">
+                <img
+                  src={panel.imagemUrl}
+                  className="w-full h-auto block"
+                  loading="lazy"
+                  alt={`Página ${panel.ordem + 1}`}
+                />
+                {translationLayer && (
+                  <img
+                    src={translationLayer.imageUrl}
+                    className="absolute top-0 left-0 w-full h-auto pointer-events-none"
+                    loading="lazy"
+                    alt=""
+                    aria-hidden="true"
+                  />
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
