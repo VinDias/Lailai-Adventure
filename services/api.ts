@@ -1,6 +1,5 @@
 
 import API_URL from '../config/api';
-import { MOCK_CHANNELS, MOCK_ADS } from './mockData';
 
 class ApiService {
   private static instance: ApiService;
@@ -44,7 +43,7 @@ class ApiService {
     } catch (error: any) {
       this.isOffline = true;
       this.onStatusChange?.(true);
-      console.warn(`[Loreflux] API offline — fallback ativado para: ${path}`);
+      console.warn(`[Lorflux] API offline — fallback ativado para: ${path}`);
       throw error;
     }
   }
@@ -97,7 +96,7 @@ class ApiService {
     try {
       return await this.request<any[]>('/channels/me');
     } catch (e) {
-      return MOCK_CHANNELS;
+      return [];
     }
   }
 
@@ -113,9 +112,9 @@ class ApiService {
       const ads = await this.request<any[]>('/content/ads');
       if (ads.length > 0) return ads[Math.floor(Math.random() * ads.length)];
     } catch (e) {
-      // fallback silencioso
+      // empty state
     }
-    return MOCK_ADS[Math.floor(Math.random() * MOCK_ADS.length)];
+    return null;
   }
 
   // Admin
@@ -150,6 +149,30 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ title, episodeId })
     });
+  }
+
+  // Votes
+  async getMyVote(episodeId: string | number) {
+    try {
+      return await this.request<{ type: 'like' | 'dislike' } | null>(`/content/episodes/${episodeId}/vote`);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async vote(episodeId: string | number, type: 'like' | 'dislike') {
+    return this.request<any>(`/content/episodes/${episodeId}/vote`, {
+      method: 'POST',
+      body: JSON.stringify({ type })
+    });
+  }
+
+  async removeVote(episodeId: string | number) {
+    return this.request<any>(`/content/episodes/${episodeId}/vote`, { method: 'DELETE' });
+  }
+
+  async getEpisodeMetrics(episodeId: string | number) {
+    return this.request<{ likes: number; dislikes: number; total: number }>(`/admin/episodes/${episodeId}/metrics`);
   }
 }
 

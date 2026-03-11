@@ -14,7 +14,7 @@ module.exports = {
         inter: ['Inter', '-apple-system', 'sans-serif'],
       },
       colors: {
-        loreflux: {
+        lorflux: {
           accent: '#E11D48',
         }
       }

@@ -1,7 +1,7 @@
-# GUIA COMPLETO — Projeto Loreflux (ex-Lailai Adventure)
+# GUIA COMPLETO — Projeto Lorflux (ex-Lailai Adventure)
 
 > **Última atualização:** 7 de Março de 2026
-> **Branch:** `main` (merge de `feat/loreflux-full-setup`)
+> **Branch:** `main` (merge de `feat/lorflux-full-setup`)
 > **Stack:** React 19 + Vite 5.4 + Tailwind 3.4 + Node/Express + MongoDB + Stripe + Bunny.net
 
 ---
@@ -16,7 +16,7 @@
 | **Backend (Node/Express)** | Concluído | MongoDB conectado, auth com bcrypt, JWT access+refresh |
 | **Autenticação** | Concluído | Login, registro, logout, refresh token, seed admin |
 | **Stripe (Pagamentos)** | Parcial | Checkout e webhook prontos — falta chaves de produção |
-| **Rebranding** | Concluído | LaiLai → Loreflux em 23 arquivos |
+| **Rebranding** | Concluído | LaiLai → Lorflux em 23 arquivos |
 | **PWA** | Concluído | Manifest, service-worker, estrutura de ícones |
 | **Bunny.net (Vídeo)** | Concluído | Credenciais configuradas, webhook persiste no MongoDB, endpoint de upload |
 | **API de Conteúdo (CRUD)** | Concluído | CRUD completo de Series e Episodes no MongoDB |
@@ -49,7 +49,7 @@
 - [x] `POST /api/auth/login` — login com rate limiting (5 tentativas/10min)
 - [x] `POST /api/auth/logout` — revoga todos os refresh tokens
 - [x] `POST /api/auth/refresh-token` — renova access token
-- [x] `npm run seed:admin` — cria superadmin (vin@loreflux.com)
+- [x] `npm run seed:admin` — cria superadmin (vin@lorflux.com)
 
 ### Pagamentos (Stripe)
 - [x] `POST /api/payment/create-checkout` — cria sessão checkout (subscription)
@@ -126,7 +126,7 @@
 - [ ] Adicionar URL: `https://SEU_DOMINIO/api/bunny/webhook`
 
 #### Stripe — producao
-- [ ] Criar produto "Loreflux Premium" (R$3,99/mes) no dashboard Stripe
+- [ ] Criar produto "Lorflux Premium" (R$3,99/mes) no dashboard Stripe
 - [ ] Copiar `PRICE_ID` e substituir `price_PLACEHOLDER` no `.env`
 - [ ] Configurar webhook: `https://SEU_DOMINIO/api/payment/webhook`
 - [ ] Atualizar `STRIPE_WEBHOOK_SECRET` no `.env`
@@ -153,7 +153,7 @@
 - [ ] Thumbnails (1080x1920px recomendado)
 - [ ] Painéis de webtoon para Hi-Qua (até 120 por episódio)
 - [ ] Metadados de séries: títulos, descrições, gêneros
-- [ ] Ícones PWA reais (192px, 512px, maskable 512px) com logo Loreflux
+- [ ] Ícones PWA reais (192px, 512px, maskable 512px) com logo Lorflux
 
 ### 4. Infraestrutura de Producao
 
@@ -322,7 +322,7 @@ npm run backup       # Backup do banco
 2. `97e78a6` — update User model with Stripe/provider fields, add admin seed script
 3. `526b879` — fix Vite config with React plugin, migrate Tailwind from CDN to PostCSS
 4. `3e9297d` — clean index.html, import Tailwind CSS in index.tsx
-5. `d90864e` — fix PWA manifest with Loreflux branding, setup public/icons
+5. `d90864e` — fix PWA manifest with Lorflux branding, setup public/icons
 6. `8e6345b` — complete Stripe checkout, webhook, subscription status, donations
 7. `b04712d` — fix: resolve white screen (HTML, CSS vars, Tailwind config, Vite host)
 8. `6eac6ff` — chore: update gitignore

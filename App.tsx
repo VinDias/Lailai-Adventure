@@ -22,25 +22,25 @@ const App: React.FC = () => {
 
   useEffect(() => {
     api.setStatusCallback(setIsOffline);
-    const saved = localStorage.getItem('loreflux_session');
+    const saved = localStorage.getItem('lorflux_session');
     if (saved) {
       try {
         const u = JSON.parse(saved);
         setUser(u);
         setView(ViewMode.HQCINE);
-      } catch (e) { localStorage.removeItem('loreflux_session'); }
+      } catch (e) { localStorage.removeItem('lorflux_session'); }
     }
   }, []);
 
   const handleLogin = (u: User) => {
     setUser(u);
-    localStorage.setItem('loreflux_session', JSON.stringify(u));
+    localStorage.setItem('lorflux_session', JSON.stringify(u));
     setView(ViewMode.HQCINE);
   };
 
   const handleLogout = () => {
     setUser(null);
-    localStorage.removeItem('loreflux_session');
+    localStorage.removeItem('lorflux_session');
     setView(ViewMode.AUTH);
   };
 

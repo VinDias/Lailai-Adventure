@@ -15,7 +15,7 @@ const Sentry = require("@sentry/node");
 dotenv.config();
 const mongoose = require('mongoose');
 
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/loreflux')
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/lorflux')
   .then(() => console.log('✅ MongoDB conectado'))
   .catch(err => {
     console.error('❌ Erro ao conectar MongoDB:', err);
@@ -163,6 +163,21 @@ app.use("/api/admin/ads", require("./routes/ads"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
 app.use("/api/content", require("./routes/content"));
 app.use("/api/channels", require("./routes/channels"));
+
+// ADMIN METRICS — likes/dislikes por episódio
+app.get('/api/admin/episodes/:id/metrics', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const Vote = require('./models/Vote');
+    const [likes, dislikes] = await Promise.all([
+      Vote.countDocuments({ episodeId: req.params.id, type: 'like' }),
+      Vote.countDocuments({ episodeId: req.params.id, type: 'dislike' })
+    ]);
+    res.json({ likes, dislikes, total: likes + dislikes });
+  } catch (err) {
+    logger.error('[Admin] GET /admin/episodes/:id/metrics', err);
+    res.status(500).json({ error: 'Erro ao buscar métricas.' });
+  }
+});
 
 // LOGOUT SEGURO COM REVOGAÇÃO
 app.post('/api/auth/logout', verifyToken, async (req, res) => {
@@ -356,4 +371,4 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => logger.info(`🚀 LOREFLUX PROD-READY SERVER | PORT: ${PORT} | ENV: ${process.env.NODE_ENV}`));
+app.listen(PORT, () => logger.info(`🚀 LORFLUX PROD-READY SERVER | PORT: ${PORT} | ENV: ${process.env.NODE_ENV}`));

@@ -9,6 +9,7 @@ const User = require("../models/User");
 const Series = require("../models/Series");
 const Episode = require("../models/Episode");
 const Ad = require("../models/Ad");
+const Vote = require("../models/Vote");
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -61,7 +62,46 @@ router.get("/content", verifyToken, requireAdmin, async (req, res) => {
       Series.countDocuments()
     ]);
 
-    res.json({ series, total, page, pages: Math.ceil(total / limit) });
+    // Agrega likes/dislikes e views por série
+    const seriesIds = series.map(s => s._id);
+    const episodes = await Episode.find({ seriesId: { $in: seriesIds } }, 'seriesId views').lean();
+
+    const episodeIdsBySeriesId = {};
+    const viewsBySeriesId = {};
+    for (const ep of episodes) {
+      const key = String(ep.seriesId);
+      if (!episodeIdsBySeriesId[key]) episodeIdsBySeriesId[key] = [];
+      episodeIdsBySeriesId[key].push(ep._id);
+      viewsBySeriesId[key] = (viewsBySeriesId[key] || 0) + (ep.views || 0);
+    }
+
+    const allEpisodeIds = episodes.map(e => e._id);
+    const [likeAgg, dislikeAgg] = await Promise.all([
+      Vote.aggregate([
+        { $match: { episodeId: { $in: allEpisodeIds }, type: 'like' } },
+        { $lookup: { from: 'episodes', localField: 'episodeId', foreignField: '_id', as: 'ep' } },
+        { $unwind: '$ep' },
+        { $group: { _id: '$ep.seriesId', count: { $sum: 1 } } }
+      ]),
+      Vote.aggregate([
+        { $match: { episodeId: { $in: allEpisodeIds }, type: 'dislike' } },
+        { $lookup: { from: 'episodes', localField: 'episodeId', foreignField: '_id', as: 'ep' } },
+        { $unwind: '$ep' },
+        { $group: { _id: '$ep.seriesId', count: { $sum: 1 } } }
+      ])
+    ]);
+
+    const likesMap = Object.fromEntries(likeAgg.map(a => [String(a._id), a.count]));
+    const dislikesMap = Object.fromEntries(dislikeAgg.map(a => [String(a._id), a.count]));
+
+    const enriched = series.map(s => ({
+      ...s,
+      totalViews: viewsBySeriesId[String(s._id)] || 0,
+      totalLikes: likesMap[String(s._id)] || 0,
+      totalDislikes: dislikesMap[String(s._id)] || 0
+    }));
+
+    res.json({ series: enriched, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     logger.error("[Admin Content Error]", err);
     res.status(500).json({ error: "Erro ao buscar conteúdo." });

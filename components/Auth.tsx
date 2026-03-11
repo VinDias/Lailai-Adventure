@@ -53,9 +53,9 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       <div className="w-full max-w-sm animate-apple">
         <div className="logo-container">
           <BrandLogo />
-          <h1 className="brand-name">Loreflux</h1>
+          <h1 className="brand-name">Lorflux</h1>
           <p className="brand-tagline">
-            O Futuro É Aqui. Entretenimento Vertical.
+            Lorflux - Cinematic Comics. O futuro é aqui.
           </p>
         </div>
 

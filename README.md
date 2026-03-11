@@ -1,6 +1,6 @@
 <div align="center">
 
-# Loreflux - Cinematic Comics
+# Lorflux - Cinematic Comics
 
 **Plataforma de cinematic storytelling com streaming vertical e webtoons.**
 
@@ -8,7 +8,7 @@
 
 ## Sobre
 
-Loreflux é uma plataforma de entretenimento digital focada em cinema vertical (9:16), webtoons e conteúdo interativo. Combina streaming de vídeo com quadrinhos digitais em uma experiência mobile-first.
+Lorflux é uma plataforma de entretenimento digital focada em cinema vertical (9:16), webtoons e conteúdo interativo. Combina streaming de vídeo com quadrinhos digitais em uma experiência mobile-first.
 
 ### Funcionalidades
 - **HQCine** — Cinematic comics com narração e animação

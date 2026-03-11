@@ -16,7 +16,7 @@ router.post('/create', verifyToken, async (req, res) => {
       line_items: [{
         price_data: {
           currency: 'brl',
-          product_data: { name: 'Doação para Loreflux' },
+          product_data: { name: 'Doação para Lorflux' },
           unit_amount: amount,
         },
         quantity: 1,

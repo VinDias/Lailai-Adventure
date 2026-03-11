@@ -2,8 +2,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { Video, User } from '../types';
-import { X } from 'lucide-react';
+import { X, ThumbsUp, ThumbsDown } from 'lucide-react';
 import AdComponent from './AdComponent';
+import { api } from '../services/api';
+
+const BUNNY_CDN_BASE = 'https://vz-fbaa1d24-d2c.b-cdn.net';
 
 interface PlayerProps {
   video: Video;
@@ -20,9 +23,18 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const [showAd, setShowAd] = useState(!user?.isPremium);
   const [showMetadata, setShowMetadata] = useState(true);
   const [accessDenied] = useState(video.isPremium && !user?.isPremium);
-  const [audioMode, setAudioMode] = useState<'original' | 'audio1' | 'audio2'>('original');
+  const [audioMode, setAudioMode] = useState<'original' | 'audio1' | 'audio2'>(() => {
+    return (localStorage.getItem('lorflux_audio_preference') as 'original' | 'audio1' | 'audio2') || 'original';
+  });
   const [qualityLevels, setQualityLevels] = useState<any[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
+  const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
+
+  // Carrega voto do usuário
+  useEffect(() => {
+    if (!user || !video.id) return;
+    api.getMyVote(video.id).then(v => setMyVote(v?.type ?? null));
+  }, [video.id, user]);
 
   // Inicializa HLS após anúncio e verificação de acesso
   useEffect(() => {
@@ -84,10 +96,17 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     }
   }, [audioMode]);
 
+  const getVideoSrc = () => {
+    if (video.bunnyVideoId) {
+      return `${BUNNY_CDN_BASE}/${video.bunnyVideoId}/playlist.m3u8`;
+    }
+    return video.arquivoUrl;
+  };
+
   const initializePlayback = () => {
     const v = videoRef.current;
-    if (!v || !video.arquivoUrl) return;
-    const src = video.arquivoUrl;
+    const src = getVideoSrc();
+    if (!v || !src) return;
 
     if (src.endsWith('.m3u8') && Hls.isSupported()) {
       const hls = new Hls({ autoStartLoad: true, enableWorker: true, lowLatencyMode: true });
@@ -115,13 +134,33 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     setCurrentQuality(level);
   };
 
+  const changeAudioMode = (mode: 'original' | 'audio1' | 'audio2') => {
+    setAudioMode(mode);
+    localStorage.setItem('lorflux_audio_preference', mode);
+  };
+
+  const handleVote = async (type: 'like' | 'dislike') => {
+    if (!user) return;
+    try {
+      if (myVote === type) {
+        await api.removeVote(video.id);
+        setMyVote(null);
+      } else {
+        await api.vote(video.id, type);
+        setMyVote(type);
+      }
+    } catch (e) {
+      // silently ignore
+    }
+  };
+
   if (showAd) return <AdComponent onFinish={() => setShowAd(false)} />;
 
   if (accessDenied) {
     return (
       <div className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center p-10 text-center">
         <h2 className="text-3xl font-black text-white mb-4 italic">Conteúdo Premium</h2>
-        <p className="text-zinc-500 mb-8">Esta obra é exclusiva para assinantes Loreflux Premium.</p>
+        <p className="text-zinc-500 mb-8">Esta obra é exclusiva para assinantes Lorflux Premium.</p>
         <button onClick={onClose} className="px-12 py-4 bg-rose-600 text-white font-black rounded-2xl">VOLTAR</button>
       </div>
     );
@@ -154,6 +193,26 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
           <X size={24} />
         </button>
 
+        {/* Botões Like/Dislike */}
+        {user && (
+          <div className="absolute top-12 right-6 z-[1200] flex flex-col gap-3">
+            <button
+              onClick={() => handleVote('like')}
+              className={`p-3 rounded-full border transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-black/40 border-white/10 text-white/70 hover:text-white'}`}
+              aria-label="Curtir"
+            >
+              <ThumbsUp size={22} fill={myVote === 'like' ? 'currentColor' : 'none'} />
+            </button>
+            <button
+              onClick={() => handleVote('dislike')}
+              className={`p-3 rounded-full border transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-black/40 border-white/10 text-white/70 hover:text-white'}`}
+              aria-label="Não curtir"
+            >
+              <ThumbsDown size={22} fill={myVote === 'dislike' ? 'currentColor' : 'none'} />
+            </button>
+          </div>
+        )}
+
         {/* Metadata overlay */}
         {showMetadata && (
           <div className="absolute bottom-0 left-0 right-0 pb-32 px-8 bg-gradient-to-t from-black via-black/50 to-transparent z-[1100] pointer-events-none">
@@ -169,25 +228,25 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
               <div className="menu">
                 <label>Idioma</label>
                 <button
-                  onClick={() => setAudioMode('original')}
+                  onClick={() => changeAudioMode('original')}
                   style={{ background: audioMode === 'original' ? '#E11D48' : undefined }}
                 >
                   Original
                 </button>
                 {hasAudio1 && (
                   <button
-                    onClick={() => setAudioMode('audio1')}
+                    onClick={() => changeAudioMode('audio1')}
                     style={{ background: audioMode === 'audio1' ? '#E11D48' : undefined }}
                   >
-                    Áudio 2
+                    Dublagem 1
                   </button>
                 )}
                 {hasAudio2 && (
                   <button
-                    onClick={() => setAudioMode('audio2')}
+                    onClick={() => changeAudioMode('audio2')}
                     style={{ background: audioMode === 'audio2' ? '#E11D48' : undefined }}
                   >
-                    Áudio 3
+                    Dublagem 2
                   </button>
                 )}
               </div>

@@ -5,7 +5,7 @@ import { api } from '../../services/api';
 import {
   Users, Layers, LayoutDashboard, LogOut,
   Trash2, ArrowUp, ArrowDown, DollarSign,
-  Film, Plus, X
+  Film, Plus, X, ThumbsUp, ThumbsDown, Eye
 } from 'lucide-react';
 import API_URL from '../../config/api';
 
@@ -106,7 +106,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       <aside className="w-64 bg-[#0F0F12] border-r border-white/5 flex flex-col p-6 shrink-0">
         <div className="flex items-center gap-3 mb-12 px-2">
           <div className="w-10 h-10 bg-rose-600 rounded-xl flex items-center justify-center font-black italic text-sm">LF</div>
-          <h1 className="text-lg font-black tracking-tighter">Loreflux Studio</h1>
+          <h1 className="text-lg font-black tracking-tighter">Lorflux Studio</h1>
         </div>
 
         <nav className="flex-1 space-y-2">
@@ -181,10 +181,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                           </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-sm mb-1 truncate">{item.title}</h4>
-                            <div className="flex gap-3">
+                            <div className="flex gap-3 flex-wrap">
                               <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest">{item.content_type}</span>
                               <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">#{idx + 1}</span>
                               {item.isPremium && <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">PREMIUM</span>}
+                            </div>
+                            <div className="flex gap-4 mt-2">
+                              <span className="flex items-center gap-1 text-[10px] text-zinc-500"><Eye size={11} />{item.totalViews ?? 0}</span>
+                              <span className="flex items-center gap-1 text-[10px] text-emerald-500"><ThumbsUp size={11} />{item.totalLikes ?? 0}</span>
+                              <span className="flex items-center gap-1 text-[10px] text-rose-500"><ThumbsDown size={11} />{item.totalDislikes ?? 0}</span>
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">

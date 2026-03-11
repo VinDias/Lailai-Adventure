@@ -33,7 +33,7 @@ const logger = createLogger({
     format.splat(),
     format.json()
   ),
-  defaultMeta: { service: "loreflux-app" },
+  defaultMeta: { service: "lorflux-app" },
   transports: [
     errorTransport,
     combinedTransport

@@ -92,7 +92,7 @@ const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase
                 <div className={`w-20 h-20 rounded-[1.5rem] flex items-center justify-center mb-8 ${activeTab === 'user' ? 'bg-rose-600/10 text-rose-500' : 'bg-indigo-600/10 text-indigo-500'}`}>
                    {activeTab === 'user' ? ICONS.Premium : ICONS.AI}
                 </div>
-                <h3 className="text-3xl font-extrabold mb-4">{activeTab === 'user' ? 'Loreflux Premium' : 'Anunciante Cinema'}</h3>
+                <h3 className="text-3xl font-extrabold mb-4">{activeTab === 'user' ? 'Lorflux Premium' : 'Anunciante Cinema'}</h3>
                 <p className="text-zinc-500 mb-10 text-sm text-center">
                   {activeTab === 'user' 
                     ? 'Assista a 1080p nativo, 60 FPS, sem anúncios e com áudio espacial.' 

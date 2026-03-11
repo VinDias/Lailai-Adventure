@@ -19,6 +19,7 @@ export interface Video {
   descricao: string;
   duracao: number;
   arquivoUrl: string;
+  bunnyVideoId?: string;
   audioTrack1Url?: string;
   audioTrack2Url?: string;
   thumbnailUrl: string;

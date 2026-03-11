@@ -73,7 +73,7 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="h-full w-full bg-[#0A0A0B] text-white p-10 overflow-y-auto pb-40">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-black mb-12 tracking-tighter premium-text uppercase">Loreflux Creator Studio</h1>
+        <h1 className="text-4xl font-black mb-12 tracking-tighter premium-text uppercase">Lorflux Creator Studio</h1>
         
         <div className="flex gap-4 mb-12 overflow-x-auto pb-2">
           {['series', 'video', 'webtoon'].map((t: any) => (

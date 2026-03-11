@@ -24,7 +24,7 @@ const SeriesBrowse: React.FC<BrowseProps> = ({ user, onOpenSeries }) => {
   return (
     <div className="h-full w-full bg-[#050505] overflow-y-auto scrollbar-hide font-inter pb-40">
       <header className="p-8 md:p-12">
-        <h1 className="text-4xl font-black premium-text tracking-tighter mb-2">Cinema Loreflux</h1>
+        <h1 className="text-4xl font-black premium-text tracking-tighter mb-2">Cinema Lorflux</h1>
         <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Originals • Exclusivo</p>
       </header>
 
