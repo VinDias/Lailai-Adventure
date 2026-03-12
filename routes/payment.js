@@ -13,8 +13,13 @@ router.post('/create-checkout', verifyToken, async (req, res) => {
 
     let customerId = user.stripeCustomerId;
     if (!customerId) {
-      const customer = await stripe.customers.create({ email: user.email, name: user.nome });
-      customerId = customer.id;
+      const existing = await stripe.customers.list({ email: user.email, limit: 1 });
+      if (existing.data.length > 0) {
+        customerId = existing.data[0].id;
+      } else {
+        const customer = await stripe.customers.create({ email: user.email, name: user.nome });
+        customerId = customer.id;
+      }
       user.stripeCustomerId = customerId;
       await user.save();
     }

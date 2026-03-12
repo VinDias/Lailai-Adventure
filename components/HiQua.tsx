@@ -22,7 +22,7 @@ const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
   const handleOpenSeries = async (s: Series) => {
     setSelectedSeries(s);
     try {
-      const data = await api.getSeriesContent(s.id);
+      const data = await api.getSeriesContent(s._id);
       setContent(data);
     } catch (e) {
       console.error("Error loading series content", e);
@@ -47,7 +47,7 @@ const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
             {series.map((s, idx) => (
-              <React.Fragment key={s.id}>
+              <React.Fragment key={s._id}>
                 <div onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
                   <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[0.98] group-hover:ring-rose-500/50">
                     <img src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-700" alt={s.title} />

@@ -32,7 +32,7 @@ const Discover: React.FC = () => {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
         {filtered.map(s => (
-          <div key={s.id} className="group">
+          <div key={s._id} className="group">
              <div className="aspect-[9/16] rounded-3xl overflow-hidden mb-4 relative ring-1 ring-white/5 group-hover:ring-rose-500/50 transition-all">
                 <img src={s.cover_image} className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
