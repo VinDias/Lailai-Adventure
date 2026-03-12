@@ -2,26 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-:root[data-theme="light"] {
-  --bg-color: #ffffff;
-  --text-color: #000000;
-  --nav-bg: rgba(255, 255, 255, 0.85);
-  --apple-bg: #ffffff;
-}
-
-:root[data-theme="dark"] {
-  --bg-color: #0f0f0f;
-  --text-color: #ffffff;
-  --nav-bg: rgba(0, 0, 0, 0.85);
-  --apple-bg: #0A0A0B;
-}
-
+/* Light mode = padrão */
 :root {
+  --bg-color: #f5f5f7;
+  --text-color: #1d1d1f;
+  --nav-bg: rgba(245, 245, 247, 0.9);
+  --apple-bg: #ffffff;
+  --card-bg: #ffffff;
+  --border-color: rgba(0,0,0,0.08);
+  --loreflux-accent: #E11D48;
+}
+
+/* Dark mode = classe .dark no <html> */
+.dark {
   --bg-color: #0f0f0f;
   --text-color: #ffffff;
   --nav-bg: rgba(0, 0, 0, 0.85);
   --apple-bg: #0A0A0B;
-  --loreflux-accent: #E11D48;
+  --card-bg: #18181b;
+  --border-color: rgba(255,255,255,0.05);
 }
 
 body {

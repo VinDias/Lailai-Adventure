@@ -53,15 +53,16 @@ const App: React.FC = () => {
   };
 
   if (view === ViewMode.AUTH) return (
-    <>
-      <ThemeToggle />
+    <div className="relative">
+      <div className="absolute top-4 right-4 z-50">
+        <ThemeToggle />
+      </div>
       <Auth onLogin={handleLogin} />
-    </>
+    </div>
   );
 
   return (
     <div className="h-screen w-full flex flex-col bg-[var(--bg-color)] text-[var(--text-color)] overflow-hidden font-inter select-none transition-colors duration-300">
-      <ThemeToggle />
       {isOffline && (
         <div className="bg-rose-600 text-white text-[10px] font-black uppercase py-1 text-center tracking-widest z-[5000]">
           MODO OFFLINE ATIVO
@@ -168,11 +169,12 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <nav className="h-28 bg-[var(--nav-bg,rgba(0,0,0,0.8))] backdrop-blur-3xl border-t border-white/5 flex items-center justify-around px-4 pb-8 z-[900]">
+      <nav className="h-28 bg-[var(--nav-bg,rgba(0,0,0,0.8))] backdrop-blur-3xl border-t border-[var(--border-color)] flex items-center justify-around px-4 pb-8 z-[900]">
         <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={<Play />} label="HQCine" />
         <NavBtn active={view === ViewMode.VCINE} onClick={() => setView(ViewMode.VCINE)} icon={<Film />} label="VCine" />
         <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={<BookOpen />} label="Hi-Qua" />
         <NavBtn active={view === ViewMode.PROFILE} onClick={() => setView(ViewMode.PROFILE)} icon={<UserIcon />} label="Conta" />
+        <ThemeToggle />
         {(user as any)?.role === 'superadmin' && (
           <NavBtn active={view === ViewMode.ADMIN_DASHBOARD} onClick={() => setView(ViewMode.ADMIN_DASHBOARD)} icon={<ShieldAlert />} label="Admin" />
         )}

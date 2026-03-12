@@ -1,35 +1,19 @@
 
 import React from 'react';
 import useTheme from "../hooks/useTheme";
+import { Moon, Sun } from 'lucide-react';
 
 export default function ThemeToggle() {
   const { theme, setTheme } = useTheme();
 
-  const toggleTheme = () => {
-    setTheme(theme === "light" ? "dark" : "light");
-  };
-
   return (
     <button
-      onClick={toggleTheme}
-      style={{
-        position: "absolute",
-        top: "15px",
-        right: "15px",
-        padding: "8px 14px",
-        borderRadius: "20px",
-        border: "1px solid rgba(128,128,128,0.2)",
-        cursor: "pointer",
-        zIndex: 5000,
-        backgroundColor: theme === 'light' ? '#f0f0f0' : '#1c1c1e',
-        color: theme === 'light' ? '#000' : '#fff',
-        fontSize: '18px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-        transition: 'all 0.3s ease'
-      }}
+      onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+      className="flex flex-col items-center gap-1.5 transition-all duration-300 text-zinc-600 hover:text-zinc-400"
       aria-label="Alternar Tema"
     >
-      {theme === "light" ? "🌙" : "☀️"}
+      {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+      <span className="text-[10px] font-black uppercase tracking-widest">Tema</span>
     </button>
   );
 }
