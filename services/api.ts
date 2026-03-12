@@ -146,6 +146,10 @@ class ApiService {
     return this.request<any>(`/content/series/${id}`, { method: 'DELETE' });
   }
 
+  async deleteEpisode(id: string) {
+    return this.request<any>(`/content/episodes/${id}`, { method: 'DELETE' });
+  }
+
   async initBunnyUpload(title: string, episodeId: string) {
     return this.request<any>('/bunny/upload', {
       method: 'POST',

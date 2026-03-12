@@ -5,7 +5,7 @@ import { api } from '../../services/api';
 import {
   Users, Layers, LayoutDashboard, LogOut,
   Trash2, ArrowUp, ArrowDown, DollarSign,
-  Film, Plus, X, ThumbsUp, ThumbsDown, Eye
+  Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List
 } from 'lucide-react';
 import API_URL from '../../config/api';
 
@@ -27,6 +27,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
+  // Série selecionada para gerenciar episódios
+  const [selectedSeries, setSelectedSeries] = useState<any>(null);
+  const [episodes, setEpisodes] = useState<any[]>([]);
+  const [loadingEpisodes, setLoadingEpisodes] = useState(false);
+  const [showEpisodeModal, setShowEpisodeModal] = useState(false);
+  const [newEpisode, setNewEpisode] = useState({
+    episode_number: 1, title: '', description: '',
+    thumbnail: '', video_url: '', bunnyVideoId: '', isPremium: false
+  });
+  const [creatingEpisode, setCreatingEpisode] = useState(false);
+  const [episodeMsg, setEpisodeMsg] = useState('');
+
   // Estado do formulário de nova série
   const [newSeries, setNewSeries] = useState({
     title: '', genre: '', description: '',
@@ -36,6 +48,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [createMsg, setCreateMsg] = useState('');
 
   useEffect(() => {
+    setSelectedSeries(null);
     loadDashboard();
   }, [currentSubView]);
 
@@ -55,6 +68,20 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     }
   };
 
+  const handleSelectSeries = async (series: any) => {
+    setSelectedSeries(series);
+    setLoadingEpisodes(true);
+    try {
+      const eps = await api.getEpisodesBySeries(series._id || series.id);
+      setEpisodes(eps);
+      setNewEpisode(e => ({ ...e, episode_number: (eps.length || 0) + 1 }));
+    } catch (e) {
+      setEpisodes([]);
+    } finally {
+      setLoadingEpisodes(false);
+    }
+  };
+
   const handleReorder = async (id: string, direction: 'up' | 'down') => {
     const index = contentList.findIndex(i => (i._id || i.id) === id);
     if ((direction === 'up' && index === 0) || (direction === 'down' && index === contentList.length - 1)) return;
@@ -68,7 +95,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     try {
       await fetch(`${API_URL}/admin/management/reorder`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('lorflux_token')}` },
         body: JSON.stringify({ items: updated.map(i => ({ id: i._id || i.id, order_index: i.order_index })) }),
         credentials: 'include'
       });
@@ -81,6 +108,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       await api.deleteSeries(id);
       setContentList(prev => prev.filter(i => (i._id || i.id) !== id));
     } catch (e) { alert('Erro ao excluir.'); }
+  };
+
+  const handleDeleteEpisode = async (id: string) => {
+    if (!confirm('Excluir este episódio permanentemente?')) return;
+    try {
+      await api.deleteEpisode(id);
+      setEpisodes(prev => prev.filter(e => (e._id || e.id) !== id));
+    } catch (e) { alert('Erro ao excluir episódio.'); }
   };
 
   const handleCreateSeries = async (e: React.FormEvent) => {
@@ -100,6 +135,36 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     }
   };
 
+  const handleCreateEpisode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreatingEpisode(true);
+    setEpisodeMsg('');
+    try {
+      const seriesId = selectedSeries._id || selectedSeries.id;
+      const payload: any = {
+        seriesId,
+        episode_number: newEpisode.episode_number,
+        title: newEpisode.title,
+        description: newEpisode.description,
+        thumbnail: newEpisode.thumbnail,
+        isPremium: newEpisode.isPremium,
+        status: 'published'
+      };
+      if (newEpisode.bunnyVideoId) payload.bunnyVideoId = newEpisode.bunnyVideoId;
+      if (newEpisode.video_url) payload.video_url = newEpisode.video_url;
+
+      const created = await api.createEpisode(payload);
+      setEpisodes(prev => [...prev, created]);
+      setNewEpisode({ episode_number: episodes.length + 2, title: '', description: '', thumbnail: '', video_url: '', bunnyVideoId: '', isPremium: false });
+      setEpisodeMsg('Episódio criado com sucesso!');
+      setTimeout(() => { setEpisodeMsg(''); setShowEpisodeModal(false); }, 1500);
+    } catch (e) {
+      setEpisodeMsg('Erro ao criar episódio.');
+    } finally {
+      setCreatingEpisode(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-[#0A0A0B] text-zinc-100 font-inter">
       {/* Sidebar */}
@@ -111,7 +176,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
         <nav className="flex-1 space-y-2">
           <SidebarLink active={currentSubView === ViewMode.ADMIN_DASHBOARD} onClick={() => setSubView(ViewMode.ADMIN_DASHBOARD)} icon={<LayoutDashboard size={18} />} label="Dashboard" />
-          <SidebarLink active={currentSubView === ViewMode.ADMIN_CONTENT} onClick={() => setSubView(ViewMode.ADMIN_CONTENT)} icon={<Layers size={18} />} label="Gerenciar Conteúdo" />
+          <SidebarLink active={currentSubView === ViewMode.ADMIN_CONTENT} onClick={() => { setSelectedSeries(null); setSubView(ViewMode.ADMIN_CONTENT); }} icon={<Layers size={18} />} label="Gerenciar Conteúdo" />
         </nav>
 
         <button onClick={onLogout} className="mt-auto flex items-center gap-3 p-4 rounded-2xl text-zinc-500 hover:text-rose-500 font-bold text-sm transition-all">
@@ -148,8 +213,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
           </div>
         )}
 
-        {/* CONTEÚDO */}
-        {currentSubView === ViewMode.ADMIN_CONTENT && (
+        {/* CONTEÚDO — Lista de Séries */}
+        {currentSubView === ViewMode.ADMIN_CONTENT && !selectedSeries && (
           <div className="max-w-4xl animate-apple">
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-4xl font-black tracking-tighter">Gerenciar Séries</h2>
@@ -193,9 +258,76 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
+                            <button onClick={() => handleSelectSeries(item)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Gerenciar episódios"><List size={16} /></button>
                             <button onClick={() => handleReorder(id, 'up')} className="p-2 bg-white/5 rounded-lg text-zinc-500 hover:text-white"><ArrowUp size={16} /></button>
                             <button onClick={() => handleReorder(id, 'down')} className="p-2 bg-white/5 rounded-lg text-zinc-500 hover:text-white"><ArrowDown size={16} /></button>
                             <button onClick={() => handleDelete(id)} className="p-2 bg-rose-600/10 rounded-lg text-rose-500 hover:bg-rose-600 hover:text-white transition-all"><Trash2 size={16} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* EPISÓDIOS — Lista de episódios da série selecionada */}
+        {currentSubView === ViewMode.ADMIN_CONTENT && selectedSeries && (
+          <div className="max-w-4xl animate-apple">
+            <div className="flex items-center gap-4 mb-2">
+              <button onClick={() => setSelectedSeries(null)} className="p-2 bg-white/5 rounded-xl text-zinc-400 hover:text-white transition-all">
+                <ChevronLeft size={20} />
+              </button>
+              <div>
+                <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Episódios de</p>
+                <h2 className="text-3xl font-black tracking-tighter">{selectedSeries.title}</h2>
+              </div>
+            </div>
+            <div className="flex items-center justify-between mb-8 mt-6">
+              <span className="text-xs font-bold text-zinc-500">{episodes.length} episódio{episodes.length !== 1 ? 's' : ''}</span>
+              <button
+                onClick={() => setShowEpisodeModal(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-rose-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-rose-500 transition-all"
+              >
+                <Plus size={16} /> Novo Episódio
+              </button>
+            </div>
+
+            {loadingEpisodes ? (
+              <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>
+            ) : (
+              <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/5 overflow-hidden">
+                {episodes.length === 0 ? (
+                  <div className="p-16 text-center">
+                    <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum episódio cadastrado</p>
+                    <p className="text-zinc-700 text-xs mt-2">Clique em "Novo Episódio" para adicionar</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {episodes.map((ep) => {
+                      const epId = ep._id || ep.id;
+                      return (
+                        <div key={epId} className="flex items-center gap-6 p-6 hover:bg-white/5 transition-all">
+                          <div className="w-16 h-10 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-white/10">
+                            {ep.thumbnail && <img src={ep.thumbnail} className="w-full h-full object-cover" alt={ep.title} />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-sm mb-1 truncate">
+                              <span className="text-zinc-500 mr-2">Ep.{ep.episode_number}</span>{ep.title}
+                            </h4>
+                            <div className="flex gap-3 flex-wrap">
+                              {ep.bunnyVideoId && <span className="text-[9px] font-black text-sky-400 uppercase tracking-widest">BUNNY</span>}
+                              {ep.video_url && !ep.bunnyVideoId && <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">URL</span>}
+                              {ep.isPremium && <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">PREMIUM</span>}
+                              <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">{ep.status ?? 'published'}</span>
+                            </div>
+                            {ep.description && <p className="text-zinc-600 text-[11px] mt-1 truncate">{ep.description}</p>}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="flex items-center gap-1 text-[10px] text-zinc-600"><Eye size={11} />{ep.views ?? 0}</span>
+                            <button onClick={() => handleDeleteEpisode(epId)} className="p-2 bg-rose-600/10 rounded-lg text-rose-500 hover:bg-rose-600 hover:text-white transition-all ml-2"><Trash2 size={16} /></button>
                           </div>
                         </div>
                       );
@@ -235,25 +367,58 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
               </div>
 
               <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={newSeries.isPremium}
-                  onChange={e => setNewSeries(s => ({ ...s, isPremium: e.target.checked }))}
-                  className="w-4 h-4 accent-rose-500"
-                />
+                <input type="checkbox" checked={newSeries.isPremium} onChange={e => setNewSeries(s => ({ ...s, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
                 <span className="text-sm font-bold text-zinc-300">Conteúdo Premium</span>
               </label>
 
-              {createMsg && (
-                <p className={`text-sm font-bold text-center ${createMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{createMsg}</p>
-              )}
+              {createMsg && <p className={`text-sm font-bold text-center ${createMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{createMsg}</p>}
 
-              <button
-                type="submit"
-                disabled={creating || !newSeries.title || !newSeries.genre}
-                className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
+              <button type="submit" disabled={creating || !newSeries.title || !newSeries.genre} className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                 {creating ? 'Criando...' : 'CRIAR SÉRIE'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal — Novo Episódio */}
+      {showEpisodeModal && (
+        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/10 p-10 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-2xl font-black tracking-tighter">Novo Episódio</h3>
+              <button onClick={() => setShowEpisodeModal(false)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
+            </div>
+
+            <form onSubmit={handleCreateEpisode} className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Número do Episódio</label>
+                <input
+                  type="number" min={1}
+                  value={newEpisode.episode_number}
+                  onChange={e => setNewEpisode(ep => ({ ...ep, episode_number: parseInt(e.target.value) || 1 }))}
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+                />
+              </div>
+              <FormField label="Título" value={newEpisode.title} onChange={v => setNewEpisode(ep => ({ ...ep, title: v }))} required />
+              <FormField label="Descrição" value={newEpisode.description} onChange={v => setNewEpisode(ep => ({ ...ep, description: v }))} />
+              <FormField label="URL da Thumbnail" value={newEpisode.thumbnail} onChange={v => setNewEpisode(ep => ({ ...ep, thumbnail: v }))} />
+
+              <div className="bg-white/5 rounded-2xl p-4 space-y-3">
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Vídeo — preencha um dos dois</p>
+                <FormField label="Bunny Video ID (ex: abc-123-def)" value={newEpisode.bunnyVideoId} onChange={v => setNewEpisode(ep => ({ ...ep, bunnyVideoId: v }))} />
+                <FormField label="Ou URL direta do vídeo (mp4/m3u8)" value={newEpisode.video_url} onChange={v => setNewEpisode(ep => ({ ...ep, video_url: v }))} />
+              </div>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={newEpisode.isPremium} onChange={e => setNewEpisode(ep => ({ ...ep, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
+                <span className="text-sm font-bold text-zinc-300">Episódio Premium</span>
+              </label>
+
+              {episodeMsg && <p className={`text-sm font-bold text-center ${episodeMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{episodeMsg}</p>}
+
+              <button type="submit" disabled={creatingEpisode || !newEpisode.title} className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                {creatingEpisode ? 'Criando...' : 'CRIAR EPISÓDIO'}
               </button>
             </form>
           </div>
