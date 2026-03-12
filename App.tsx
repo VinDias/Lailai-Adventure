@@ -163,7 +163,7 @@ const App: React.FC = () => {
           <WebtoonReader webtoon={activeWebtoon} user={user} onClose={() => setView(ViewMode.HIQUA)} />
         )}
 
-        {(view === ViewMode.ADMIN_DASHBOARD || view === ViewMode.ADMIN_CONTENT || view === ViewMode.ADMIN_USERS || view === ViewMode.ADMIN_PAYMENTS) && (
+        {(view === ViewMode.ADMIN_DASHBOARD || view === ViewMode.ADMIN_CONTENT || view === ViewMode.ADMIN_USERS || view === ViewMode.ADMIN_PAYMENTS || view === ViewMode.ADMIN_ADS) && (
           <AdminDashboard onLogout={handleLogout} currentSubView={view} setSubView={(v) => setView(v)} />
         )}
       </main>

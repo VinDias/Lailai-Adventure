@@ -1,6 +1,6 @@
 # GUIA COMPLETO — Projeto Lorflux
 
-> **Última atualização:** 11 de Março de 2026
+> **Última atualização:** 12 de Março de 2026
 > **Branch:** `main`
 > **Stack:** React 19 + Vite 5.4 + Tailwind 3.4 + Node/Express + MongoDB + Stripe + Bunny.net
 
@@ -19,13 +19,13 @@
 | **PWA** | Concluído | Manifest, service-worker, ícones gerados (192, 512, maskable) |
 | **Bunny.net (Vídeo)** | Concluído | Upload endpoint, webhook HLS, CDN configurado |
 | **API de Conteúdo (CRUD)** | Concluído | Séries, episódios, painéis, votos, traduções |
-| **Admin Dashboard** | Concluído | Stats reais, criar/deletar séries, gerenciar episódios |
-| **Sistema de Votos** | Concluído | Like/dislike em vídeos e webtoons, contadores ocultos no admin |
+| **Admin Dashboard** | Concluído | Stats, séries, episódios, upload de capa, anúncios |
+| **Sistema de Votos** | Concluído | Like/dislike em vídeos e webtoons, contadores no admin |
 | **Seletor de Idioma** | Concluído | PT/EN/ES/ZH no WebtoonReader com translation layers |
 | **Switch de Dublagem** | Concluído | Original/Dublagem 1/Dublagem 2 no VerticalPlayer |
 | **Google AdSense** | Concluído | Script integrado, ads condicionais para não-premium |
-| **Redis/BullMQ (Filas)** | Parcial | Código existe — falta instalar Redis no servidor |
-| **Storage S3/R2** | Pendente | SDK instalado — falta endpoints de upload de imagem |
+| **Redis/BullMQ (Filas)** | Concluído | Redis instalado e ativo na VPS |
+| **Gerenciamento de Anúncios** | Concluído | CRUD completo via UI no Admin (ativar/desativar, editar, deletar) |
 
 ---
 
@@ -41,6 +41,7 @@
 - [x] PM2 com 3 processos online (app + 2 workers)
 - [x] Winston logger com rotação diária
 - [x] Healthcheck em `/health`
+- [x] Redis instalado e ativo (`redis://localhost:6379`)
 
 ### Autenticação
 - [x] `POST /api/auth/register` — registro com bcrypt (salt 12)
@@ -49,6 +50,7 @@
 - [x] `POST /api/auth/refresh-token` — renova access token
 - [x] `npm run seed:admin` — cria superadmin (vin@lorflux.com)
 - [x] Persistência de sessão entre reloads (lorflux_session + lorflux_token)
+- [x] Fluxo de registro via UI (Auth.tsx — campo nome, email, senha)
 
 ### Pagamentos (Stripe)
 - [x] `POST /api/payment/create-checkout` — cria sessão checkout (subscription)
@@ -61,15 +63,27 @@
 - [x] `POST /api/content/episodes/:id/panels` — adicionar painéis webtoon
 - [x] `PUT /api/content/episodes/:episodeId/panels/:panelIndex/translations` — tradução por painel
 - [x] `GET/POST/DELETE /api/content/episodes/:id/vote` — sistema de votos
-- [x] `GET /api/content/ads` — anúncios ativos
+- [x] `GET /api/content/ads` — anúncios ativos (para exibição no app)
 
 ### Admin Dashboard (frontend + backend)
 - [x] Stats reais: usuários, premium, séries, episódios, anúncios, receita estimada
 - [x] Gerenciar séries: criar, reordenar, deletar
+- [x] Upload de capa da série: clique na thumbnail para substituir (ou arquivo no modal)
 - [x] Gerenciar episódios por série: listar, criar (Bunny ID ou URL direta), deletar
+- [x] Gerenciar anúncios: criar, editar, ativar/desativar, deletar
 - [x] `requireAdmin` aceita roles `admin` e `superadmin`
 - [x] Botão Admin visível apenas para `role === 'superadmin'`
-- [x] Navegação entre subviews (ADMIN_DASHBOARD, ADMIN_CONTENT) sem tela branca
+- [x] Navegação entre subviews (ADMIN_DASHBOARD, ADMIN_CONTENT, ADMIN_ADS)
+
+### Backend — Rotas Admin (routes/admin.js + routes/ads.js)
+- [x] `GET /api/admin/management/stats` — estatísticas do dashboard
+- [x] `GET /api/admin/management/content` — listagem de séries com votos/views agregados
+- [x] `PUT /api/admin/management/reorder` — reordenar séries (drag & drop)
+- [x] `PUT /api/admin/management/update-thumbnail/:id` — upload de capa (multer + MongoDB)
+- [x] `GET /api/admin/episodes/:id/metrics` — likes/dislikes por episódio
+- [x] `GET/POST/PUT/DELETE /api/admin/ads` — CRUD de anúncios
+- [x] `POST /api/admin/ads/:id/impression` — registrar impressão
+- [x] `POST /api/admin/ads/:id/click` — registrar clique
 
 ### Frontend — Players & Readers
 - [x] VerticalPlayer: HLS via Bunny CDN, qualidade adaptativa, 3 trilhas de áudio, like/dislike
@@ -91,28 +105,15 @@
 
 | Item | Prioridade | Detalhe |
 |------|-----------|---------|
-| Redis | Alta | `sudo apt install redis-server && sudo systemctl enable --now redis` |
-| Bunny webhook | Alta | dash.bunny.net → Library 612589 → Settings → Webhooks → `https://lorflux.com/api/bunny/webhook` |
 | Stripe live | Média | Trocar `sk_test_` por `sk_live_` no `.env` da VPS + `STRIPE_PRICE_ID` real |
 | Ícones PWA reais | Baixa | Substituir os placeholders em `public/icons/` por arte real do Lorflux |
 
-### 2. Desenvolvimento Frontend
-
-- [ ] **Tela de gerenciamento de anúncios no Admin** — CRUD de anúncios via UI (hoje só via API)
-- [ ] **Upload de imagem de capa no admin** — hoje só aceita URL; endpoint `PUT /api/admin/management/update-thumbnail/:id` existe mas não tem UI
-- [ ] **Registro de novos usuários** — Auth.tsx tem botão "Criar Conta" mas só alterna label, não implementa o fluxo de registro
-
-### 3. Conteúdo (depende do cliente)
+### 2. Conteúdo (depende do cliente)
 
 - [ ] Vídeos para HQCine e VCine (formato vertical 9:16 recomendado, enviar via Bunny Stream)
 - [ ] Thumbnails das séries e episódios
 - [ ] Painéis de webtoon para Hi-Qua (URLs de imagem por painel)
 - [ ] Camadas de tradução por painel (PT já é o original; EN/ES/ZH são imagens overlay)
-
-### 4. Backend — Pendências menores
-
-- [ ] Rota `POST /api/auth/register` — verificar se está exposta e funcionando (não foi testada)
-- [ ] `GET /api/admin/episodes/:id/metrics` — rota referenciada no api.ts mas não implementada em admin.js
 
 ---
 
@@ -120,15 +121,22 @@
 
 ### HQCine / VCine (vídeo)
 1. Admin → Gerenciar Conteúdo → Nova Série (tipo `hqcine` ou `vcine`)
-2. Clicar no ícone de lista na série → Novo Episódio
-3. Preencher título, thumbnail URL, **Bunny Video ID** (obter no painel Bunny Stream após upload)
-4. O player usa `https://vz-fbaa1d24-d2c.b-cdn.net/{bunnyVideoId}/playlist.m3u8`
+2. Clicar na thumbnail da série para fazer upload da capa
+3. Clicar no ícone de lista na série → Novo Episódio
+4. Preencher título, thumbnail URL, **Bunny Video ID** (obter no painel Bunny Stream após upload)
+5. O player usa `https://vz-fbaa1d24-d2c.b-cdn.net/{bunnyVideoId}/playlist.m3u8`
 
 ### Hi-Qua (webtoon)
 1. Admin → Nova Série (tipo `hiqua`)
 2. Criar episódio (sem vídeo)
 3. Via API: `POST /api/content/episodes/:id/panels` com array de `{ image_url, order }`
 4. Para traduções: `PUT /api/content/episodes/:id/panels/:index/translations` com `{ language, imageUrl }`
+
+### Anúncios
+1. Admin → Anúncios → Novo Anúncio
+2. Preencher título, URL da imagem, link de destino, anunciante, datas de início/fim
+3. Anúncios ativos aparecem automaticamente para usuários não-premium
+4. Use o toggle para ativar/desativar sem deletar
 
 ---
 
@@ -147,7 +155,7 @@ BUNNY_LIBRARY_ID=612589       # configurado
 BUNNY_CDN_HOSTNAME=vz-fbaa1d24-d2c.b-cdn.net
 FRONTEND_URL=https://lorflux.com
 VITE_API_URL=https://lorflux.com/api  # CRITICO — necessario no build
-REDIS_URL=redis://localhost:6379      # falta instalar Redis
+REDIS_URL=redis://localhost:6379      # configurado
 ```
 
 ---
@@ -178,7 +186,7 @@ pm2 status           # Status dos processos
 
 ---
 
-## HISTORICO DE COMMITS (sessao atual)
+## HISTORICO DE COMMITS
 
 | Hash | Descrição |
 |------|-----------|
@@ -186,3 +194,5 @@ pm2 status           # Status dos processos
 | `3e13918` | fix: token persistence e offline detection |
 | `e5d54a6` | fix: requireAdmin aceita superadmin, AdminDashboard subviews |
 | `990cca1` | feat: gerenciamento de episódios no Admin |
+| `568a399` | feat: registro de usuários, upload de thumbnail, admin ads UI |
+| `2cc770f` | feat: thumbnail upload for series in admin panel |

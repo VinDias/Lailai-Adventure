@@ -204,6 +204,23 @@ class ApiService {
   async getEpisodeMetrics(episodeId: string | number) {
     return this.request<{ likes: number; dislikes: number; total: number }>(`/admin/episodes/${episodeId}/metrics`);
   }
+
+  // Ads (admin)
+  async getAds() {
+    return this.request<any[]>('/admin/ads');
+  }
+
+  async createAd(data: { title: string; image_url: string; link_url?: string; advertiser?: string; startsAt?: string; endsAt?: string }) {
+    return this.request<any>('/admin/ads', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async updateAd(id: string, data: Partial<{ title: string; image_url: string; link_url: string; advertiser: string; isActive: boolean; startsAt: string; endsAt: string }>) {
+    return this.request<any>(`/admin/ads/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  }
+
+  async deleteAd(id: string) {
+    return this.request<any>(`/admin/ads/${id}`, { method: 'DELETE' });
+  }
 }
 
 export const api = ApiService.getInstance();

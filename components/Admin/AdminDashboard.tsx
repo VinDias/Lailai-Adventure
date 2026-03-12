@@ -5,7 +5,8 @@ import { api } from '../../services/api';
 import {
   Users, Layers, LayoutDashboard, LogOut,
   Trash2, ArrowUp, ArrowDown, DollarSign,
-  Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera
+  Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
+  Megaphone, ToggleLeft, ToggleRight, ExternalLink
 } from 'lucide-react';
 import API_URL from '../../config/api';
 
@@ -46,6 +47,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   });
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState('');
+
+  // Anúncios
+  const [adsList, setAdsList] = useState<any[]>([]);
+  const [loadingAds, setLoadingAds] = useState(false);
+  const [showAdModal, setShowAdModal] = useState(false);
+  const [editingAd, setEditingAd] = useState<any>(null);
+  const [adForm, setAdForm] = useState({ title: '', image_url: '', link_url: '', advertiser: '', startsAt: '', endsAt: '' });
+  const [savingAd, setSavingAd] = useState(false);
+  const [adMsg, setAdMsg] = useState('');
 
   // Upload de thumbnail
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -122,6 +132,74 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       await api.deleteEpisode(id);
       setEpisodes(prev => prev.filter(e => (e._id || e.id) !== id));
     } catch (e) { alert('Erro ao excluir episódio.'); }
+  };
+
+  const loadAds = async () => {
+    setLoadingAds(true);
+    try { setAdsList(await api.getAds()); }
+    catch { setAdsList([]); }
+    finally { setLoadingAds(false); }
+  };
+
+  useEffect(() => {
+    if (currentSubView === ViewMode.ADMIN_ADS) loadAds();
+  }, [currentSubView]);
+
+  const openNewAd = () => {
+    setEditingAd(null);
+    setAdForm({ title: '', image_url: '', link_url: '', advertiser: '', startsAt: '', endsAt: '' });
+    setAdMsg('');
+    setShowAdModal(true);
+  };
+
+  const openEditAd = (ad: any) => {
+    setEditingAd(ad);
+    setAdForm({
+      title: ad.title, image_url: ad.image_url, link_url: ad.link_url ?? '',
+      advertiser: ad.advertiser ?? '',
+      startsAt: ad.startsAt ? ad.startsAt.slice(0, 10) : '',
+      endsAt: ad.endsAt ? ad.endsAt.slice(0, 10) : ''
+    });
+    setAdMsg('');
+    setShowAdModal(true);
+  };
+
+  const handleSaveAd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingAd(true);
+    setAdMsg('');
+    try {
+      const payload = { ...adForm, startsAt: adForm.startsAt || undefined, endsAt: adForm.endsAt || undefined };
+      if (editingAd) {
+        const updated = await api.updateAd(editingAd._id || editingAd.id, payload);
+        setAdsList(prev => prev.map(a => (a._id || a.id) === (editingAd._id || editingAd.id) ? updated : a));
+      } else {
+        const created = await api.createAd(payload);
+        setAdsList(prev => [created, ...prev]);
+      }
+      setAdMsg(editingAd ? 'Anúncio atualizado!' : 'Anúncio criado!');
+      setTimeout(() => { setAdMsg(''); setShowAdModal(false); }, 1200);
+    } catch {
+      setAdMsg('Erro ao salvar anúncio.');
+    } finally {
+      setSavingAd(false);
+    }
+  };
+
+  const handleDeleteAd = async (id: string) => {
+    if (!confirm('Excluir este anúncio?')) return;
+    try {
+      await api.deleteAd(id);
+      setAdsList(prev => prev.filter(a => (a._id || a.id) !== id));
+    } catch { alert('Erro ao excluir.'); }
+  };
+
+  const handleToggleAd = async (ad: any) => {
+    const id = ad._id || ad.id;
+    try {
+      const updated = await api.updateAd(id, { isActive: !ad.isActive });
+      setAdsList(prev => prev.map(a => (a._id || a.id) === id ? updated : a));
+    } catch { alert('Erro ao atualizar status.'); }
   };
 
   const handleThumbnailClick = (id: string) => {
@@ -212,6 +290,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         <nav className="flex-1 space-y-2">
           <SidebarLink active={currentSubView === ViewMode.ADMIN_DASHBOARD} onClick={() => setSubView(ViewMode.ADMIN_DASHBOARD)} icon={<LayoutDashboard size={18} />} label="Dashboard" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_CONTENT} onClick={() => { setSelectedSeries(null); setSubView(ViewMode.ADMIN_CONTENT); }} icon={<Layers size={18} />} label="Gerenciar Conteúdo" />
+          <SidebarLink active={currentSubView === ViewMode.ADMIN_ADS} onClick={() => setSubView(ViewMode.ADMIN_ADS)} icon={<Megaphone size={18} />} label="Anúncios" />
         </nav>
 
         <button onClick={onLogout} className="mt-auto flex items-center gap-3 p-4 rounded-2xl text-zinc-500 hover:text-rose-500 font-bold text-sm transition-all">
@@ -386,6 +465,59 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             )}
           </div>
         )}
+        {/* ANÚNCIOS */}
+        {currentSubView === ViewMode.ADMIN_ADS && (
+          <div className="max-w-4xl animate-apple">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-4xl font-black tracking-tighter">Anúncios</h2>
+              <button onClick={openNewAd} className="flex items-center gap-2 px-6 py-3 bg-rose-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-rose-500 transition-all">
+                <Plus size={16} /> Novo Anúncio
+              </button>
+            </div>
+
+            {loadingAds ? (
+              <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>
+            ) : (
+              <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/5 overflow-hidden">
+                {adsList.length === 0 ? (
+                  <div className="p-16 text-center">
+                    <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum anúncio cadastrado</p>
+                    <p className="text-zinc-700 text-xs mt-2">Clique em "Novo Anúncio" para começar</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {adsList.map((ad) => {
+                      const id = ad._id || ad.id;
+                      return (
+                        <div key={id} className="flex items-center gap-5 p-5 hover:bg-white/5 transition-all">
+                          <div className="w-20 h-14 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-white/10">
+                            {ad.image_url && <img src={ad.image_url} className="w-full h-full object-cover" alt={ad.title} />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-sm truncate">{ad.title}</h4>
+                            {ad.advertiser && <p className="text-zinc-500 text-xs mt-0.5">{ad.advertiser}</p>}
+                            <div className="flex gap-3 mt-1 flex-wrap">
+                              <span className={`text-[9px] font-black uppercase tracking-widest ${ad.isActive ? 'text-emerald-400' : 'text-zinc-600'}`}>{ad.isActive ? 'ATIVO' : 'INATIVO'}</span>
+                              <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">{ad.impressions ?? 0} imp · {ad.clicks ?? 0} cliques</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {ad.link_url && <a href={ad.link_url} target="_blank" rel="noreferrer" className="p-2 bg-white/5 rounded-lg text-zinc-500 hover:text-white transition-all"><ExternalLink size={15} /></a>}
+                            <button onClick={() => handleToggleAd(ad)} className="p-2 bg-white/5 rounded-lg transition-all" title={ad.isActive ? 'Desativar' : 'Ativar'}>
+                              {ad.isActive ? <ToggleRight size={18} className="text-emerald-400" /> : <ToggleLeft size={18} className="text-zinc-600" />}
+                            </button>
+                            <button onClick={() => openEditAd(ad)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white transition-all"><Film size={15} /></button>
+                            <button onClick={() => handleDeleteAd(id)} className="p-2 bg-rose-600/10 rounded-lg text-rose-500 hover:bg-rose-600 hover:text-white transition-all"><Trash2 size={15} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       {/* Input de arquivo oculto para upload de thumbnail */}
@@ -495,6 +627,40 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
               <button type="submit" disabled={creatingEpisode || !newEpisode.title} className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                 {creatingEpisode ? 'Criando...' : 'CRIAR EPISÓDIO'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal — Novo/Editar Anúncio */}
+      {showAdModal && (
+        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/10 p-10 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-2xl font-black tracking-tighter">{editingAd ? 'Editar Anúncio' : 'Novo Anúncio'}</h3>
+              <button onClick={() => setShowAdModal(false)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
+            </div>
+            <form onSubmit={handleSaveAd} className="space-y-4">
+              <FormField label="Título *" value={adForm.title} onChange={v => setAdForm(f => ({ ...f, title: v }))} required />
+              <FormField label="URL da Imagem *" value={adForm.image_url} onChange={v => setAdForm(f => ({ ...f, image_url: v }))} required />
+              <FormField label="URL de Destino (link)" value={adForm.link_url} onChange={v => setAdForm(f => ({ ...f, link_url: v }))} />
+              <FormField label="Anunciante" value={adForm.advertiser} onChange={v => setAdForm(f => ({ ...f, advertiser: v }))} />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Início</label>
+                  <input type="date" value={adForm.startsAt} onChange={e => setAdForm(f => ({ ...f, startsAt: e.target.value }))}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Fim</label>
+                  <input type="date" value={adForm.endsAt} onChange={e => setAdForm(f => ({ ...f, endsAt: e.target.value }))}
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
+                </div>
+              </div>
+              {adMsg && <p className={`text-sm font-bold text-center ${adMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{adMsg}</p>}
+              <button type="submit" disabled={savingAd || !adForm.title || !adForm.image_url}
+                className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                {savingAd ? 'Salvando...' : editingAd ? 'SALVAR ALTERAÇÕES' : 'CRIAR ANÚNCIO'}
               </button>
             </form>
           </div>
