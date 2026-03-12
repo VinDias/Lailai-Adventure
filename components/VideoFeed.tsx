@@ -30,7 +30,7 @@ const SeriesBrowse: React.FC<BrowseProps> = ({ user, onOpenSeries }) => {
 
       <div className="px-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
         {seriesList.map(s => (
-          <div key={s.id} onClick={() => onOpenSeries(s)} className="group cursor-pointer">
+          <div key={s._id} onClick={() => onOpenSeries(s)} className="group cursor-pointer">
             <div className="aspect-[9/16] rounded-[2rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[0.98] group-hover:ring-rose-500/50">
               {/* Fix: Updated s.coverImage to s.cover_image to match Series interface */}
               <img src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-700" />

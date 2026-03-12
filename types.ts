@@ -136,7 +136,7 @@ export interface Comic {
 
 // Fix: Export missing Series type
 export interface Series {
-  id: number;
+  _id: string;
   title: string;
   genre: string;
   description: string;

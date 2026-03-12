@@ -15,7 +15,7 @@ const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => 
 
   const handleOpenSeries = async (s: Series) => {
     setSelectedSeries(s);
-    const data = await api.getEpisodesBySeries(s.id);
+    const data = await api.getEpisodesBySeries(s._id);
     setEpisodes(data);
   };
 
@@ -28,7 +28,7 @@ const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => 
 
       <section className="px-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
         {series.map(s => (
-          <div key={s.id} onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
+          <div key={s._id} onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
             <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[1.02] shadow-2xl">
               <img src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
               <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />

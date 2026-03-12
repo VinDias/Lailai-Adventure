@@ -18,11 +18,11 @@ const HQCineHome: React.FC<{ user: User | null }> = ({ user }) => {
   const openSeries = async (s: Series) => {
     setSelectedSeries(s);
     try {
-      const episodes = await api.getEpisodesBySeries(s.id);
+      const episodes = await api.getEpisodesBySeries(s._id);
       // Mapeia episódios para capítulos para manter compatibilidade com interface HQCine
       setChapters(episodes.map(ep => ({
         id: ep.id,
-        series_id: s.id,
+        series_id: s._id,
         chapter_number: ep.episode_number,
         title: ep.title
       })));
@@ -80,7 +80,7 @@ const HQCineHome: React.FC<{ user: User | null }> = ({ user }) => {
         <h2 className="text-zinc-400 font-black uppercase text-xs tracking-widest mb-6 border-l-4 border-rose-500 pl-4">Destaques da Semana</h2>
         <div className="flex gap-6 overflow-x-auto pb-6 scrollbar-hide">
           {series.map(s => (
-            <div key={s.id} onClick={() => openSeries(s)} className="shrink-0 w-48 md:w-64 group cursor-pointer animate-apple">
+            <div key={s._id} onClick={() => openSeries(s)} className="shrink-0 w-48 md:w-64 group cursor-pointer animate-apple">
               <div className="aspect-[9/16] rounded-[2rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[0.98] group-hover:ring-rose-500/50">
                 <img src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-700" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
