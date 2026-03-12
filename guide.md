@@ -26,6 +26,7 @@
 | **Google AdSense** | Concluído | Script integrado, ads condicionais para não-premium |
 | **Redis/BullMQ (Filas)** | Concluído | Redis instalado e ativo na VPS |
 | **Gerenciamento de Anúncios** | Concluído | CRUD completo via UI no Admin (ativar/desativar, editar, deletar) |
+| **Tema Claro/Escuro** | Concluído | Toggle no nav e na tela de login, persiste no localStorage, HQCine/VFilm/HiQua adaptam |
 
 ---
 
@@ -91,6 +92,14 @@
 - [x] Votos ocultos do usuário — contadores só visíveis no admin
 - [x] Acesso premium controlado (conteúdo bloqueado para não-assinantes)
 - [x] Anúncios condicionais (só para não-premium)
+
+### Tema Claro/Escuro
+- [x] `useTheme` hook — persiste em localStorage, aplica classe `.dark` no `<html>`
+- [x] `ThemeToggle` no nav (todas as páginas) e na tela de login
+- [x] CSS variables: `:root` = claro, `.dark` = escuro para bg, texto, nav, cards, bordas
+- [x] HQCine, VFilm, HiQua e Auth usam `bg-[var(--bg-color)]` — respondem ao tema
+- [x] Admin Dashboard permanece sempre escuro (intencional — ferramenta interna)
+- [x] Players e readers (VerticalPlayer, WebtoonReader) permanecem sempre escuros (intencional)
 
 ### PWA
 - [x] manifest.json com branding Lorflux
@@ -196,3 +205,5 @@ pm2 status           # Status dos processos
 | `990cca1` | feat: gerenciamento de episódios no Admin |
 | `568a399` | feat: registro de usuários, upload de thumbnail, admin ads UI |
 | `2cc770f` | feat: thumbnail upload for series in admin panel |
+| `b1467b3` | fix: theme toggle position, dark/light mode CSS variables |
+| `34a4eb1` | fix: use CSS variable for main content backgrounds to support light mode |
