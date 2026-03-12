@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ViewMode } from '../../types';
 import { api } from '../../services/api';
 import {
   Users, Layers, LayoutDashboard, LogOut,
   Trash2, ArrowUp, ArrowDown, DollarSign,
-  Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List
+  Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera
 } from 'lucide-react';
 import API_URL from '../../config/api';
 
@@ -46,6 +46,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   });
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState('');
+
+  // Upload de thumbnail
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadTargetId, setUploadTargetId] = useState<string | null>(null);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
 
   useEffect(() => {
     setSelectedSeries(null);
@@ -118,14 +124,43 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     } catch (e) { alert('Erro ao excluir episódio.'); }
   };
 
+  const handleThumbnailClick = (id: string) => {
+    setUploadTargetId(id);
+    fileInputRef.current?.click();
+  };
+
+  const handleThumbnailFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !uploadTargetId) return;
+    setUploadingId(uploadTargetId);
+    try {
+      const url = await api.uploadSeriesThumbnail(uploadTargetId, file);
+      setContentList(prev => prev.map(s => (s._id || s.id) === uploadTargetId ? { ...s, cover_image: url } : s));
+    } catch {
+      alert('Erro ao fazer upload da imagem.');
+    } finally {
+      setUploadingId(null);
+      setUploadTargetId(null);
+      e.target.value = '';
+    }
+  };
+
   const handleCreateSeries = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
     setCreateMsg('');
     try {
       const created = await api.createSeries({ ...newSeries, isPublished: true });
+      if (coverFile) {
+        const id = created._id || created.id;
+        try {
+          const url = await api.uploadSeriesThumbnail(id, coverFile);
+          created.cover_image = url;
+        } catch { /* não crítico */ }
+      }
       setContentList(prev => [created, ...prev]);
       setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false });
+      setCoverFile(null);
       setCreateMsg('Série criada com sucesso!');
       setTimeout(() => { setCreateMsg(''); setShowCreateModal(false); }, 1500);
     } catch (e) {
@@ -241,9 +276,22 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                       const id = item._id || item.id;
                       return (
                         <div key={id} className="flex items-center gap-6 p-6 hover:bg-white/5 transition-all">
-                          <div className="w-12 h-20 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-white/10">
-                            {item.cover_image && <img src={item.cover_image} className="w-full h-full object-cover" alt={item.title} />}
-                          </div>
+                          <button
+                            onClick={() => handleThumbnailClick(id)}
+                            className="w-12 h-20 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-white/10 relative group cursor-pointer"
+                            title="Clique para trocar a capa"
+                          >
+                            {item.cover_image
+                              ? <img src={item.cover_image} className="w-full h-full object-cover" alt={item.title} />
+                              : <div className="w-full h-full flex items-center justify-center text-zinc-600"><Camera size={14} /></div>
+                            }
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
+                              {uploadingId === id
+                                ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                : <Camera size={14} className="text-white" />
+                              }
+                            </div>
+                          </button>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-sm mb-1 truncate">{item.title}</h4>
                             <div className="flex gap-3 flex-wrap">
@@ -340,6 +388,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         )}
       </main>
 
+      {/* Input de arquivo oculto para upload de thumbnail */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleThumbnailFileChange}
+      />
+
       {/* Modal — Nova Série */}
       {showCreateModal && (
         <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
@@ -353,7 +410,26 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
               <FormField label="Título" value={newSeries.title} onChange={v => setNewSeries(s => ({ ...s, title: v }))} required />
               <FormField label="Gênero" value={newSeries.genre} onChange={v => setNewSeries(s => ({ ...s, genre: v }))} required />
               <FormField label="Descrição" value={newSeries.description} onChange={v => setNewSeries(s => ({ ...s, description: v }))} />
-              <FormField label="URL da Capa (cover_image)" value={newSeries.cover_image} onChange={v => setNewSeries(s => ({ ...s, cover_image: v }))} />
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Capa</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={coverFile ? coverFile.name : newSeries.cover_image}
+                    onChange={e => { setCoverFile(null); setNewSeries(s => ({ ...s, cover_image: e.target.value })); }}
+                    placeholder="URL da imagem ou selecione um arquivo..."
+                    readOnly={!!coverFile}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+                  />
+                  <label className="flex items-center gap-2 px-4 py-3 bg-white/5 border border-white/10 rounded-2xl text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer transition-all shrink-0">
+                    <Camera size={16} />
+                    <input type="file" accept="image/*" className="hidden" onChange={e => {
+                      const f = e.target.files?.[0];
+                      if (f) { setCoverFile(f); setNewSeries(s => ({ ...s, cover_image: '' })); }
+                    }} />
+                  </label>
+                </div>
+              </div>
 
               <div>
                 <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Tipo de Conteúdo</label>

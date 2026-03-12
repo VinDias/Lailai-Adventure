@@ -133,6 +133,8 @@ router.put("/update-thumbnail/:id", verifyToken, requireAdmin, upload.single("th
     const mediaBase = process.env.MEDIA_BASE_URL || "";
     const thumbnailPath = `${mediaBase}/uploads/thumbnails/${req.file.filename}`;
 
+    await Series.findByIdAndUpdate(req.params.id, { cover_image: thumbnailPath });
+
     res.json({ success: true, url: thumbnailPath });
   } catch (err) {
     res.status(500).json({ error: err.message });
