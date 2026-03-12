@@ -19,8 +19,9 @@ class ApiService {
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const fullUrl = `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
 
+    let response: Response;
     try {
-      const response = await fetch(fullUrl, {
+      response = await fetch(fullUrl, {
         ...options,
         headers: {
           'Content-Type': 'application/json',
@@ -34,18 +35,19 @@ class ApiService {
         this.isOffline = false;
         this.onStatusChange?.(false);
       }
-
-      if (!response.ok) {
-        throw new Error(`Erro API: ${response.status}`);
-      }
-
-      return await response.json();
     } catch (error: any) {
+      // Erro de rede real — servidor inacessível
       this.isOffline = true;
       this.onStatusChange?.(true);
       console.warn(`[Lorflux] API offline — fallback ativado para: ${path}`);
       throw error;
     }
+
+    if (!response.ok) {
+      throw new Error(`Erro API: ${response.status}`);
+    }
+
+    return await response.json();
   }
 
   setToken(token: string) {
@@ -62,7 +64,7 @@ class ApiService {
       body: JSON.stringify(credentials)
     });
     this.accessToken = data.accessToken;
-    return data.user;
+    return { ...data.user, accessToken: data.accessToken };
   }
 
   async getSeries(type?: string) {
