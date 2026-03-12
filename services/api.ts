@@ -67,6 +67,15 @@ class ApiService {
     return { ...data.user, accessToken: data.accessToken };
   }
 
+  async register(credentials: { email: string; password: string; nome: string }) {
+    const data = await this.request<{ user: any; accessToken: string }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(credentials)
+    });
+    this.accessToken = data.accessToken;
+    return { ...data.user, accessToken: data.accessToken };
+  }
+
   async getSeries(type?: string) {
     const path = type ? `/content/series?type=${type}` : '/content/series';
     return this.request<any[]>(path);
