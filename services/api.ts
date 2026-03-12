@@ -159,6 +159,21 @@ class ApiService {
     return this.request<any>(`/content/episodes/${id}`, { method: 'DELETE' });
   }
 
+  async uploadSeriesThumbnail(seriesId: string, file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('thumbnail', file);
+    const fullUrl = `${(await import('../config/api')).default}/admin/management/update-thumbnail/${seriesId}`;
+    const response = await fetch(fullUrl, {
+      method: 'PUT',
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      body: formData,
+      credentials: 'include'
+    });
+    if (!response.ok) throw new Error(`Erro API: ${response.status}`);
+    const data = await response.json();
+    return data.url;
+  }
+
   async initBunnyUpload(title: string, episodeId: string) {
     return this.request<any>('/bunny/upload', {
       method: 'POST',
