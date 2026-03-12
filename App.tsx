@@ -27,6 +27,8 @@ const App: React.FC = () => {
       try {
         const u = JSON.parse(saved);
         setUser(u);
+        const token = localStorage.getItem('lorflux_token');
+        if (token) api.setToken(token);
         setView(ViewMode.HQCINE);
       } catch (e) { localStorage.removeItem('lorflux_session'); }
     }
@@ -34,6 +36,11 @@ const App: React.FC = () => {
 
   const handleLogin = (u: User) => {
     setUser(u);
+    const tok = (u as any).accessToken;
+    if (tok) {
+      localStorage.setItem('lorflux_token', tok);
+      api.setToken(tok);
+    }
     localStorage.setItem('lorflux_session', JSON.stringify(u));
     setView(ViewMode.HQCINE);
   };
@@ -41,6 +48,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem('lorflux_session');
+    localStorage.removeItem('lorflux_token');
     setView(ViewMode.AUTH);
   };
 
@@ -61,7 +69,6 @@ const App: React.FC = () => {
       )}
 
       <main className="flex-1 overflow-hidden relative">
-        {/* AdSense Condicional no Topo para não Premium */}
         {!user?.isPremium && (
           <div className="absolute top-0 left-0 right-0 z-[100] px-4">
              <Ads />
@@ -69,8 +76,8 @@ const App: React.FC = () => {
         )}
 
         {view === ViewMode.HQCINE && (
-          <HQCine 
-            user={user} 
+          <HQCine
+            user={user}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: ep.id.toString(),
@@ -85,13 +92,13 @@ const App: React.FC = () => {
                 type: 'hqcine'
               });
               setView(ViewMode.PLAYER);
-            }} 
+            }}
           />
         )}
 
         {view === ViewMode.VCINE && (
-          <VFilm 
-            user={user} 
+          <VFilm
+            user={user}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: ep.id.toString(),
@@ -106,7 +113,7 @@ const App: React.FC = () => {
                 type: 'vcine'
               });
               setView(ViewMode.PLAYER);
-            }} 
+            }}
           />
         )}
 
@@ -139,10 +146,9 @@ const App: React.FC = () => {
             </div>
             <h2 className="text-4xl font-black text-[var(--text-color)] mb-2 tracking-tighter">{user?.nome}</h2>
             <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mb-12">{user?.email}</p>
-            
             <div className="space-y-4">
               {!user?.isPremium && (
-                <button onClick={() => setView(ViewMode.PROFILE)} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">ASSINAR PREMIUM (R$ 3,99)</button>
+                <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">ASSINAR PREMIUM (R$ 3,99)</button>
               )}
               <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">SAIR DA CONTA</button>
             </div>
@@ -156,6 +162,10 @@ const App: React.FC = () => {
         {view === ViewMode.READER && activeWebtoon && (
           <WebtoonReader webtoon={activeWebtoon} user={user} onClose={() => setView(ViewMode.HIQUA)} />
         )}
+
+        {view === ViewMode.ADMIN_DASHBOARD && (
+          <AdminDashboard onLogout={handleLogout} currentSubView={ViewMode.ADMIN_DASHBOARD} setSubView={(v) => setView(v)} />
+        )}
       </main>
 
       <nav className="h-28 bg-[var(--nav-bg,rgba(0,0,0,0.8))] backdrop-blur-3xl border-t border-white/5 flex items-center justify-around px-4 pb-8 z-[900]">
@@ -163,6 +173,9 @@ const App: React.FC = () => {
         <NavBtn active={view === ViewMode.VCINE} onClick={() => setView(ViewMode.VCINE)} icon={<Film />} label="VCine" />
         <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={<BookOpen />} label="Hi-Qua" />
         <NavBtn active={view === ViewMode.PROFILE} onClick={() => setView(ViewMode.PROFILE)} icon={<UserIcon />} label="Conta" />
+        {(user as any)?.role === 'superadmin' && (
+          <NavBtn active={view === ViewMode.ADMIN_DASHBOARD} onClick={() => setView(ViewMode.ADMIN_DASHBOARD)} icon={<ShieldAlert />} label="Admin" />
+        )}
       </nav>
     </div>
   );

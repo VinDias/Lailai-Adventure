@@ -43,7 +43,8 @@
     "sharp": "^0.33.2",
     "stripe": "^14.0.0",
     "winston": "^3.11.0",
-    "winston-daily-rotate-file": "^5.0.0"
+    "winston-daily-rotate-file": "^5.0.0",
+    "googleapis": "^144.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
