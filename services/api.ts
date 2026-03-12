@@ -103,6 +103,17 @@ class ApiService {
     return this.request<any>(`/content/episodes/${id}`);
   }
 
+  async addPanels(episodeId: string, panels: { image_url: string; order: number }[]) {
+    return this.request<any>(`/content/episodes/${episodeId}/panels`, {
+      method: 'POST',
+      body: JSON.stringify({ panels })
+    });
+  }
+
+  async deletePanel(episodeId: string, index: number) {
+    return this.request<any>(`/content/episodes/${episodeId}/panels/${index}`, { method: 'DELETE' });
+  }
+
   async getMyChannels() {
     try {
       return await this.request<any[]>('/channels/me');

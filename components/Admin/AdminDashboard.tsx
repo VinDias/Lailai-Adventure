@@ -6,7 +6,7 @@ import {
   Users, Layers, LayoutDashboard, LogOut,
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
-  Megaphone, ToggleLeft, ToggleRight, ExternalLink
+  Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus
 } from 'lucide-react';
 import API_URL from '../../config/api';
 
@@ -56,6 +56,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [adForm, setAdForm] = useState({ title: '', image_url: '', link_url: '', advertiser: '', startsAt: '', endsAt: '' });
   const [savingAd, setSavingAd] = useState(false);
   const [adMsg, setAdMsg] = useState('');
+
+  // Painéis (Hi-Qua webtoon)
+  const [selectedEpisode, setSelectedEpisode] = useState<any>(null);
+  const [panelsList, setPanelsList] = useState<any[]>([]);
+  const [loadingPanels, setLoadingPanels] = useState(false);
+  const [newPanelUrl, setNewPanelUrl] = useState('');
+  const [addingPanel, setAddingPanel] = useState(false);
 
   // Usuários
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -140,6 +147,37 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       await api.deleteEpisode(id);
       setEpisodes(prev => prev.filter(e => (e._id || e.id) !== id));
     } catch (e) { alert('Erro ao excluir episódio.'); }
+  };
+
+  const handleOpenPanels = async (ep: any) => {
+    setSelectedEpisode(ep);
+    setLoadingPanels(true);
+    try {
+      const full = await api.getEpisode(ep._id || ep.id);
+      setPanelsList(full.panels ?? []);
+    } catch { setPanelsList([]); }
+    finally { setLoadingPanels(false); }
+  };
+
+  const handleAddPanel = async () => {
+    if (!newPanelUrl.trim() || !selectedEpisode) return;
+    setAddingPanel(true);
+    try {
+      const nextOrder = panelsList.length + 1;
+      const result = await api.addPanels(selectedEpisode._id || selectedEpisode.id, [{ image_url: newPanelUrl.trim(), order: nextOrder }]);
+      setPanelsList(result.episode?.panels ?? [...panelsList, { image_url: newPanelUrl.trim(), order: nextOrder }]);
+      setNewPanelUrl('');
+    } catch { alert('Erro ao adicionar painel.'); }
+    finally { setAddingPanel(false); }
+  };
+
+  const handleDeletePanel = async (index: number) => {
+    if (!selectedEpisode) return;
+    if (!confirm('Remover este painel?')) return;
+    try {
+      await api.deletePanel(selectedEpisode._id || selectedEpisode.id, index);
+      setPanelsList(prev => prev.filter((_, i) => i !== index));
+    } catch { alert('Erro ao remover painel.'); }
   };
 
   const loadUsers = async (page = usersPage, filter = userFilter) => {
@@ -446,7 +484,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         )}
 
         {/* EPISÓDIOS — Lista de episódios da série selecionada */}
-        {currentSubView === ViewMode.ADMIN_CONTENT && selectedSeries && (
+        {currentSubView === ViewMode.ADMIN_CONTENT && selectedSeries && !selectedEpisode && (
           <div className="max-w-4xl animate-apple">
             <div className="flex items-center gap-4 mb-2">
               <button onClick={() => setSelectedSeries(null)} className="p-2 bg-white/5 rounded-xl text-zinc-400 hover:text-white transition-all">
@@ -499,7 +537,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="flex items-center gap-1 text-[10px] text-zinc-600"><Eye size={11} />{ep.views ?? 0}</span>
-                            <button onClick={() => handleDeleteEpisode(epId)} className="p-2 bg-rose-600/10 rounded-lg text-rose-500 hover:bg-rose-600 hover:text-white transition-all ml-2"><Trash2 size={16} /></button>
+                            {selectedSeries?.content_type === 'hiqua' && (
+                              <button onClick={() => handleOpenPanels(ep)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Gerenciar painéis"><BookOpen size={15} /></button>
+                            )}
+                            <button onClick={() => handleDeleteEpisode(epId)} className="p-2 bg-rose-600/10 rounded-lg text-rose-500 hover:bg-rose-600 hover:text-white transition-all"><Trash2 size={16} /></button>
                           </div>
                         </div>
                       );
@@ -510,6 +551,66 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             )}
           </div>
         )}
+        {/* PAINÉIS — Webtoon Hi-Qua */}
+        {currentSubView === ViewMode.ADMIN_CONTENT && selectedEpisode && (
+          <div className="max-w-4xl animate-apple">
+            <div className="flex items-center gap-4 mb-6">
+              <button onClick={() => setSelectedEpisode(null)} className="p-2 bg-white/5 rounded-xl text-zinc-400 hover:text-white transition-all">
+                <ChevronLeft size={20} />
+              </button>
+              <div>
+                <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Painéis de</p>
+                <h2 className="text-3xl font-black tracking-tighter truncate">{selectedEpisode.title}</h2>
+              </div>
+            </div>
+
+            {/* Adicionar novo painel */}
+            <div className="flex gap-3 mb-6">
+              <input
+                type="text"
+                value={newPanelUrl}
+                onChange={e => setNewPanelUrl(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddPanel()}
+                placeholder="URL da imagem do painel..."
+                className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+              />
+              <button
+                onClick={handleAddPanel}
+                disabled={addingPanel || !newPanelUrl.trim()}
+                className="flex items-center gap-2 px-5 py-3 bg-rose-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-rose-500 transition-all disabled:opacity-50"
+              >
+                {addingPanel ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ImagePlus size={16} /> Adicionar</>}
+              </button>
+            </div>
+
+            {loadingPanels ? (
+              <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>
+            ) : panelsList.length === 0 ? (
+              <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/5 p-16 text-center">
+                <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum painel</p>
+                <p className="text-zinc-700 text-xs mt-2">Adicione a URL de uma imagem acima</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {panelsList.map((panel, idx) => (
+                  <div key={idx} className="relative group rounded-2xl overflow-hidden border border-white/10 bg-zinc-900">
+                    <img src={panel.image_url} alt={`Painel ${idx + 1}`} className="w-full object-cover" loading="lazy" />
+                    <div className="absolute top-2 left-2 bg-black/60 rounded-lg px-2 py-1 text-[10px] font-black text-zinc-300">
+                      #{idx + 1}
+                    </div>
+                    <button
+                      onClick={() => handleDeletePanel(idx)}
+                      className="absolute top-2 right-2 p-1.5 bg-rose-600/80 rounded-lg text-white opacity-0 group-hover:opacity-100 transition-all hover:bg-rose-600"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ANÚNCIOS */}
         {currentSubView === ViewMode.ADMIN_ADS && (
           <div className="max-w-4xl animate-apple">
