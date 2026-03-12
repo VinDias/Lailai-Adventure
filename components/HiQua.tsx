@@ -29,10 +29,10 @@ const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
     }
   };
 
-  if (loading) return <div className="h-full w-full flex items-center justify-center bg-black"><div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>;
+  if (loading) return <div className="h-full w-full flex items-center justify-center bg-[var(--bg-color)]"><div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>;
 
   return (
-    <div className="h-full w-full bg-[#050505] overflow-y-auto pb-40 scrollbar-hide">
+    <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
       <header className="p-8 pt-16 md:p-12">
         <h1 className="text-5xl font-black premium-text tracking-tighter mb-2 italic">HI-QUA</h1>
         <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Webtoons & Digital Stories</p>
