@@ -177,6 +177,26 @@ router.post('/episodes/:id/panels', verifyToken, requireAdmin, async (req, res) 
   }
 });
 
+// DELETE /api/content/episodes/:id/panels/:index — remover painel por índice (admin)
+router.delete('/episodes/:id/panels/:index', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const episode = await Episode.findById(req.params.id);
+    if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+
+    const index = parseInt(req.params.index, 10);
+    if (isNaN(index) || index < 0 || index >= episode.panels.length) {
+      return res.status(400).json({ error: 'Índice de painel inválido.' });
+    }
+
+    episode.panels.splice(index, 1);
+    await episode.save();
+    res.json({ success: true, panelCount: episode.panels.length });
+  } catch (err) {
+    logger.error('[Content] DELETE /episodes/:id/panels/:index', err);
+    res.status(500).json({ error: 'Erro ao remover painel.' });
+  }
+});
+
 // GET /api/content/ads — anúncios ativos (delegado ao ads router, mas mantemos compatibilidade)
 router.get('/ads', async (req, res) => {
   try {
