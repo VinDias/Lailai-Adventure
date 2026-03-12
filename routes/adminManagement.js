@@ -8,6 +8,42 @@ const requireRole = require("../middlewares/requireRole");
 const bcrypt = require("bcrypt");
 const logger = require("../utils/logger");
 
+// Listar usuários com paginação e filtros (admin)
+router.get("/", verifyToken, requireRole("superadmin"), async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 30;
+    const skip = (page - 1) * limit;
+    const filter = {};
+    if (req.query.role) filter.role = req.query.role;
+    if (req.query.isPremium !== undefined) filter.isPremium = req.query.isPremium === 'true';
+
+    const [users, total] = await Promise.all([
+      User.find(filter, '-passwordHash -stripeCustomerId')
+        .sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      User.countDocuments(filter)
+    ]);
+    res.json({ users, total, page, pages: Math.ceil(total / limit) });
+  } catch (err) {
+    logger.error("[Admin Users] GET /", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Toggle isPremium (admin)
+router.put("/:id/toggle-premium", verifyToken, requireRole("superadmin"), async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
+    user.isPremium = !user.isPremium;
+    await user.save();
+    await AdminLog.create({ adminId: req.user.id, action: "TOGGLE_PREMIUM", targetId: user.id, details: { isPremium: user.isPremium } });
+    res.json({ id: user.id, isPremium: user.isPremium });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Criar novo administrador ou superadmin (Apenas Superadmin)
 router.post("/create-admin", verifyToken, requireRole("superadmin"), async (req, res) => {
   try {

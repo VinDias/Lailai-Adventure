@@ -57,6 +57,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [savingAd, setSavingAd] = useState(false);
   const [adMsg, setAdMsg] = useState('');
 
+  // Usuários
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersPages, setUsersPages] = useState(1);
+  const [userFilter, setUserFilter] = useState<'all' | 'premium' | 'admin'>('all');
+
   // Upload de thumbnail
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadTargetId, setUploadTargetId] = useState<string | null>(null);
@@ -132,6 +140,41 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       await api.deleteEpisode(id);
       setEpisodes(prev => prev.filter(e => (e._id || e.id) !== id));
     } catch (e) { alert('Erro ao excluir episódio.'); }
+  };
+
+  const loadUsers = async (page = usersPage, filter = userFilter) => {
+    setLoadingUsers(true);
+    try {
+      const filters: any = {};
+      if (filter === 'premium') filters.isPremium = true;
+      if (filter === 'admin') filters.role = 'admin';
+      const data = await api.getAdminUsers(page, filters);
+      setUsersList(data.users);
+      setUsersTotal(data.total);
+      setUsersPages(data.pages);
+      setUsersPage(data.page);
+    } catch { setUsersList([]); }
+    finally { setLoadingUsers(false); }
+  };
+
+  useEffect(() => {
+    if (currentSubView === ViewMode.ADMIN_USERS || currentSubView === ViewMode.ADMIN_PAYMENTS) {
+      loadUsers(1, userFilter);
+    }
+  }, [currentSubView]);
+
+  const handleTogglePremium = async (user: any) => {
+    try {
+      const result = await api.toggleUserPremium(user._id || user.id);
+      setUsersList(prev => prev.map(u => (u._id || u.id) === (user._id || user.id) ? { ...u, isPremium: result.isPremium } : u));
+    } catch { alert('Erro ao atualizar premium.'); }
+  };
+
+  const handleToggleActive = async (user: any) => {
+    try {
+      await api.toggleUserActive(user._id || user.id, !user.isActive);
+      setUsersList(prev => prev.map(u => (u._id || u.id) === (user._id || user.id) ? { ...u, isActive: !u.isActive } : u));
+    } catch { alert('Erro ao atualizar status.'); }
   };
 
   const loadAds = async () => {
@@ -291,6 +334,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
           <SidebarLink active={currentSubView === ViewMode.ADMIN_DASHBOARD} onClick={() => setSubView(ViewMode.ADMIN_DASHBOARD)} icon={<LayoutDashboard size={18} />} label="Dashboard" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_CONTENT} onClick={() => { setSelectedSeries(null); setSubView(ViewMode.ADMIN_CONTENT); }} icon={<Layers size={18} />} label="Gerenciar Conteúdo" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_ADS} onClick={() => setSubView(ViewMode.ADMIN_ADS)} icon={<Megaphone size={18} />} label="Anúncios" />
+          <SidebarLink active={currentSubView === ViewMode.ADMIN_USERS} onClick={() => setSubView(ViewMode.ADMIN_USERS)} icon={<Users size={18} />} label="Usuários" />
+          <SidebarLink active={currentSubView === ViewMode.ADMIN_PAYMENTS} onClick={() => setSubView(ViewMode.ADMIN_PAYMENTS)} icon={<DollarSign size={18} />} label="Assinantes" />
         </nav>
 
         <button onClick={onLogout} className="mt-auto flex items-center gap-3 p-4 rounded-2xl text-zinc-500 hover:text-rose-500 font-bold text-sm transition-all">
@@ -514,6 +559,84 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                     })}
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* USUÁRIOS */}
+        {(currentSubView === ViewMode.ADMIN_USERS || currentSubView === ViewMode.ADMIN_PAYMENTS) && (
+          <div className="max-w-4xl animate-apple">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-4xl font-black tracking-tighter">
+                {currentSubView === ViewMode.ADMIN_PAYMENTS ? 'Assinantes Premium' : 'Usuários'}
+              </h2>
+              <span className="text-xs font-bold text-zinc-500">{usersTotal} total</span>
+            </div>
+
+            {/* Filtros */}
+            {currentSubView === ViewMode.ADMIN_USERS && (
+              <div className="flex gap-2 mb-6">
+                {(['all', 'premium', 'admin'] as const).map(f => (
+                  <button key={f} onClick={() => { setUserFilter(f); loadUsers(1, f); }}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${userFilter === f ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-500 hover:bg-white/10'}`}>
+                    {f === 'all' ? 'Todos' : f === 'premium' ? 'Premium' : 'Admin'}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {loadingUsers ? (
+              <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>
+            ) : (
+              <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/5 overflow-hidden">
+                {usersList.length === 0 ? (
+                  <div className="p-16 text-center">
+                    <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum usuário encontrado</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {(currentSubView === ViewMode.ADMIN_PAYMENTS ? usersList.filter(u => u.isPremium) : usersList).map((u) => {
+                      const uid = u._id || u.id;
+                      return (
+                        <div key={uid} className="flex items-center gap-4 px-6 py-4 hover:bg-white/5 transition-all">
+                          <div className="w-9 h-9 rounded-full bg-zinc-800 border border-white/10 shrink-0 flex items-center justify-center text-xs font-black text-zinc-400">
+                            {(u.nome || u.email || '?')[0].toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-sm truncate">{u.nome || '—'}</p>
+                            <p className="text-zinc-500 text-xs truncate">{u.email}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                            {u.role !== 'user' && (
+                              <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg bg-violet-600/20 text-violet-400">{u.role}</span>
+                            )}
+                            <button onClick={() => handleTogglePremium(u)}
+                              className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg transition-all ${u.isPremium ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/40' : 'bg-white/5 text-zinc-600 hover:bg-white/10'}`}>
+                              {u.isPremium ? 'PREMIUM' : 'free'}
+                            </button>
+                            <button onClick={() => handleToggleActive(u)}
+                              className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg transition-all ${u.isActive ? 'bg-emerald-500/10 text-emerald-500 hover:bg-rose-600/20 hover:text-rose-400' : 'bg-rose-600/10 text-rose-400 hover:bg-emerald-500/10 hover:text-emerald-400'}`}>
+                              {u.isActive ? 'ATIVO' : 'INATIVO'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Paginação */}
+            {usersPages > 1 && (
+              <div className="flex justify-center gap-2 mt-6">
+                {Array.from({ length: usersPages }, (_, i) => i + 1).map(p => (
+                  <button key={p} onClick={() => loadUsers(p, userFilter)}
+                    className={`w-9 h-9 rounded-xl text-xs font-black transition-all ${p === usersPage ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-500 hover:bg-white/10'}`}>
+                    {p}
+                  </button>
+                ))}
               </div>
             )}
           </div>

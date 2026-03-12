@@ -221,6 +221,22 @@ class ApiService {
   async deleteAd(id: string) {
     return this.request<any>(`/admin/ads/${id}`, { method: 'DELETE' });
   }
+
+  // Users (admin)
+  async getAdminUsers(page = 1, filters: { role?: string; isPremium?: boolean } = {}) {
+    const params = new URLSearchParams({ page: String(page) });
+    if (filters.role) params.set('role', filters.role);
+    if (filters.isPremium !== undefined) params.set('isPremium', String(filters.isPremium));
+    return this.request<{ users: any[]; total: number; pages: number; page: number }>(`/admin/users?${params}`);
+  }
+
+  async toggleUserPremium(id: string) {
+    return this.request<{ id: string; isPremium: boolean }>(`/admin/users/${id}/toggle-premium`, { method: 'PUT' });
+  }
+
+  async toggleUserActive(id: string, isActive: boolean) {
+    return this.request<any>(`/admin/users/toggle-status/${id}`, { method: 'PUT', body: JSON.stringify({ isActive }) });
+  }
 }
 
 export const api = ApiService.getInstance();
