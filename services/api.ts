@@ -55,7 +55,7 @@ class ApiService {
   }
 
   async createCheckoutSession() {
-    return this.request<{ url: string }>('/payment/create-checkout-session', { method: 'POST' });
+    return this.request<{ url: string }>('/payment/create-checkout', { method: 'POST' });
   }
 
   async login(credentials: any) {
