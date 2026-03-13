@@ -360,9 +360,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   };
 
   return (
-    <div className="flex h-screen bg-[#0A0A0B] text-zinc-100 font-inter">
+    <div className="flex h-screen bg-[var(--bg-color)] text-[var(--text-color)] font-inter">
       {/* Sidebar */}
-      <aside className="w-64 bg-[#0F0F12] border-r border-white/5 flex flex-col p-6 shrink-0">
+      <aside className="w-64 bg-[var(--card-bg)] border-r border-[var(--border-color)] flex flex-col p-6 shrink-0">
         <div className="flex items-center gap-3 mb-12 px-2">
           <div className="w-10 h-10 bg-rose-600 rounded-xl flex items-center justify-center font-black italic text-sm">LF</div>
           <h1 className="text-lg font-black tracking-tighter">Lorflux Studio</h1>
@@ -426,7 +426,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             {loading ? (
               <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>
             ) : (
-              <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/5 overflow-hidden">
+              <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] overflow-hidden">
                 {contentList.length === 0 ? (
                   <div className="p-16 text-center">
                     <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhuma série cadastrada</p>
@@ -440,7 +440,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                         <div key={id} className="flex items-center gap-6 p-6 hover:bg-white/5 transition-all">
                           <button
                             onClick={() => handleThumbnailClick(id)}
-                            className="w-12 h-20 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-white/10 relative group cursor-pointer"
+                            className="w-12 h-20 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-[var(--border-color)] relative group cursor-pointer"
                             title="Clique para trocar a capa"
                           >
                             {item.cover_image
@@ -508,7 +508,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             {loadingEpisodes ? (
               <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>
             ) : (
-              <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/5 overflow-hidden">
+              <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] overflow-hidden">
                 {episodes.length === 0 ? (
                   <div className="p-16 text-center">
                     <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum episódio cadastrado</p>
@@ -520,7 +520,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                       const epId = ep._id || ep.id;
                       return (
                         <div key={epId} className="flex items-center gap-6 p-6 hover:bg-white/5 transition-all">
-                          <div className="w-16 h-10 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-white/10">
+                          <div className="w-16 h-10 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-[var(--border-color)]">
                             {ep.thumbnail && <img src={ep.thumbnail} className="w-full h-full object-cover" alt={ep.title} />}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -572,7 +572,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 onChange={e => setNewPanelUrl(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleAddPanel()}
                 placeholder="URL da imagem do painel..."
-                className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+                className="flex-1 bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
               />
               <button
                 onClick={handleAddPanel}
@@ -586,14 +586,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             {loadingPanels ? (
               <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>
             ) : panelsList.length === 0 ? (
-              <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/5 p-16 text-center">
+              <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-16 text-center">
                 <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum painel</p>
                 <p className="text-zinc-700 text-xs mt-2">Adicione a URL de uma imagem acima</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {panelsList.map((panel, idx) => (
-                  <div key={idx} className="relative group rounded-2xl overflow-hidden border border-white/10 bg-zinc-900">
+                  <div key={idx} className="relative group rounded-2xl overflow-hidden border border-[var(--border-color)] bg-zinc-900">
                     <img src={panel.image_url} alt={`Painel ${idx + 1}`} className="w-full object-cover" loading="lazy" />
                     <div className="absolute top-2 left-2 bg-black/60 rounded-lg px-2 py-1 text-[10px] font-black text-zinc-300">
                       #{idx + 1}
@@ -624,7 +624,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             {loadingAds ? (
               <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>
             ) : (
-              <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/5 overflow-hidden">
+              <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] overflow-hidden">
                 {adsList.length === 0 ? (
                   <div className="p-16 text-center">
                     <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum anúncio cadastrado</p>
@@ -636,7 +636,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                       const id = ad._id || ad.id;
                       return (
                         <div key={id} className="flex items-center gap-5 p-5 hover:bg-white/5 transition-all">
-                          <div className="w-20 h-14 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-white/10">
+                          <div className="w-20 h-14 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-[var(--border-color)]">
                             {ad.image_url && <img src={ad.image_url} className="w-full h-full object-cover" alt={ad.title} />}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -690,7 +690,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             {loadingUsers ? (
               <div className="flex items-center justify-center h-40"><div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>
             ) : (
-              <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/5 overflow-hidden">
+              <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] overflow-hidden">
                 {usersList.length === 0 ? (
                   <div className="p-16 text-center">
                     <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum usuário encontrado</p>
@@ -701,7 +701,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                       const uid = u._id || u.id;
                       return (
                         <div key={uid} className="flex items-center gap-4 px-6 py-4 hover:bg-white/5 transition-all">
-                          <div className="w-9 h-9 rounded-full bg-zinc-800 border border-white/10 shrink-0 flex items-center justify-center text-xs font-black text-zinc-400">
+                          <div className="w-9 h-9 rounded-full bg-zinc-800 border border-[var(--border-color)] shrink-0 flex items-center justify-center text-xs font-black text-zinc-400">
                             {(u.nome || u.email || '?')[0].toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
@@ -756,7 +756,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       {/* Modal — Nova Série */}
       {showCreateModal && (
         <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
-          <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/10 p-10 w-full max-w-lg">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg">
             <div className="flex items-center justify-between mb-8">
               <h3 className="text-2xl font-black tracking-tighter">Nova Série</h3>
               <button onClick={() => setShowCreateModal(false)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
@@ -775,9 +775,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                     onChange={e => { setCoverFile(null); setNewSeries(s => ({ ...s, cover_image: e.target.value })); }}
                     placeholder="URL da imagem ou selecione um arquivo..."
                     readOnly={!!coverFile}
-                    className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+                    className="flex-1 bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
                   />
-                  <label className="flex items-center gap-2 px-4 py-3 bg-white/5 border border-white/10 rounded-2xl text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer transition-all shrink-0">
+                  <label className="flex items-center gap-2 px-4 py-3 bg-white/5 border border-[var(--border-color)] rounded-2xl text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer transition-all shrink-0">
                     <Camera size={16} />
                     <input type="file" accept="image/*" className="hidden" onChange={e => {
                       const f = e.target.files?.[0];
@@ -792,7 +792,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <select
                   value={newSeries.content_type}
                   onChange={e => setNewSeries(s => ({ ...s, content_type: e.target.value }))}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500"
+                  className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500"
                 >
                   {CONTENT_TYPES.map(ct => <option key={ct.value} value={ct.value}>{ct.label}</option>)}
                 </select>
@@ -816,7 +816,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       {/* Modal — Novo Episódio */}
       {showEpisodeModal && (
         <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
-          <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/10 p-10 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-8">
               <h3 className="text-2xl font-black tracking-tighter">Novo Episódio</h3>
               <button onClick={() => setShowEpisodeModal(false)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
@@ -829,7 +829,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                   type="number" min={1}
                   value={newEpisode.episode_number}
                   onChange={e => setNewEpisode(ep => ({ ...ep, episode_number: parseInt(e.target.value) || 1 }))}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+                  className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
                 />
               </div>
               <FormField label="Título" value={newEpisode.title} onChange={v => setNewEpisode(ep => ({ ...ep, title: v }))} required />
@@ -859,7 +859,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       {/* Modal — Novo/Editar Anúncio */}
       {showAdModal && (
         <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
-          <div className="bg-[#0F0F12] rounded-[2.5rem] border border-white/10 p-10 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-8">
               <h3 className="text-2xl font-black tracking-tighter">{editingAd ? 'Editar Anúncio' : 'Novo Anúncio'}</h3>
               <button onClick={() => setShowAdModal(false)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
@@ -873,12 +873,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <div>
                   <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Início</label>
                   <input type="date" value={adForm.startsAt} onChange={e => setAdForm(f => ({ ...f, startsAt: e.target.value }))}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
+                    className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Fim</label>
                   <input type="date" value={adForm.endsAt} onChange={e => setAdForm(f => ({ ...f, endsAt: e.target.value }))}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
+                    className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
                 </div>
               </div>
               {adMsg && <p className={`text-sm font-bold text-center ${adMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{adMsg}</p>}
@@ -901,10 +901,10 @@ const SidebarLink = ({ active, onClick, icon, label }: any) => (
 );
 
 const StatCard = ({ label, value, icon }: any) => (
-  <div className="bg-[#0F0F12] p-8 rounded-[2rem] border border-white/5">
-    <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center mb-6 text-rose-500">{icon}</div>
-    <div className="text-3xl font-black">{value}</div>
-    <div className="text-[10px] font-black text-zinc-600 uppercase mt-2 tracking-widest">{label}</div>
+  <div className="bg-[var(--card-bg)] p-8 rounded-[2rem] border border-[var(--border-color)]">
+    <div className="w-10 h-10 bg-rose-500/10 rounded-xl flex items-center justify-center mb-6 text-rose-500">{icon}</div>
+    <div className="text-3xl font-black text-[var(--text-color)]">{value}</div>
+    <div className="text-[10px] font-black text-zinc-500 uppercase mt-2 tracking-widest">{label}</div>
   </div>
 );
 
@@ -916,7 +916,7 @@ const FormField = ({ label, value, onChange, required = false }: { label: string
       value={value}
       onChange={e => onChange(e.target.value)}
       required={required}
-      className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+      className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
     />
   </div>
 );
