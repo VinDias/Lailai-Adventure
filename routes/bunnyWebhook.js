@@ -2,6 +2,37 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const Episode = require('../models/Episode');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const axios = require('axios');
+
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error('Apenas imagens são permitidas.'));
+  }
+});
+
+const videoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const tmpDir = path.join(__dirname, '../uploads/tmp');
+      if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+      cb(null, tmpDir);
+    },
+    filename: (req, file, cb) => {
+      cb(null, `bunny-${Date.now()}${path.extname(file.originalname)}`);
+    }
+  }),
+  limits: { fileSize: 800 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['video/mp4', 'video/quicktime', 'video/x-matroska'];
+    allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error('Apenas MP4, MOV e MKV são permitidos.'));
+  }
+});
 
 // Status codes de encoding do Bunny.net
 // 0 = Created, 1 = Uploaded, 2 = Processing, 3 = Transcoding, 4 = Finished, 5 = Error, 6 = UploadFailed
@@ -120,6 +151,127 @@ router.post('/upload', async (req, res) => {
         logger.error('[Bunny Upload Init Error]', err);
         res.status(500).json({ error: 'Erro interno.' });
       }
+    });
+  });
+});
+
+// POST /api/bunny/upload-image — upload de imagem para Bunny Storage
+router.post('/upload-image', (req, res) => {
+  const verifyToken = require('../middlewares/verifyToken');
+  const requireAdmin = require('../middlewares/requireAdmin');
+
+  verifyToken(req, res, () => {
+    requireAdmin(req, res, () => {
+      imageUpload.single('image')(req, res, async (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+
+        const storageZone = process.env.BUNNY_STORAGE_ZONE;
+        const storageKey = process.env.BUNNY_STORAGE_KEY;
+
+        if (!storageZone || !storageKey) {
+          return res.status(500).json({ error: 'BUNNY_STORAGE_ZONE e BUNNY_STORAGE_KEY não configurados no .env.' });
+        }
+
+        try {
+          const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
+          const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          const remotePath = `lorflux/${filename}`;
+
+          const uploadRes = await fetch(`https://storage.bunnycdn.com/${storageZone}/${remotePath}`, {
+            method: 'PUT',
+            headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
+            body: req.file.buffer
+          });
+
+          if (!uploadRes.ok) {
+            const errText = await uploadRes.text();
+            logger.error('[Bunny Storage] Erro no upload:', errText);
+            return res.status(502).json({ error: 'Erro ao enviar imagem para Bunny Storage.' });
+          }
+
+          const cdnHostname = process.env.BUNNY_STORAGE_HOSTNAME || `${storageZone}.b-cdn.net`;
+          const url = `https://${cdnHostname}/${remotePath}`;
+          logger.info(`[Bunny Storage] Imagem enviada: ${url}`);
+          res.json({ url });
+        } catch (err) {
+          logger.error('[Bunny Storage Upload Error]', err);
+          res.status(500).json({ error: 'Erro interno ao fazer upload.' });
+        }
+      });
+    });
+  });
+});
+
+// POST /api/bunny/upload-video — upload de vídeo para Bunny Stream
+router.post('/upload-video', (req, res) => {
+  const verifyToken = require('../middlewares/verifyToken');
+  const requireAdmin = require('../middlewares/requireAdmin');
+
+  verifyToken(req, res, () => {
+    requireAdmin(req, res, () => {
+      videoUpload.single('video')(req, res, async (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+
+        const apiKey = process.env.BUNNY_API_KEY;
+        const libraryId = process.env.BUNNY_LIBRARY_ID;
+        const cdnHostname = process.env.BUNNY_CDN_HOSTNAME;
+
+        if (!apiKey || !libraryId) {
+          fs.unlink(req.file.path, () => {});
+          return res.status(500).json({ error: 'BUNNY_API_KEY e BUNNY_LIBRARY_ID não configurados no .env.' });
+        }
+
+        const { episodeId, title } = req.body;
+        if (!episodeId || !title) {
+          fs.unlink(req.file.path, () => {});
+          return res.status(400).json({ error: 'episodeId e title são obrigatórios.' });
+        }
+
+        try {
+          // 1. Cria o vídeo na biblioteca Bunny Stream
+          const createRes = await fetch(`https://video.bunnycdn.com/library/${libraryId}/videos`, {
+            method: 'POST',
+            headers: { 'AccessKey': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title })
+          });
+
+          if (!createRes.ok) throw new Error('Erro ao criar vídeo no Bunny Stream.');
+          const { guid: bunnyVideoId } = await createRes.json();
+
+          // 2. Faz upload do arquivo para o Bunny Stream via axios (streaming do disco)
+          const fileStream = fs.createReadStream(req.file.path);
+          const stat = fs.statSync(req.file.path);
+
+          await axios.put(
+            `https://video.bunnycdn.com/library/${libraryId}/videos/${bunnyVideoId}`,
+            fileStream,
+            {
+              headers: {
+                'AccessKey': apiKey,
+                'Content-Type': 'application/octet-stream',
+                'Content-Length': stat.size
+              },
+              maxContentLength: Infinity,
+              maxBodyLength: Infinity
+            }
+          );
+
+          fs.unlink(req.file.path, () => {});
+
+          // 3. Atualiza o episódio no banco
+          await Episode.findByIdAndUpdate(episodeId, { bunnyVideoId, status: 'processing' });
+
+          const videoUrl = cdnHostname ? `https://${cdnHostname}/${bunnyVideoId}/playlist.m3u8` : null;
+          logger.info(`[Bunny Stream] Vídeo enviado: ${bunnyVideoId} para episódio ${episodeId}`);
+          res.json({ success: true, bunnyVideoId, videoUrl });
+        } catch (err) {
+          fs.unlink(req.file.path, () => {});
+          logger.error('[Bunny Video Upload Error]', err);
+          res.status(500).json({ error: err.message || 'Erro ao enviar vídeo.' });
+        }
+      });
     });
   });
 });

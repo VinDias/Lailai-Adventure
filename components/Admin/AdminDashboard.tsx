@@ -6,7 +6,7 @@ import {
   Users, Layers, LayoutDashboard, LogOut,
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
-  Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus
+  Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload
 } from 'lucide-react';
 import API_URL from '../../config/api';
 
@@ -72,11 +72,19 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [usersPages, setUsersPages] = useState(1);
   const [userFilter, setUserFilter] = useState<'all' | 'premium' | 'admin'>('all');
 
-  // Upload de thumbnail
+  // Upload de thumbnail de série
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadTargetId, setUploadTargetId] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
+
+  // Upload de vídeo direto para Bunny Stream
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
+  const [videoUploadTargetEp, setVideoUploadTargetEp] = useState<any>(null);
+  const [uploadingVideoId, setUploadingVideoId] = useState<string | null>(null);
+
+  // Upload de imagem de painel para Bunny Storage
+  const [uploadingPanelImage, setUploadingPanelImage] = useState(false);
 
   useEffect(() => {
     setSelectedSeries(null);
@@ -178,6 +186,44 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       await api.deletePanel(selectedEpisode._id || selectedEpisode.id, index);
       setPanelsList(prev => prev.filter((_, i) => i !== index));
     } catch { alert('Erro ao remover painel.'); }
+  };
+
+  const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !videoUploadTargetEp) return;
+    const epId = videoUploadTargetEp._id || videoUploadTargetEp.id;
+    setUploadingVideoId(epId);
+    try {
+      const result = await api.uploadVideoToBunny(file, epId, videoUploadTargetEp.title);
+      setEpisodes(prev => prev.map(ep =>
+        (ep._id || ep.id) === epId
+          ? { ...ep, bunnyVideoId: result.bunnyVideoId, status: 'processing' }
+          : ep
+      ));
+    } catch (err: any) {
+      alert(`Erro ao enviar vídeo: ${err.message}`);
+    } finally {
+      setUploadingVideoId(null);
+      setVideoUploadTargetEp(null);
+    }
+  };
+
+  const handlePanelImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedEpisode) return;
+    setUploadingPanelImage(true);
+    try {
+      const url = await api.uploadImageToBunny(file);
+      const nextOrder = panelsList.length + 1;
+      const result = await api.addPanels(selectedEpisode._id || selectedEpisode.id, [{ image_url: url, order: nextOrder }]);
+      setPanelsList(result.episode?.panels ?? [...panelsList, { image_url: url, order: nextOrder }]);
+    } catch (err: any) {
+      alert(`Erro ao fazer upload do painel: ${err.message}`);
+    } finally {
+      setUploadingPanelImage(false);
+    }
   };
 
   const loadUsers = async (page = usersPage, filter = userFilter) => {
@@ -537,6 +583,19 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="flex items-center gap-1 text-[10px] text-zinc-600"><Eye size={11} />{ep.views ?? 0}</span>
+                            {selectedSeries?.content_type !== 'hiqua' && (
+                              <button
+                                onClick={() => { setVideoUploadTargetEp(ep); videoFileInputRef.current?.click(); }}
+                                disabled={uploadingVideoId === epId}
+                                className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-sky-400 hover:bg-sky-600/20 transition-all disabled:opacity-50"
+                                title={ep.bunnyVideoId ? 'Substituir vídeo no Bunny' : 'Fazer upload de vídeo para Bunny'}
+                              >
+                                {uploadingVideoId === epId
+                                  ? <div className="w-4 h-4 border-2 border-sky-500/30 border-t-sky-500 rounded-full animate-spin" />
+                                  : <Film size={15} />
+                                }
+                              </button>
+                            )}
                             {selectedSeries?.content_type === 'hiqua' && (
                               <button onClick={() => handleOpenPanels(ep)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Gerenciar painéis"><BookOpen size={15} /></button>
                             )}
@@ -565,22 +624,31 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             </div>
 
             {/* Adicionar novo painel */}
-            <div className="flex gap-3 mb-6">
-              <input
-                type="text"
-                value={newPanelUrl}
-                onChange={e => setNewPanelUrl(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAddPanel()}
-                placeholder="URL da imagem do painel..."
-                className="flex-1 bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
-              />
-              <button
-                onClick={handleAddPanel}
-                disabled={addingPanel || !newPanelUrl.trim()}
-                className="flex items-center gap-2 px-5 py-3 bg-rose-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-rose-500 transition-all disabled:opacity-50"
-              >
-                {addingPanel ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ImagePlus size={16} /> Adicionar</>}
-              </button>
+            <div className="space-y-3 mb-6">
+              <label className={`flex items-center justify-center gap-3 w-full py-4 rounded-2xl border-2 border-dashed cursor-pointer transition-all ${uploadingPanelImage ? 'border-sky-500/50 bg-sky-500/5 cursor-not-allowed' : 'border-white/10 hover:border-sky-500/50 hover:bg-white/5'}`}>
+                {uploadingPanelImage
+                  ? <><div className="w-5 h-5 border-2 border-sky-500/30 border-t-sky-500 rounded-full animate-spin" /><span className="text-sm font-black text-sky-400 uppercase tracking-widest">Enviando para CDN...</span></>
+                  : <><Upload size={18} className="text-zinc-400" /><span className="text-sm font-black text-zinc-400 uppercase tracking-widest">Upload de imagem para Bunny CDN</span></>
+                }
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handlePanelImageUpload} disabled={uploadingPanelImage} />
+              </label>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={newPanelUrl}
+                  onChange={e => setNewPanelUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddPanel()}
+                  placeholder="Ou cole a URL da imagem..."
+                  className="flex-1 bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+                />
+                <button
+                  onClick={handleAddPanel}
+                  disabled={addingPanel || !newPanelUrl.trim()}
+                  className="flex items-center gap-2 px-5 py-3 bg-rose-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-rose-500 transition-all disabled:opacity-50"
+                >
+                  {addingPanel ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><ImagePlus size={16} /> Adicionar</>}
+                </button>
+              </div>
             </div>
 
             {loadingPanels ? (
@@ -588,7 +656,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             ) : panelsList.length === 0 ? (
               <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-16 text-center">
                 <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum painel</p>
-                <p className="text-zinc-700 text-xs mt-2">Adicione a URL de uma imagem acima</p>
+                <p className="text-zinc-700 text-xs mt-2">Faça upload de imagens ou cole URLs acima</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -752,6 +820,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         className="hidden"
         onChange={handleThumbnailFileChange}
       />
+      {/* Input de arquivo oculto para upload de vídeo para Bunny Stream */}
+      <input
+        ref={videoFileInputRef}
+        type="file"
+        accept="video/mp4,video/quicktime,video/x-matroska"
+        className="hidden"
+        onChange={handleVideoFileChange}
+      />
 
       {/* Modal — Nova Série */}
       {showCreateModal && (
@@ -837,7 +913,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
               <FormField label="URL da Thumbnail" value={newEpisode.thumbnail} onChange={v => setNewEpisode(ep => ({ ...ep, thumbnail: v }))} />
 
               <div className="bg-white/5 rounded-2xl p-4 space-y-3">
-                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Vídeo — preencha um dos dois</p>
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Vídeo — opcional (envie pelo botão <Film size={10} className="inline" /> após criar)</p>
                 <FormField label="Bunny Video ID (ex: abc-123-def)" value={newEpisode.bunnyVideoId} onChange={v => setNewEpisode(ep => ({ ...ep, bunnyVideoId: v }))} />
                 <FormField label="Ou URL direta do vídeo (mp4/m3u8)" value={newEpisode.video_url} onChange={v => setNewEpisode(ep => ({ ...ep, video_url: v }))} />
               </div>

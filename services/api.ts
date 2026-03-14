@@ -248,6 +248,43 @@ class ApiService {
   async toggleUserActive(id: string, isActive: boolean) {
     return this.request<any>(`/admin/users/toggle-status/${id}`, { method: 'PUT', body: JSON.stringify({ isActive }) });
   }
+
+  async uploadImageToBunny(file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('image', file);
+    const fullUrl = `${API_URL}/bunny/upload-image`;
+    const response = await fetch(fullUrl, {
+      method: 'POST',
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      body: formData,
+      credentials: 'include'
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro ao fazer upload: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.url;
+  }
+
+  async uploadVideoToBunny(file: File, episodeId: string, title: string): Promise<{ bunnyVideoId: string; videoUrl?: string }> {
+    const formData = new FormData();
+    formData.append('video', file);
+    formData.append('episodeId', episodeId);
+    formData.append('title', title);
+    const fullUrl = `${API_URL}/bunny/upload-video`;
+    const response = await fetch(fullUrl, {
+      method: 'POST',
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      body: formData,
+      credentials: 'include'
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro ao fazer upload do vídeo: ${response.status}`);
+    }
+    return response.json();
+  }
 }
 
 export const api = ApiService.getInstance();

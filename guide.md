@@ -1,6 +1,6 @@
 # GUIA COMPLETO — Projeto Lorflux
 
-> **Última atualização:** 12 de Março de 2026
+> **Última atualização:** 14 de Março de 2026
 > **Branch:** `main`
 > **Stack:** React 19 + Vite 5.4 + Tailwind 3.4 + Node/Express + MongoDB + Stripe + Bunny.net
 
@@ -17,9 +17,9 @@
 | **Autenticação** | Concluído | Login, registro, token persistido no localStorage |
 | **Stripe (Pagamentos)** | Parcial | Checkout funcional em teste — falta trocar para chaves live |
 | **PWA** | Concluído | Manifest, service-worker, ícones gerados (192, 512, maskable) |
-| **Bunny.net (Vídeo)** | Concluído | Upload endpoint, webhook HLS, CDN configurado |
+| **Bunny.net (Vídeo)** | Concluído | Upload direto via botão no admin, webhook HLS, CDN configurado |
 | **API de Conteúdo (CRUD)** | Concluído | Séries, episódios, painéis, votos, traduções |
-| **Admin Dashboard** | Concluído | Stats, séries, episódios, upload de capa, anúncios |
+| **Admin Dashboard** | Concluído | Stats, séries, episódios, upload de capa/vídeo/painel, anúncios |
 | **Sistema de Votos** | Concluído | Like/dislike em vídeos e webtoons, contadores no admin |
 | **Seletor de Idioma** | Concluído | PT/EN/ES/ZH no WebtoonReader com translation layers |
 | **Switch de Dublagem** | Concluído | Original/Dublagem 1/Dublagem 2 no VerticalPlayer |
@@ -70,7 +70,9 @@
 - [x] Stats reais: usuários, premium, séries, episódios, anúncios, receita estimada
 - [x] Gerenciar séries: criar, reordenar, deletar
 - [x] Upload de capa da série: clique na thumbnail para substituir (ou arquivo no modal)
-- [x] Gerenciar episódios por série: listar, criar (Bunny ID ou URL direta), deletar
+- [x] Gerenciar episódios por série: listar, criar, deletar
+- [x] Upload de vídeo direto para Bunny Stream via botão 🎬 na lista de episódios (MP4/MOV/MKV até 800 MB)
+- [x] Upload de imagem de painel direto para Bunny Storage via área de drop na tela de painéis
 - [x] Gerenciar anúncios: criar, editar, ativar/desativar, deletar
 - [x] `requireAdmin` aceita roles `admin` e `superadmin`
 - [x] Botão Admin visível apenas para `role === 'superadmin'`
@@ -119,10 +121,10 @@
 
 ### 2. Conteúdo (depende do cliente)
 
-- [ ] Vídeos para HQCine e VCine (formato vertical 9:16 recomendado, enviar via Bunny Stream)
+- [ ] Vídeos para HQCine e VCine — usar o botão 🎬 no admin para envio direto ao Bunny Stream
 - [ ] Thumbnails das séries e episódios
-- [ ] Painéis de webtoon para Hi-Qua (URLs de imagem por painel)
-- [ ] Camadas de tradução por painel (PT já é o original; EN/ES/ZH são imagens overlay)
+- [ ] Painéis de webtoon para Hi-Qua — usar upload na tela de painéis (JPEG/PNG/WebP)
+- [ ] Camadas de tradução por painel (PT já é o original; EN/ES/ZH são imagens overlay via API)
 
 ---
 
@@ -131,15 +133,22 @@
 ### HQCine / VCine (vídeo)
 1. Admin → Gerenciar Conteúdo → Nova Série (tipo `hqcine` ou `vcine`)
 2. Clicar na thumbnail da série para fazer upload da capa
-3. Clicar no ícone de lista na série → Novo Episódio
-4. Preencher título, thumbnail URL, **Bunny Video ID** (obter no painel Bunny Stream após upload)
-5. O player usa `https://vz-fbaa1d24-d2c.b-cdn.net/{bunnyVideoId}/playlist.m3u8`
+3. Clicar no ícone de lista na série → Novo Episódio → preencher título e descrição (vídeo é opcional aqui)
+4. **Upload de vídeo:** na lista de episódios, clicar no ícone 🎬 (Film) ao lado do episódio → selecionar arquivo MP4/MOV/MKV (até 800 MB) → o upload vai direto para o Bunny Stream e o status muda para `processing`
+5. O webhook do Bunny atualiza automaticamente o `video_url` (HLS) quando o encoding terminar
+6. O player usa `https://vz-fbaa1d24-d2c.b-cdn.net/{bunnyVideoId}/playlist.m3u8`
 
-### Hi-Qua (webtoon)
+### Hi-Qua (webtoon — painéis)
 1. Admin → Nova Série (tipo `hiqua`)
 2. Criar episódio (sem vídeo)
-3. Via API: `POST /api/content/episodes/:id/panels` com array de `{ image_url, order }`
-4. Para traduções: `PUT /api/content/episodes/:id/panels/:index/translations` com `{ language, imageUrl }`
+3. Clicar no ícone 📖 (BookOpen) para gerenciar painéis
+4. **Upload de painel (recomendado):** clicar na área tracejada "Upload de imagem para Bunny CDN" → selecionar imagem JPEG/PNG/WebP → upload vai direto para o Bunny Storage e o painel é adicionado automaticamente
+5. **Ou via URL:** colar a URL no campo e clicar "Adicionar"
+6. Repetir para cada painel (ordem é sequencial automática)
+7. Máximo: 138 painéis por episódio (formatos suportados: 22, 83 e 138 painéis)
+8. Para traduções: `PUT /api/content/episodes/:id/panels/:index/translations` com `{ language, imageUrl }`
+
+> **Nota sobre o leitor:** os painéis são exibidos em scroll vertical contínuo sem corte — CSS garante `gap-0` e `leading-none` em cada painel.
 
 ### Anúncios
 1. Admin → Anúncios → Novo Anúncio

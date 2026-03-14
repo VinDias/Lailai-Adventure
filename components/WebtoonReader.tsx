@@ -144,7 +144,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
         </div>
       </header>
 
-      <div className="flex flex-col items-center pt-20">
+      <div className="flex flex-col items-center pt-20 gap-0">
         {loading ? (
           <div className="h-screen flex items-center justify-center">
             <div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" />
@@ -157,7 +157,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
           paineis.map(panel => {
             const translationLayer = panel.translationLayers?.find(l => l.language === language);
             return (
-              <div key={panel.id} className="relative w-full max-w-[800px]">
+              <div key={panel.id} className="relative w-full max-w-[800px] leading-none overflow-hidden">
                 <img
                   src={panel.imagemUrl}
                   className="w-full h-auto block"
