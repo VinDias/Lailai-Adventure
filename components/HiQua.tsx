@@ -4,7 +4,7 @@ import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
 import Ads from './Ads';
 
-const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => void }> = ({ user, onOpen }) => {
+const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series, episodes: any[]) => void }> = ({ user, onOpen }) => {
   const [series, setSeries] = useState<Series[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
   const [content, setContent] = useState<{seasons: any[], episodes: Episode[]} | null>(null);
@@ -80,7 +80,7 @@ const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
               <div className="space-y-4">
                  <h3 className="text-xl font-black text-white mb-6">Episódios</h3>
                  {content.episodes.map(ep => (
-                   <div key={ep.id} onClick={() => onOpen(ep, selectedSeries)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
+                   <div key={ep.id} onClick={() => onOpen(ep, selectedSeries, content.episodes)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
                       <div className="w-20 h-28 bg-black rounded-2xl overflow-hidden shrink-0">
                          <img src={ep.thumbnail} className="w-full h-full object-cover opacity-60" alt={ep.title} />
                       </div>

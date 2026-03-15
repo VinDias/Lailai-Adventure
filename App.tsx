@@ -18,6 +18,8 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
   const [activeWebtoon, setActiveWebtoon] = useState<Webtoon | null>(null);
+  const [activeSeries, setActiveSeries] = useState<any>(null);
+  const [seriesEpisodes, setSeriesEpisodes] = useState<any[]>([]);
   const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
@@ -43,6 +45,22 @@ const App: React.FC = () => {
     }
     localStorage.setItem('lorflux_session', JSON.stringify(u));
     setView(ViewMode.HQCINE);
+  };
+
+  const openWebtoonEpisode = (ep: any, series: any) => {
+    const epId = ep._id || ep.id?.toString();
+    setActiveWebtoon({
+      id: epId,
+      episodeId: epId,
+      titulo: ep.title,
+      categoria: series.genre,
+      descricao: ep.description,
+      numeroPaineis: ep.panels?.length ?? 0,
+      isPremium: ep.isPremium ?? series.isPremium,
+      thumbnailUrl: ep.thumbnail,
+      criadoEm: new Date().toISOString()
+    });
+    setView(ViewMode.READER);
   };
 
   const handleLogout = () => {
@@ -121,20 +139,10 @@ const App: React.FC = () => {
         {view === ViewMode.HIQUA && (
           <HiQua
             user={user}
-            onOpen={(ep, series) => {
-              const epId = (ep as any)._id || ep.id.toString();
-              setActiveWebtoon({
-                id: epId,
-                episodeId: epId,
-                titulo: ep.title,
-                categoria: series.genre,
-                descricao: ep.description,
-                numeroPaineis: (ep as any).panels?.length ?? 0,
-                isPremium: series.isPremium,
-                thumbnailUrl: ep.thumbnail,
-                criadoEm: new Date().toISOString()
-              });
-              setView(ViewMode.READER);
+            onOpen={(ep, series, episodes) => {
+              setActiveSeries(series);
+              setSeriesEpisodes(episodes);
+              openWebtoonEpisode(ep, series);
             }}
           />
         )}
@@ -160,9 +168,21 @@ const App: React.FC = () => {
           <VerticalPlayer video={activeVideo} user={user} onClose={() => setView(activeVideo.type === 'hqcine' ? ViewMode.HQCINE : ViewMode.VCINE)} />
         )}
 
-        {view === ViewMode.READER && activeWebtoon && (
-          <WebtoonReader webtoon={activeWebtoon} user={user} onClose={() => setView(ViewMode.HIQUA)} />
-        )}
+        {view === ViewMode.READER && activeWebtoon && (() => {
+          const currentIdx = seriesEpisodes.findIndex(e => (e._id || e.id?.toString()) === activeWebtoon.id);
+          const prevEp = currentIdx > 0 ? seriesEpisodes[currentIdx - 1] : null;
+          const nextEp = currentIdx < seriesEpisodes.length - 1 ? seriesEpisodes[currentIdx + 1] : null;
+          return (
+            <WebtoonReader
+              webtoon={activeWebtoon}
+              user={user}
+              onClose={() => setView(ViewMode.HIQUA)}
+              prevEpisode={prevEp}
+              nextEpisode={nextEp}
+              onNavigate={(ep) => openWebtoonEpisode(ep, activeSeries)}
+            />
+          );
+        })()}
 
         {(view === ViewMode.ADMIN_DASHBOARD || view === ViewMode.ADMIN_CONTENT || view === ViewMode.ADMIN_USERS || view === ViewMode.ADMIN_PAYMENTS || view === ViewMode.ADMIN_ADS) && (
           <AdminDashboard onLogout={handleLogout} currentSubView={view} setSubView={(v) => setView(v)} />

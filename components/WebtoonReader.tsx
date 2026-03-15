@@ -2,13 +2,16 @@
 import React, { useState, useEffect } from 'react';
 import { Webtoon, User } from '../types';
 import API_URL from '../config/api';
-import { ThumbsUp, ThumbsDown } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft } from 'lucide-react';
 import { api } from '../services/api';
 
 interface ReaderProps {
   webtoon: Webtoon;
   user: User | null;
   onClose: () => void;
+  prevEpisode?: any | null;
+  nextEpisode?: any | null;
+  onNavigate?: (ep: any) => void;
 }
 
 interface TranslationLayer {
@@ -31,7 +34,7 @@ const LANGUAGES: { code: Language; label: string }[] = [
   { code: 'zh', label: 'ZH' },
 ];
 
-const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
+const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate }) => {
   const [paineis, setPaineis] = useState<PanelItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [language, setLanguage] = useState<Language>(() => {
@@ -102,9 +105,19 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
     <div className="fixed inset-0 z-[2000] bg-[#0A0A0B] overflow-y-auto scroll-smooth animate-apple">
 
       <header className="fixed top-0 inset-x-0 h-20 bg-black/90 backdrop-blur-2xl border-b border-white/5 flex items-center justify-between px-6 z-[2100]">
-        <button onClick={onClose} className="p-3 text-white/50 hover:text-white transition-all">
-          <svg className="w-6 h-6 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={onClose} className="p-3 text-white/50 hover:text-white transition-all">
+            <svg className="w-6 h-6 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </button>
+          {prevEpisode && onNavigate && (
+            <button
+              onClick={() => onNavigate(prevEpisode)}
+              className="flex items-center gap-1 px-3 py-1.5 bg-white/5 rounded-xl text-[10px] font-black text-zinc-500 hover:text-white hover:bg-white/10 transition-all uppercase tracking-widest"
+            >
+              <ChevronLeft size={12} /> Cap. {prevEpisode.episode_number}
+            </button>
+          )}
+        </div>
         <div className="text-center">
           <h1 className="text-xs font-black text-white uppercase tracking-widest truncate max-w-[200px]">{webtoon.titulo}</h1>
           <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">HI-QUA READER • {paineis.length} PAINÉIS</p>
@@ -179,9 +192,28 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose }) => {
         )}
       </div>
 
-      <div className="p-20 text-center bg-black border-t border-white/5">
+      <div className="py-20 px-8 text-center bg-black border-t border-white/5">
         <span className="text-zinc-800 font-black text-[10px] uppercase tracking-[0.6em] mb-12 block">Fim do Capítulo</span>
-        <button onClick={onClose} className="px-20 py-5 bg-white text-black font-black rounded-2xl hover:scale-105 transition-all shadow-2xl">CONCLUIR</button>
+        <div className="flex flex-col items-center gap-4 max-w-sm mx-auto">
+          {nextEpisode && onNavigate ? (
+            <>
+              <button
+                onClick={() => onNavigate(nextEpisode)}
+                className="w-full flex items-center justify-center gap-3 px-8 py-5 bg-rose-600 text-white font-black rounded-2xl hover:scale-105 hover:bg-rose-500 transition-all shadow-2xl uppercase tracking-widest"
+              >
+                Capítulo {nextEpisode.episode_number} — {nextEpisode.title}
+                <ChevronRight size={20} />
+              </button>
+              <button onClick={onClose} className="text-zinc-600 font-black text-xs uppercase tracking-widest hover:text-white transition-all py-2">
+                ← Voltar à lista
+              </button>
+            </>
+          ) : (
+            <button onClick={onClose} className="px-20 py-5 bg-white text-black font-black rounded-2xl hover:scale-105 transition-all shadow-2xl">
+              CONCLUIR
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
