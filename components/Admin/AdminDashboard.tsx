@@ -868,9 +868,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <select
                   value={newSeries.content_type}
                   onChange={e => setNewSeries(s => ({ ...s, content_type: e.target.value }))}
-                  className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500"
+                  className="w-full bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500"
                 >
-                  {CONTENT_TYPES.map(ct => <option key={ct.value} value={ct.value}>{ct.label}</option>)}
+                  {CONTENT_TYPES.map(ct => <option key={ct.value} value={ct.value} className="bg-zinc-900 text-white">{ct.label}</option>)}
                 </select>
               </div>
 
