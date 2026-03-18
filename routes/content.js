@@ -90,9 +90,10 @@ router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
   try {
     const filter = { seriesId: req.params.id };
 
-    // Usuários não autenticados ou sem premium não recebem episódios pagos
+    // Admins e usuários premium veem todos os episódios
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
     const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());
-    if (!isPremiumUser) {
+    if (!isAdmin && !isPremiumUser) {
       filter.isPremium = { $ne: true };
     }
 

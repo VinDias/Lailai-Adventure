@@ -7,8 +7,8 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
-    exclude: ['**/node_modules/**', 'tests/api.content.test.js'],
-    coverage: { provider: 'v8', reporter: ['text', 'html'] }
+    include: ['tests/frontend/**/*.test.{ts,tsx}'],
+    coverage: { provider: 'v8', reporter: ['text', 'html'], include: ['services/**', 'components/**'] }
   },
   plugins: [react()],
   root: '.',

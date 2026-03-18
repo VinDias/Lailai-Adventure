@@ -106,11 +106,13 @@ const globalLimiter = rateLimit({
   message: { error: "Muitas requisições originadas deste IP." }
 });
 
-const loginLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 5,
-  message: { error: "Muitas tentativas de login. Tente novamente em 10 minutos." }
-});
+const loginLimiter = process.env.NODE_ENV === 'test'
+  ? (req, res, next) => next()
+  : rateLimit({
+      windowMs: 10 * 60 * 1000,
+      max: 5,
+      message: { error: "Muitas tentativas de login. Tente novamente em 10 minutos." }
+    });
 
 app.use("/api", globalLimiter);
 
@@ -259,7 +261,7 @@ app.post('/api/auth/register', async (req, res) => {
       provider: 'local'
     });
 
-    const payload = { id: user._id, email: user.email, role: user.role };
+    const payload = { id: user._id, email: user.email, role: user.role, isPremium: false, premiumExpiresAt: null };
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
     const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: '7d' });
 
@@ -307,7 +309,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
       return res.status(403).json({ error: "Conta desativada." });
     }
 
-    const payload = { id: user._id, email: user.email, role: user.role };
+    const payload = { id: user._id, email: user.email, role: user.role, isPremium: user.isPremium, premiumExpiresAt: user.premiumExpiresAt };
     const accessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
     const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: '7d' });
 
@@ -342,7 +344,7 @@ app.post('/api/auth/refresh-token', async (req, res) => {
 
   try {
     const verified = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
-    const newAccessToken = jwt.sign({ id: verified.id, email: verified.email, role: verified.role }, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const newAccessToken = jwt.sign({ id: verified.id, email: verified.email, role: verified.role, isPremium: verified.isPremium, premiumExpiresAt: verified.premiumExpiresAt }, process.env.JWT_SECRET, { expiresIn: '15m' });
     res.json({ accessToken: newAccessToken });
   } catch (err) {
     res.status(403).json({ error: "Refresh token expirado." });
@@ -371,4 +373,8 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => logger.info(`🚀 LORFLUX PROD-READY SERVER | PORT: ${PORT} | ENV: ${process.env.NODE_ENV}`));
+if (require.main === module) {
+  app.listen(PORT, () => logger.info(`🚀 LORFLUX PROD-READY SERVER | PORT: ${PORT} | ENV: ${process.env.NODE_ENV}`));
+}
+
+module.exports = app;
