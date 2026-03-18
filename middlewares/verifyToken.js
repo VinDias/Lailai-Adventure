@@ -9,7 +9,10 @@ module.exports = function (req, res, next) {
   }
 
   try {
-    const verified = jwt.verify(token, process.env.JWT_SECRET || 'secret-production-key');
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ error: "Configuração de segurança inválida no servidor." });
+    }
+    const verified = jwt.verify(token, process.env.JWT_SECRET);
     req.user = verified;
     next();
   } catch (err) {

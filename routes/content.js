@@ -5,6 +5,7 @@ const Episode = require('../models/Episode');
 const Vote = require('../models/Vote');
 const verifyToken = require('../middlewares/verifyToken');
 const requireAdmin = require('../middlewares/requireAdmin');
+const optionalAuth = require('../middlewares/optionalAuth');
 const logger = require('../utils/logger');
 
 // ─── SERIES ────────────────────────────────────────────────────────────────
@@ -85,9 +86,16 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
 // ─── EPISODES ───────────────────────────────────────────────────────────────
 
 // GET /api/content/series/:id/episodes — episódios de uma série
-router.get('/series/:id/episodes', async (req, res) => {
+router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
   try {
     const filter = { seriesId: req.params.id, status: 'published' };
+
+    // Usuários não autenticados ou sem premium não recebem episódios pagos
+    const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());
+    if (!isPremiumUser) {
+      filter.isPremium = { $ne: true };
+    }
+
     const episodes = await Episode.find(filter)
       .sort({ order_index: 1, episode_number: 1 })
       .lean();
@@ -105,7 +113,9 @@ router.get('/episodes/:id', async (req, res) => {
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
 
     // Incrementa views de forma não bloqueante
-    Episode.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } }).exec();
+    Episode.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
+      .exec()
+      .catch(err => logger.error(`[Content] Erro ao incrementar views do episódio ${req.params.id}`, err));
 
     res.json(episode);
   } catch (err) {

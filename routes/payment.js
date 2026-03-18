@@ -42,6 +42,11 @@ router.post('/create-checkout', verifyToken, async (req, res) => {
 
 // Webhook do Stripe
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+    logger.error("[Webhook] STRIPE_WEBHOOK_SECRET não configurado.");
+    return res.status(500).send("Webhook não configurado no servidor.");
+  }
+
   const sig = req.headers['stripe-signature'];
   let event;
 
@@ -52,29 +57,38 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const customerId = session.customer;
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const customerId = session.customer;
 
-    const user = await User.findOne({ stripeCustomerId: customerId });
-    if (user) {
-      user.isPremium = true;
-      user.stripeSubscriptionId = session.subscription;
-      user.premiumExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      await user.save();
-      logger.info(`Premium ativado para: ${user.email}`);
+      const user = await User.findOne({ stripeCustomerId: customerId });
+      if (user) {
+        user.isPremium = true;
+        user.stripeSubscriptionId = session.subscription;
+        user.premiumExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        await user.save();
+        logger.info(`Premium ativado para: ${user.email}`);
+      } else {
+        logger.warn(`[Webhook] Nenhum usuário encontrado para stripeCustomerId: ${customerId}`);
+      }
     }
-  }
 
-  if (event.type === 'customer.subscription.deleted') {
-    const subscription = event.data.object;
-    const user = await User.findOne({ stripeSubscriptionId: subscription.id });
-    if (user) {
-      user.isPremium = false;
-      user.stripeSubscriptionId = null;
-      await user.save();
-      logger.info(`Premium cancelado para: ${user.email}`);
+    if (event.type === 'customer.subscription.deleted') {
+      const subscription = event.data.object;
+      const user = await User.findOne({ stripeSubscriptionId: subscription.id });
+      if (user) {
+        user.isPremium = false;
+        user.stripeSubscriptionId = null;
+        await user.save();
+        logger.info(`Premium cancelado para: ${user.email}`);
+      } else {
+        logger.warn(`[Webhook] Nenhum usuário encontrado para stripeSubscriptionId: ${subscription.id}`);
+      }
     }
+  } catch (err) {
+    logger.error("[Webhook Processing Error]", err);
+    return res.status(500).json({ error: "Erro ao processar evento do webhook." });
   }
 
   res.json({ received: true });

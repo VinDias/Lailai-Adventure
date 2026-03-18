@@ -59,13 +59,17 @@ router.delete('/:id', verifyToken, requireAdmin, async (req, res) => {
 
 // POST /api/admin/ads/:id/impression — registrar impressão
 router.post('/:id/impression', async (req, res) => {
-  Ad.findByIdAndUpdate(req.params.id, { $inc: { impressions: 1 } }).exec();
+  Ad.findByIdAndUpdate(req.params.id, { $inc: { impressions: 1 } })
+    .exec()
+    .catch(err => logger.error(`[Ads] Erro ao registrar impressão do anúncio ${req.params.id}`, err));
   res.json({ ok: true });
 });
 
 // POST /api/admin/ads/:id/click — registrar clique
 router.post('/:id/click', async (req, res) => {
-  Ad.findByIdAndUpdate(req.params.id, { $inc: { clicks: 1 } }).exec();
+  Ad.findByIdAndUpdate(req.params.id, { $inc: { clicks: 1 } })
+    .exec()
+    .catch(err => logger.error(`[Ads] Erro ao registrar clique do anúncio ${req.params.id}`, err));
   res.json({ ok: true });
 });
 

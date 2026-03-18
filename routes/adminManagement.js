@@ -71,7 +71,7 @@ router.post("/create-admin", verifyToken, requireRole("superadmin"), async (req,
 
     const newAdmin = await User.create({
       email,
-      password: hashedPassword,
+      passwordHash: hashedPassword,
       nome,
       role,
       isActive: true
