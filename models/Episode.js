@@ -17,6 +17,8 @@ const EpisodeSchema = new mongoose.Schema({
       imageUrl: String
     }]
   }],
+  audioTrack1Url: { type: String }, // Dublagem / Voice Comic
+  audioTrack2Url: { type: String }, // Trilha sonora / Áudio alternativo
   isPremium: { type: Boolean, default: false },
   status: { type: String, enum: ['processing', 'published', 'draft'], default: 'draft' },
   views: { type: Number, default: 0 },

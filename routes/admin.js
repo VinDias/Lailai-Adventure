@@ -141,4 +141,27 @@ router.put("/update-thumbnail/:id", verifyToken, requireAdmin, upload.single("th
   }
 });
 
+// ATUALIZAR CANAIS DE ÁUDIO DE UM EPISÓDIO
+router.patch("/episodes/:id/audio", verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const { audioTrack1Url, audioTrack2Url } = req.body;
+    const update = {};
+    if (audioTrack1Url !== undefined) update.audioTrack1Url = audioTrack1Url;
+    if (audioTrack2Url !== undefined) update.audioTrack2Url = audioTrack2Url;
+
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ error: 'Nenhum campo de áudio fornecido.' });
+    }
+
+    const episode = await Episode.findByIdAndUpdate(req.params.id, { $set: update }, { new: true });
+    if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+
+    logger.info(`[Admin] Áudio do episódio "${episode.title}" atualizado.`);
+    res.json({ success: true, audioTrack1Url: episode.audioTrack1Url, audioTrack2Url: episode.audioTrack2Url });
+  } catch (err) {
+    logger.error('[Admin Audio Update Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

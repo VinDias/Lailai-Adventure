@@ -284,6 +284,30 @@ class ApiService {
     return response.json();
   }
 
+  async uploadAudioToBunny(file: File): Promise<{ url: string }> {
+    const formData = new FormData();
+    formData.append('audio', file);
+    const fullUrl = `${API_URL}/bunny/upload-audio`;
+    const response = await fetch(fullUrl, {
+      method: 'POST',
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      body: formData,
+      credentials: 'include'
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro ao fazer upload de áudio: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async updateEpisodeAudio(episodeId: string, payload: { audioTrack1Url?: string; audioTrack2Url?: string }) {
+    return this.request<any>(`/admin/management/episodes/${episodeId}/audio`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+  }
+
   async uploadVideoToBunny(file: File, episodeId: string, title: string): Promise<{ bunnyVideoId: string; videoUrl?: string }> {
     const formData = new FormData();
     formData.append('video', file);

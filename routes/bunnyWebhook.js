@@ -271,6 +271,63 @@ router.post('/upload-image-batch', (req, res) => {
   });
 });
 
+// POST /api/bunny/upload-audio — upload de arquivo de áudio para Bunny Storage
+router.post('/upload-audio', (req, res) => {
+  const verifyToken = require('../middlewares/verifyToken');
+  const requireAdmin = require('../middlewares/requireAdmin');
+
+  verifyToken(req, res, () => {
+    requireAdmin(req, res, () => {
+      const audioUpload = multer({
+        storage: multer.memoryStorage(),
+        limits: { fileSize: 200 * 1024 * 1024 },
+        fileFilter: (req, file, cb) => {
+          const allowed = ['audio/mpeg', 'audio/mp3', 'audio/aac', 'audio/mp4', 'audio/x-m4a', 'audio/ogg', 'audio/wav'];
+          allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error('Apenas MP3, AAC, M4A, OGG e WAV são permitidos.'));
+        }
+      });
+
+      audioUpload.single('audio')(req, res, async (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+
+        const storageZone = process.env.BUNNY_STORAGE_ZONE;
+        const storageKey = process.env.BUNNY_STORAGE_KEY;
+
+        if (!storageZone || !storageKey) {
+          return res.status(500).json({ error: 'BUNNY_STORAGE_ZONE e BUNNY_STORAGE_KEY não configurados no .env.' });
+        }
+
+        try {
+          const ext = (req.file.originalname.split('.').pop() || 'mp3').toLowerCase();
+          const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          const remotePath = `lorflux/audio/${filename}`;
+
+          const uploadRes = await fetch(`https://storage.bunnycdn.com/${storageZone}/${remotePath}`, {
+            method: 'PUT',
+            headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
+            body: req.file.buffer
+          });
+
+          if (!uploadRes.ok) {
+            const errText = await uploadRes.text();
+            logger.error('[Bunny Audio] Erro no upload:', errText);
+            return res.status(502).json({ error: 'Erro ao enviar áudio para Bunny Storage.' });
+          }
+
+          const cdnHostname = process.env.BUNNY_STORAGE_HOSTNAME || `${storageZone}.b-cdn.net`;
+          const url = `https://${cdnHostname}/${remotePath}`;
+          logger.info(`[Bunny Audio] Arquivo enviado: ${url}`);
+          res.json({ url });
+        } catch (err) {
+          logger.error('[Bunny Audio Upload Error]', err);
+          res.status(500).json({ error: 'Erro interno ao fazer upload de áudio.' });
+        }
+      });
+    });
+  });
+});
+
 // POST /api/bunny/upload-video — upload de vídeo para Bunny Stream
 router.post('/upload-video', (req, res) => {
   const verifyToken = require('../middlewares/verifyToken');

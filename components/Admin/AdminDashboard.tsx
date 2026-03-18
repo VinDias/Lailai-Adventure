@@ -7,7 +7,7 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle
+  CheckCircle2, AlertCircle, Music, Mic, Music2
 } from 'lucide-react';
 import API_URL from '../../config/api';
 
@@ -83,6 +83,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const videoFileInputRef = useRef<HTMLInputElement>(null);
   const [videoUploadTargetEp, setVideoUploadTargetEp] = useState<any>(null);
   const [uploadingVideoId, setUploadingVideoId] = useState<string | null>(null);
+
+  // Modal de canais de áudio
+  const [audioModalEp, setAudioModalEp] = useState<any>(null);
+  const [audioForm, setAudioForm] = useState<{ audioTrack1Url: string; audioTrack2Url: string }>({ audioTrack1Url: '', audioTrack2Url: '' });
+  const [uploadingAudio, setUploadingAudio] = useState<{ track1: boolean; track2: boolean }>({ track1: false, track2: false });
+  const audioTrack1Ref = useRef<HTMLInputElement>(null);
+  const audioTrack2Ref = useRef<HTMLInputElement>(null);
 
   // Batch upload de painéis
   const [batchFiles, setBatchFiles] = useState<Array<{ file: File; preview: string; status: 'pending' | 'uploading' | 'done' | 'error'; url?: string; error?: string }>>([]);
@@ -211,6 +218,44 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     } finally {
       setUploadingVideoId(null);
       setVideoUploadTargetEp(null);
+    }
+  };
+
+  const handleOpenAudioModal = (ep: any) => {
+    setAudioModalEp(ep);
+    setAudioForm({ audioTrack1Url: ep.audioTrack1Url || '', audioTrack2Url: ep.audioTrack2Url || '' });
+  };
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>, track: 'track1' | 'track2') => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !audioModalEp) return;
+    setUploadingAudio(prev => ({ ...prev, [track]: true }));
+    try {
+      const { url } = await api.uploadAudioToBunny(file);
+      const field = track === 'track1' ? 'audioTrack1Url' : 'audioTrack2Url';
+      const updated = { ...audioForm, [field]: url };
+      setAudioForm(updated);
+      await api.updateEpisodeAudio(audioModalEp._id || audioModalEp.id, { [field]: url });
+      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === (audioModalEp._id || audioModalEp.id) ? { ...ep, [field]: url } : ep));
+      setAudioModalEp((prev: any) => ({ ...prev, [field]: url }));
+    } catch (err: any) {
+      alert(`Erro ao enviar áudio: ${err.message}`);
+    } finally {
+      setUploadingAudio(prev => ({ ...prev, [track]: false }));
+    }
+  };
+
+  const handleRemoveAudio = async (track: 'track1' | 'track2') => {
+    if (!audioModalEp) return;
+    const field = track === 'track1' ? 'audioTrack1Url' : 'audioTrack2Url';
+    try {
+      await api.updateEpisodeAudio(audioModalEp._id || audioModalEp.id, { [field]: '' });
+      setAudioForm(prev => ({ ...prev, [field]: '' }));
+      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === (audioModalEp._id || audioModalEp.id) ? { ...ep, [field]: '' } : ep));
+      setAudioModalEp((prev: any) => ({ ...prev, [field]: '' }));
+    } catch (err: any) {
+      alert(`Erro ao remover áudio: ${err.message}`);
     }
   };
 
@@ -623,6 +668,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                             {selectedSeries?.content_type === 'hiqua' && (
                               <button onClick={() => handleOpenPanels(ep)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Gerenciar painéis"><BookOpen size={15} /></button>
                             )}
+                            {selectedSeries?.content_type !== 'hiqua' && (
+                              <button
+                                onClick={() => handleOpenAudioModal(ep)}
+                                className="p-2 bg-white/5 rounded-lg transition-all"
+                                title="Gerenciar canais de áudio"
+                              >
+                                {(ep.audioTrack1Url || ep.audioTrack2Url)
+                                  ? <Music size={15} className="text-violet-400" />
+                                  : <Music size={15} className="text-zinc-500 hover:text-violet-400" />
+                                }
+                              </button>
+                            )}
                             <button onClick={() => handleDeleteEpisode(epId)} className="p-2 bg-rose-600/10 rounded-lg text-rose-500 hover:bg-rose-600 hover:text-white transition-all"><Trash2 size={16} /></button>
                           </div>
                         </div>
@@ -934,6 +991,47 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         onChange={handleVideoFileChange}
       />
 
+      {/* Inputs ocultos para upload de áudio */}
+      <input ref={audioTrack1Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track1')} />
+      <input ref={audioTrack2Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track2')} />
+
+      {/* Modal — Canais de Áudio */}
+      {audioModalEp && (
+        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-2xl font-black tracking-tighter">Canais de Áudio</h3>
+              <button onClick={() => setAudioModalEp(null)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
+            </div>
+            <p className="text-xs text-zinc-600 font-bold mb-8 truncate">Ep.{audioModalEp.episode_number} — {audioModalEp.title}</p>
+
+            <div className="space-y-5">
+              {/* Canal 1 — Dublagem / Voice Comic */}
+              <AudioChannelRow
+                label="Canal 1 — Dublagem / Voice Comic"
+                icon={<Mic size={16} />}
+                url={audioForm.audioTrack1Url}
+                uploading={uploadingAudio.track1}
+                onUpload={() => audioTrack1Ref.current?.click()}
+                onRemove={() => handleRemoveAudio('track1')}
+              />
+
+              {/* Canal 2 — Trilha Sonora / Áudio Alternativo */}
+              <AudioChannelRow
+                label="Canal 2 — Trilha Sonora / Alternativo"
+                icon={<Music2 size={16} />}
+                url={audioForm.audioTrack2Url}
+                uploading={uploadingAudio.track2}
+                onUpload={() => audioTrack2Ref.current?.click()}
+                onRemove={() => handleRemoveAudio('track2')}
+              />
+            </div>
+
+            <p className="text-[10px] text-zinc-700 font-bold mt-8">MP3 · AAC · M4A · OGG · WAV — máx. 200 MB por arquivo</p>
+          </div>
+        </div>
+      )}
+
       {/* Modal — Nova Série */}
       {showCreateModal && (
         <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
@@ -1099,6 +1197,50 @@ const FormField = ({ label, value, onChange, required = false }: { label: string
       required={required}
       className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
     />
+  </div>
+);
+
+const AudioChannelRow = ({ label, icon, url, uploading, onUpload, onRemove }: {
+  label: string;
+  icon: React.ReactNode;
+  url: string;
+  uploading: boolean;
+  onUpload: () => void;
+  onRemove: () => void;
+}) => (
+  <div className="bg-white/5 rounded-2xl border border-[var(--border-color)] p-5 space-y-3">
+    <div className="flex items-center gap-2">
+      <span className="text-violet-400">{icon}</span>
+      <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{label}</span>
+      {url
+        ? <span className="ml-auto flex items-center gap-1 text-[9px] font-black text-emerald-400 uppercase tracking-widest"><CheckCircle2 size={12} /> Configurado</span>
+        : <span className="ml-auto text-[9px] font-black text-zinc-600 uppercase tracking-widest">Não configurado</span>
+      }
+    </div>
+    {url && (
+      <p className="text-[10px] text-zinc-600 font-mono truncate" title={url}>{url}</p>
+    )}
+    <div className="flex gap-2">
+      <button
+        onClick={onUpload}
+        disabled={uploading}
+        className="flex items-center gap-2 px-4 py-2 bg-violet-600 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-violet-500 transition-all disabled:opacity-50"
+      >
+        {uploading
+          ? <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Enviando...</>
+          : <><Upload size={13} /> {url ? 'Substituir' : 'Upload'}</>
+        }
+      </button>
+      {url && (
+        <button
+          onClick={onRemove}
+          disabled={uploading}
+          className="flex items-center gap-2 px-4 py-2 bg-rose-600/20 rounded-xl text-xs font-black text-rose-400 uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all disabled:opacity-30"
+        >
+          <Trash2 size={13} /> Remover
+        </button>
+      )}
+    </div>
   </div>
 );
 
