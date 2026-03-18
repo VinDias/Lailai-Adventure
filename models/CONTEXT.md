@@ -28,11 +28,12 @@ Séries de conteúdo (container de episódios).
 ### `Episode.js`
 Episódios de uma série.
 - Referência para `Series`
-- `episodeNumber`, `title`, `description`, `duration`
-- Vídeo: `videoUrl`, `bunnyVideoId`, `thumbnailUrl`
-- Webtoon: array de URLs de painéis (`panelUrls`)
-- `isPremium`, `isPublished`
-- `transcodingStatus` — rastreia o status do processamento no Bunny Stream
+- `episode_number`, `title`, `description`, `duration`
+- Vídeo: `video_url`, `bunnyVideoId`, `thumbnail`
+- Webtoon: array de objetos `panels` (`image_url`, `order`, `translationLayers[]`)
+- Áudio: `audioTrack1Url` (dublagem/voice comic), `audioTrack2Url` (trilha/alternativo) — consumidos pelo `VerticalPlayer`
+- `isPremium`, `status` (`draft` | `processing` | `published`)
+- `views`, `order_index`
 
 ### `Ad.js`
 Campanhas publicitárias.

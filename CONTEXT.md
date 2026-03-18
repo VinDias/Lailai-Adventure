@@ -8,7 +8,7 @@
 - **VCine** — Filmes experimentais verticais
 - **Hi-Qua** — Webtoons com suporte a múltiplos idiomas
 
-**Versão**: 2.3.0
+**Versão**: 2.4.0
 **Stack**: React 19 + Vite (frontend) / Node.js + Express (backend) / MongoDB (banco de dados)
 
 ---
@@ -89,6 +89,8 @@ O backend serve tanto a API REST quanto os arquivos estáticos do build do React
 ### Admin Dashboard
 - Painel completo de gerenciamento de séries e episódios
 - Upload direto para Bunny Stream e Bunny Storage
+- **Batch upload de painéis** — zona drag-and-drop com fila visual e progresso por arquivo
+- **Gerenciamento de canais de áudio** — modal com Canal 1 (dublagem) e Canal 2 (trilha) por episódio
 - Gestão de campanhas publicitárias
 - Gestão de usuários e permissões
 - Estatísticas de receita e engajamento
@@ -111,6 +113,8 @@ FRONTEND_URL, MONGO_URI
 STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 REDIS_URL
 BUNNY_API_KEY, BUNNY_LIBRARY_ID, BUNNY_CDN_HOSTNAME
+BUNNY_STORAGE_ZONE, BUNNY_STORAGE_KEY, BUNNY_STORAGE_HOSTNAME
+SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, FROM_EMAIL, FROM_NAME
 S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET_NAME
 SENTRY_DSN, WORKER_CONCURRENCY, MAX_ADMIN_COUNT, MAX_UPLOAD_SIZE
 ```
@@ -126,13 +130,13 @@ npm run server    # Backend (Express, porta 3000)
 npm run worker    # Worker de processamento de vídeo
 ```
 
-## Próximas Funcionalidades Planejadas
+## Módulo de Produtividade Admin (implementado em 2026-03-18)
 
-Ver [PLAN.md](PLAN.md) para o plano detalhado com escopo, fluxos, arquivos a modificar e ordem de implementação das seguintes features:
+Ver [PLAN.md](PLAN.md) para o plano detalhado. As 3 features foram implementadas:
 
-1. **Batch Upload de Painéis** — upload simultâneo de até ~138 imagens por capítulo Hi-Qua com progresso visual
-2. **Upload dos 3 Canais de Áudio** — interface admin para `audioTrack1Url` (dublagem) e `audioTrack2Url` (trilha), já consumidos pelo `VerticalPlayer`
-3. **E-mail Profissional** — configuração SPF/DKIM/DMARC no Cloudflare + `emailService.js` com nodemailer
+1. ✅ **Batch Upload de Painéis** — zona drag-and-drop com fila visual, upload de até 138 imagens em lote para Bunny CDN (`POST /api/bunny/upload-image-batch`)
+2. ✅ **Upload dos 3 Canais de Áudio** — modal de gerenciamento no admin com auto-save; campos `audioTrack1Url` / `audioTrack2Url` no model `Episode` (`POST /api/bunny/upload-audio` + `PATCH /api/admin/management/episodes/:id/audio`)
+3. ✅ **E-mail Profissional** — `services/emailService.js` com nodemailer + templates prontos + guia DNS completo em [EMAIL_SETUP.md](EMAIL_SETUP.md)
 
 ---
 

@@ -25,6 +25,7 @@ Lógica de negócio e integrações com APIs e serviços externos. Separa as reg
 | `bunnyService.js` | Wrapper da API Bunny.net — orquestra uploads de vídeo para o Bunny Stream e imagens de painéis para o Bunny Storage |
 | `transcodeService.js` | Pipeline de transcodificação de vídeo com FFmpeg para geração de HLS |
 | `stripeService.js` | Métodos de integração com a API Stripe — criação de clientes, assinaturas e sessões de checkout |
+| `emailService.js` | Serviço de e-mail transacional com nodemailer — `sendEmail()` genérico + templates prontos: `sendWelcome()`, `sendPremiumConfirmation()`, `sendPasswordReset()`. Lazy transporter (só conecta ao SMTP na primeira chamada). Ver `EMAIL_SETUP.md` para configuração DNS. |
 | `donationService.js` | Processamento de doações |
 | `mobilePaymentService.js` | Integração com processador de pagamento alternativo para mobile |
 
@@ -49,4 +50,16 @@ Premium.tsx
     → Usuário redireciona para Stripe
     → Stripe envia webhook para routes/payment.js
     → User.isPremium = true, premiumExpiresAt atualizado
+    → emailService.js (sendPremiumConfirmation) — e-mail de confirmação
+```
+
+## Fluxo de Upload de Áudio
+
+```
+AdminDashboard (modal de canais de áudio)
+    → api.ts uploadAudioToBunny()
+    → POST /api/bunny/upload-audio → Bunny Storage (lorflux/audio/)
+    → api.ts updateEpisodeAudio()
+    → PATCH /api/admin/management/episodes/:id/audio → Episode.audioTrack1Url / audioTrack2Url no MongoDB
+    → VerticalPlayer carrega os canais via <audio> tags (audioTrack1Url / audioTrack2Url)
 ```

@@ -17,10 +17,12 @@ Rotas públicas e protegidas para consumo de conteúdo.
 - `POST /series`, `PUT /series/:id`, `DELETE /series/:id` — CRUD de séries (admin only)
 
 ### `admin.js` — Painel Administrativo
-Endpoints exclusivos para administradores.
+Endpoints exclusivos para administradores. Montado em `/api/admin/management`.
 - `GET /stats` — Estatísticas do dashboard (usuários, receita, conteúdo)
 - `GET /content` — Listagem paginada de todo o conteúdo
-- Gerenciamento de séries e episódios (criação, edição, exclusão)
+- `PUT /reorder` — Reordenação de séries via drag & drop
+- `PUT /update-thumbnail/:id` — Troca de capa de série
+- `PATCH /episodes/:id/audio` — Atualiza `audioTrack1Url` e/ou `audioTrack2Url` de um episódio
 
 ### `adminManagement.js` — Gestão de Usuários Admin
 - Modificação de roles e permissões de usuários
@@ -31,10 +33,13 @@ Endpoints exclusivos para administradores.
 - `POST /webhook` — Webhook Stripe para confirmar pagamentos e ativar premium
 
 ### `bunnyWebhook.js` — Integração Bunny.net
-- Webhook receptor de eventos do Bunny Stream (transcodificação de vídeo concluída, falha, etc.)
-- Upload de imagens de painéis para Bunny Storage
-- Valida assinatura dos webhooks recebidos
-- Atualiza status de transcodificação nos episódios
+Montado em `/api/bunny`.
+- `POST /webhook` — Recebe eventos do Bunny Stream (transcodificação concluída/falha) e atualiza `Episode.status` no MongoDB
+- `POST /upload` — Cria vídeo na biblioteca Bunny Stream e retorna URL TUS para upload direto
+- `POST /upload-video` — Upload de arquivo de vídeo direto para o Bunny Stream via multipart
+- `POST /upload-image` — Upload de imagem única para Bunny Storage (`lorflux/`)
+- `POST /upload-image-batch` — Upload em lote de até 138 imagens para Bunny Storage (`lorflux/panels/`) — processa em paralelo via `Promise.allSettled`, retorna relatório por arquivo
+- `POST /upload-audio` — Upload de arquivo de áudio (MP3/AAC/M4A/OGG/WAV, máx 200MB) para Bunny Storage (`lorflux/audio/`)
 
 ### `ads.js` — Anúncios
 - `GET /ads` — Lista anúncios ativos
