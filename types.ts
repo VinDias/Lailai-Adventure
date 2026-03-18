@@ -80,6 +80,7 @@ export interface Channel {
 
 // Fix: Export missing Episode type
 export interface Episode {
+  _id?: string;
   id: number;
   channelId?: number;
   episode_number: number;

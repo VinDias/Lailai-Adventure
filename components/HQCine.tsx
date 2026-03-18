@@ -58,7 +58,7 @@ const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => 
             
             <div className="space-y-4">
               {episodes.map(ep => (
-                <div key={ep.id} onClick={() => onOpen(ep, selectedSeries)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
+                <div key={ep._id || ep.id} onClick={() => onOpen(ep, selectedSeries)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
                   <div className="w-20 h-28 bg-black rounded-2xl overflow-hidden shrink-0 relative">
                     <img src={ep.thumbnail} className="w-full h-full object-cover opacity-60" />
                     <Play size={16} className="absolute inset-0 m-auto text-white" />

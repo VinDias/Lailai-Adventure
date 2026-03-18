@@ -88,7 +88,7 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
 // GET /api/content/series/:id/episodes — episódios de uma série
 router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
   try {
-    const filter = { seriesId: req.params.id, status: 'published' };
+    const filter = { seriesId: req.params.id };
 
     // Usuários não autenticados ou sem premium não recebem episódios pagos
     const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());

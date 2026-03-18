@@ -80,7 +80,7 @@ const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series, epis
               <div className="space-y-4">
                  <h3 className="text-xl font-black text-white mb-6">Episódios</h3>
                  {content.episodes.map(ep => (
-                   <div key={ep.id} onClick={() => onOpen(ep, selectedSeries, content.episodes)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
+                   <div key={ep._id || ep.id} onClick={() => onOpen(ep, selectedSeries, content.episodes)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
                       <div className="w-20 h-28 bg-black rounded-2xl overflow-hidden shrink-0">
                          <img src={ep.thumbnail} className="w-full h-full object-cover opacity-60" alt={ep.title} />
                       </div>
