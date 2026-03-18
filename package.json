@@ -30,6 +30,7 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
+    "googleapis": "^144.0.0",
     "helmet": "^7.1.0",
     "hls.js": "^1.5.7",
     "ioredis": "^5.3.2",
@@ -38,13 +39,13 @@
     "lucide-react": "^0.564.0",
     "mongoose": "^8.0.0",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^8.0.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "sharp": "^0.33.2",
     "stripe": "^14.0.0",
     "winston": "^3.11.0",
-    "winston-daily-rotate-file": "^5.0.0",
-    "googleapis": "^144.0.0"
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
