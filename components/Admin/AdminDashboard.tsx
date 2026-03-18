@@ -437,8 +437,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       setCoverFile(null);
       setCreateMsg('Série criada com sucesso!');
       setTimeout(() => { setCreateMsg(''); setShowCreateModal(false); }, 1500);
-    } catch (e) {
-      setCreateMsg('Erro ao criar série.');
+    } catch (e: any) {
+      setCreateMsg(`Erro: ${e?.message || 'Erro ao criar série.'}`);
     } finally {
       setCreating(false);
     }
@@ -801,7 +801,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                   onChange={e => setNewPanelUrl(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleAddPanel()}
                   placeholder="Ou cole a URL da imagem..."
-                  className="flex-1 bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+                  className="flex-1 bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors"
                 />
                 <button
                   onClick={handleAddPanel}
@@ -1054,9 +1054,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                     onChange={e => { setCoverFile(null); setNewSeries(s => ({ ...s, cover_image: e.target.value })); }}
                     placeholder="URL da imagem ou selecione um arquivo..."
                     readOnly={!!coverFile}
-                    className="flex-1 bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+                    className="flex-1 bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors"
                   />
-                  <label className="flex items-center gap-2 px-4 py-3 bg-white/5 border border-[var(--border-color)] rounded-2xl text-zinc-400 hover:text-white hover:bg-white/10 cursor-pointer transition-all shrink-0">
+                  <label className="flex items-center gap-2 px-4 py-3 bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl text-zinc-500 dark:text-zinc-400 hover:text-[var(--text-color)] hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer transition-all shrink-0">
                     <Camera size={16} />
                     <input type="file" accept="image/*" className="hidden" onChange={e => {
                       const f = e.target.files?.[0];
@@ -1071,7 +1071,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <select
                   value={newSeries.content_type}
                   onChange={e => setNewSeries(s => ({ ...s, content_type: e.target.value }))}
-                  className="w-full bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500"
+                  className="w-full bg-black/5 dark:bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500"
                 >
                   {CONTENT_TYPES.map(ct => <option key={ct.value} value={ct.value} className="bg-zinc-900 text-white">{ct.label}</option>)}
                 </select>
@@ -1079,7 +1079,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
               <label className="flex items-center gap-3 cursor-pointer">
                 <input type="checkbox" checked={newSeries.isPremium} onChange={e => setNewSeries(s => ({ ...s, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
-                <span className="text-sm font-bold text-zinc-300">Conteúdo Premium</span>
+                <span className="text-sm font-bold text-[var(--text-color)]">Conteúdo Premium</span>
               </label>
 
               {createMsg && <p className={`text-sm font-bold text-center ${createMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{createMsg}</p>}
@@ -1108,14 +1108,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                   type="number" min={1}
                   value={newEpisode.episode_number}
                   onChange={e => setNewEpisode(ep => ({ ...ep, episode_number: parseInt(e.target.value) || 1 }))}
-                  className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+                  className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors"
                 />
               </div>
               <FormField label="Título" value={newEpisode.title} onChange={v => setNewEpisode(ep => ({ ...ep, title: v }))} required />
               <FormField label="Descrição" value={newEpisode.description} onChange={v => setNewEpisode(ep => ({ ...ep, description: v }))} />
               <FormField label="URL da Thumbnail" value={newEpisode.thumbnail} onChange={v => setNewEpisode(ep => ({ ...ep, thumbnail: v }))} />
 
-              <div className="bg-white/5 rounded-2xl p-4 space-y-3">
+              <div className="bg-black/5 dark:bg-white/5 rounded-2xl p-4 space-y-3">
                 <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Vídeo — opcional (envie pelo botão <Film size={10} className="inline" /> após criar)</p>
                 <FormField label="Bunny Video ID (ex: abc-123-def)" value={newEpisode.bunnyVideoId} onChange={v => setNewEpisode(ep => ({ ...ep, bunnyVideoId: v }))} />
                 <FormField label="Ou URL direta do vídeo (mp4/m3u8)" value={newEpisode.video_url} onChange={v => setNewEpisode(ep => ({ ...ep, video_url: v }))} />
@@ -1123,7 +1123,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
               <label className="flex items-center gap-3 cursor-pointer">
                 <input type="checkbox" checked={newEpisode.isPremium} onChange={e => setNewEpisode(ep => ({ ...ep, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
-                <span className="text-sm font-bold text-zinc-300">Episódio Premium</span>
+                <span className="text-sm font-bold text-[var(--text-color)]">Episódio Premium</span>
               </label>
 
               {episodeMsg && <p className={`text-sm font-bold text-center ${episodeMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{episodeMsg}</p>}
@@ -1152,12 +1152,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <div>
                   <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Início</label>
                   <input type="date" value={adForm.startsAt} onChange={e => setAdForm(f => ({ ...f, startsAt: e.target.value }))}
-                    className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
+                    className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
                 </div>
                 <div>
                   <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Fim</label>
                   <input type="date" value={adForm.endsAt} onChange={e => setAdForm(f => ({ ...f, endsAt: e.target.value }))}
-                    className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
+                    className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors" />
                 </div>
               </div>
               {adMsg && <p className={`text-sm font-bold text-center ${adMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{adMsg}</p>}
@@ -1195,7 +1195,7 @@ const FormField = ({ label, value, onChange, required = false }: { label: string
       value={value}
       onChange={e => onChange(e.target.value)}
       required={required}
-      className="w-full bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-white text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+      className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors"
     />
   </div>
 );
