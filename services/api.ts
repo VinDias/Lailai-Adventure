@@ -4,8 +4,10 @@ import API_URL from '../config/api';
 class ApiService {
   private static instance: ApiService;
   private accessToken: string | null = null;
+  private refreshTokenValue: string | null = null;
   public isOffline: boolean = false;
   private onStatusChange: ((offline: boolean) => void) | null = null;
+  private onAuthExpired: (() => void) | null = null;
 
   public static getInstance() {
     if (!ApiService.instance) ApiService.instance = new ApiService();
@@ -16,7 +18,32 @@ class ApiService {
     this.onStatusChange = callback;
   }
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  public setAuthExpiredCallback(callback: () => void) {
+    this.onAuthExpired = callback;
+  }
+
+  private async tryRefresh(): Promise<boolean> {
+    if (!this.refreshTokenValue) return false;
+    try {
+      const fullUrl = `${API_URL}/auth/refresh-token`;
+      const response = await fetch(fullUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: this.refreshTokenValue }),
+        credentials: 'include'
+      });
+      if (!response.ok) return false;
+      const data = await response.json();
+      if (!data.accessToken) return false;
+      this.accessToken = data.accessToken;
+      localStorage.setItem('lorflux_token', data.accessToken);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
     const fullUrl = `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
 
     let response: Response;
@@ -44,7 +71,13 @@ class ApiService {
     }
 
     if (!response.ok) {
-      throw new Error(`Erro API: ${response.status}`);
+      if (response.status === 401 && !retried) {
+        const refreshed = await this.tryRefresh();
+        if (refreshed) return this.request<T>(path, options, true);
+        this.onAuthExpired?.();
+      }
+      const errBody = await response.json().catch(() => ({}));
+      throw new Error(errBody.error || `Erro ${response.status}`);
     }
 
     return await response.json();
@@ -54,26 +87,32 @@ class ApiService {
     this.accessToken = token;
   }
 
+  setRefreshToken(token: string) {
+    this.refreshTokenValue = token;
+  }
+
   async createCheckoutSession() {
     return this.request<{ url: string }>('/payment/create-checkout', { method: 'POST' });
   }
 
   async login(credentials: any) {
-    const data = await this.request<{ user: any; accessToken: string }>('/auth/login', {
+    const data = await this.request<{ user: any; accessToken: string; refreshToken?: string }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials)
     });
     this.accessToken = data.accessToken;
-    return { ...data.user, accessToken: data.accessToken };
+    if (data.refreshToken) this.refreshTokenValue = data.refreshToken;
+    return { ...data.user, accessToken: data.accessToken, refreshToken: data.refreshToken };
   }
 
   async register(credentials: { email: string; password: string; nome: string }) {
-    const data = await this.request<{ user: any; accessToken: string }>('/auth/register', {
+    const data = await this.request<{ user: any; accessToken: string; refreshToken?: string }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(credentials)
     });
     this.accessToken = data.accessToken;
-    return { ...data.user, accessToken: data.accessToken };
+    if (data.refreshToken) this.refreshTokenValue = data.refreshToken;
+    return { ...data.user, accessToken: data.accessToken, refreshToken: data.refreshToken };
   }
 
   async getSeries(type?: string) {

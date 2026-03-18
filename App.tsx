@@ -24,6 +24,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     api.setStatusCallback(setIsOffline);
+    api.setAuthExpiredCallback(() => {
+      setUser(null);
+      localStorage.removeItem('lorflux_session');
+      localStorage.removeItem('lorflux_token');
+      localStorage.removeItem('lorflux_refresh_token');
+      setView(ViewMode.AUTH);
+    });
     const saved = localStorage.getItem('lorflux_session');
     if (saved) {
       try {
@@ -31,6 +38,8 @@ const App: React.FC = () => {
         setUser(u);
         const token = localStorage.getItem('lorflux_token');
         if (token) api.setToken(token);
+        const refreshToken = localStorage.getItem('lorflux_refresh_token');
+        if (refreshToken) api.setRefreshToken(refreshToken);
         setView(ViewMode.HQCINE);
       } catch (e) { localStorage.removeItem('lorflux_session'); }
     }
@@ -42,6 +51,11 @@ const App: React.FC = () => {
     if (tok) {
       localStorage.setItem('lorflux_token', tok);
       api.setToken(tok);
+    }
+    const rtok = (u as any).refreshToken;
+    if (rtok) {
+      localStorage.setItem('lorflux_refresh_token', rtok);
+      api.setRefreshToken(rtok);
     }
     localStorage.setItem('lorflux_session', JSON.stringify(u));
     setView(ViewMode.HQCINE);
@@ -67,6 +81,7 @@ const App: React.FC = () => {
     setUser(null);
     localStorage.removeItem('lorflux_session');
     localStorage.removeItem('lorflux_token');
+    localStorage.removeItem('lorflux_refresh_token');
     setView(ViewMode.AUTH);
   };
 

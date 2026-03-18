@@ -27,10 +27,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         : await api.register({ email, password, nome });
       onLogin(user);
     } catch (err: any) {
-      const code = err.message?.replace('Erro API: ', '');
-      if (code === '409') setError('Este e-mail já está cadastrado.');
-      else if (code === '401') setError('E-mail ou senha incorretos.');
-      else setError(err.message || 'Erro ao processar. Tente novamente.');
+      const msg = err.message || '';
+      if (msg.includes('409') || msg.toLowerCase().includes('já está cadastrado')) setError('Este e-mail já está cadastrado.');
+      else if (msg.includes('401') || msg.toLowerCase().includes('senha')) setError('E-mail ou senha incorretos.');
+      else setError(msg || 'Erro ao processar. Tente novamente.');
     } finally {
       setLoading(false);
     }
