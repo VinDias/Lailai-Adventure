@@ -203,6 +203,74 @@ router.post('/upload-image', (req, res) => {
   });
 });
 
+// POST /api/bunny/upload-image-batch — upload em lote de imagens para Bunny Storage (até 138 painéis)
+router.post('/upload-image-batch', (req, res) => {
+  const verifyToken = require('../middlewares/verifyToken');
+  const requireAdmin = require('../middlewares/requireAdmin');
+
+  verifyToken(req, res, () => {
+    requireAdmin(req, res, () => {
+      const batchUpload = multer({
+        storage: multer.memoryStorage(),
+        limits: { fileSize: 50 * 1024 * 1024, files: 138 },
+        fileFilter: (req, file, cb) => {
+          const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+          allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error(`Arquivo "${file.originalname}" não é uma imagem válida.`));
+        }
+      });
+
+      batchUpload.array('images', 138)(req, res, async (err) => {
+        if (err) return res.status(400).json({ error: err.message });
+        if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+
+        const storageZone = process.env.BUNNY_STORAGE_ZONE;
+        const storageKey = process.env.BUNNY_STORAGE_KEY;
+
+        if (!storageZone || !storageKey) {
+          return res.status(500).json({ error: 'BUNNY_STORAGE_ZONE e BUNNY_STORAGE_KEY não configurados no .env.' });
+        }
+
+        const cdnHostname = process.env.BUNNY_STORAGE_HOSTNAME || `${storageZone}.b-cdn.net`;
+
+        const uploadOne = async (file, index) => {
+          try {
+            const ext = (file.originalname.split('.').pop() || 'jpg').toLowerCase();
+            const filename = `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.${ext}`;
+            const remotePath = `lorflux/panels/${filename}`;
+
+            const uploadRes = await fetch(`https://storage.bunnycdn.com/${storageZone}/${remotePath}`, {
+              method: 'PUT',
+              headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
+              body: file.buffer
+            });
+
+            if (!uploadRes.ok) {
+              const errText = await uploadRes.text();
+              logger.error(`[Bunny Batch] Falha no arquivo "${file.originalname}":`, errText);
+              return { success: false, filename: file.originalname, index, error: 'Erro no Bunny Storage.' };
+            }
+
+            const url = `https://${cdnHostname}/${remotePath}`;
+            return { success: true, filename: file.originalname, index, url };
+          } catch (e) {
+            logger.error(`[Bunny Batch] Exceção no arquivo "${file.originalname}":`, e);
+            return { success: false, filename: file.originalname, index, error: e.message };
+          }
+        };
+
+        const settled = await Promise.allSettled(req.files.map((f, i) => uploadOne(f, i)));
+        const results = settled.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: r.reason?.message });
+
+        const successCount = results.filter(r => r.success).length;
+        const failCount = results.length - successCount;
+
+        logger.info(`[Bunny Batch] Lote concluído: ${successCount} ok, ${failCount} falhas de ${results.length} arquivos`);
+        res.json({ results, successCount, failCount, total: results.length });
+      });
+    });
+  });
+});
+
 // POST /api/bunny/upload-video — upload de vídeo para Bunny Stream
 router.post('/upload-video', (req, res) => {
   const verifyToken = require('../middlewares/verifyToken');

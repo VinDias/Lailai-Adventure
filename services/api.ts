@@ -267,6 +267,23 @@ class ApiService {
     return data.url;
   }
 
+  async uploadImagesBatchToBunny(files: File[]): Promise<{ results: Array<{ success: boolean; filename: string; index: number; url?: string; error?: string }>; successCount: number; failCount: number; total: number }> {
+    const formData = new FormData();
+    files.forEach(f => formData.append('images', f));
+    const fullUrl = `${API_URL}/bunny/upload-image-batch`;
+    const response = await fetch(fullUrl, {
+      method: 'POST',
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      body: formData,
+      credentials: 'include'
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro ao fazer upload em lote: ${response.status}`);
+    }
+    return response.json();
+  }
+
   async uploadVideoToBunny(file: File, episodeId: string, title: string): Promise<{ bunnyVideoId: string; videoUrl?: string }> {
     const formData = new FormData();
     formData.append('video', file);

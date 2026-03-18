@@ -126,6 +126,16 @@ npm run server    # Backend (Express, porta 3000)
 npm run worker    # Worker de processamento de vídeo
 ```
 
+## Próximas Funcionalidades Planejadas
+
+Ver [PLAN.md](PLAN.md) para o plano detalhado com escopo, fluxos, arquivos a modificar e ordem de implementação das seguintes features:
+
+1. **Batch Upload de Painéis** — upload simultâneo de até ~138 imagens por capítulo Hi-Qua com progresso visual
+2. **Upload dos 3 Canais de Áudio** — interface admin para `audioTrack1Url` (dublagem) e `audioTrack2Url` (trilha), já consumidos pelo `VerticalPlayer`
+3. **E-mail Profissional** — configuração SPF/DKIM/DMARC no Cloudflare + `emailService.js` com nodemailer
+
+---
+
 ## Deploy em Produção
 
 ```bash

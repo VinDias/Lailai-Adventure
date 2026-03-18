@@ -6,7 +6,8 @@ import {
   Users, Layers, LayoutDashboard, LogOut,
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
-  Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload
+  Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
+  CheckCircle2, AlertCircle
 } from 'lucide-react';
 import API_URL from '../../config/api';
 
@@ -83,8 +84,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [videoUploadTargetEp, setVideoUploadTargetEp] = useState<any>(null);
   const [uploadingVideoId, setUploadingVideoId] = useState<string | null>(null);
 
-  // Upload de imagem de painel para Bunny Storage
-  const [uploadingPanelImage, setUploadingPanelImage] = useState(false);
+  // Batch upload de painéis
+  const [batchFiles, setBatchFiles] = useState<Array<{ file: File; preview: string; status: 'pending' | 'uploading' | 'done' | 'error'; url?: string; error?: string }>>([]);
+  const [batchUploading, setBatchUploading] = useState(false);
+  const [batchDragOver, setBatchDragOver] = useState(false);
+  const batchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setSelectedSeries(null);
@@ -160,6 +164,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const handleOpenPanels = async (ep: any) => {
     setSelectedEpisode(ep);
     setLoadingPanels(true);
+    setBatchFiles([]);
     try {
       const full = await api.getEpisode(ep._id || ep.id);
       setPanelsList(full.panels ?? []);
@@ -209,20 +214,39 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     }
   };
 
-  const handlePanelImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !selectedEpisode) return;
-    setUploadingPanelImage(true);
+  const handleBatchFilesSelect = (incoming: FileList | File[]) => {
+    const arr = Array.from(incoming).filter(f => f.type.startsWith('image/'));
+    if (arr.length === 0) return;
+    const newEntries = arr.map(f => ({ file: f, preview: URL.createObjectURL(f), status: 'pending' as const }));
+    setBatchFiles(prev => [...prev, ...newEntries]);
+  };
+
+  const handleBatchUpload = async () => {
+    if (!selectedEpisode || batchUploading) return;
+    const pending = batchFiles.filter(f => f.status === 'pending');
+    if (pending.length === 0) return;
+    setBatchUploading(true);
+    setBatchFiles(prev => prev.map(f => f.status === 'pending' ? { ...f, status: 'uploading' } : f));
     try {
-      const url = await api.uploadImageToBunny(file);
-      const nextOrder = panelsList.length + 1;
-      const result = await api.addPanels(selectedEpisode._id || selectedEpisode.id, [{ image_url: url, order: nextOrder }]);
-      setPanelsList(result.episode?.panels ?? [...panelsList, { image_url: url, order: nextOrder }]);
+      const result = await api.uploadImagesBatchToBunny(pending.map(f => f.file));
+      let idx = 0;
+      setBatchFiles(prev => prev.map(f => {
+        if (f.status !== 'uploading') return f;
+        const r = result.results[idx++];
+        if (!r) return { ...f, status: 'error', error: 'Sem resposta do servidor.' };
+        return r.success ? { ...f, status: 'done', url: r.url } : { ...f, status: 'error', error: r.error };
+      }));
+      const successUrls = result.results
+        .filter(r => r.success && r.url)
+        .map((r, i) => ({ image_url: r.url!, order: panelsList.length + i + 1 }));
+      if (successUrls.length > 0) {
+        const updated = await api.addPanels(selectedEpisode._id || selectedEpisode.id, successUrls);
+        setPanelsList(updated.episode?.panels ?? [...panelsList, ...successUrls.map(u => ({ image_url: u.image_url, order: u.order }))]);
+      }
     } catch (err: any) {
-      alert(`Erro ao fazer upload do painel: ${err.message}`);
+      setBatchFiles(prev => prev.map(f => f.status === 'uploading' ? { ...f, status: 'error', error: err.message } : f));
     } finally {
-      setUploadingPanelImage(false);
+      setBatchUploading(false);
     }
   };
 
@@ -623,15 +647,96 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
               </div>
             </div>
 
-            {/* Adicionar novo painel */}
+            {/* Adicionar painéis — Batch Upload */}
             <div className="space-y-3 mb-6">
-              <label className={`flex items-center justify-center gap-3 w-full py-4 rounded-2xl border-2 border-dashed cursor-pointer transition-all ${uploadingPanelImage ? 'border-sky-500/50 bg-sky-500/5 cursor-not-allowed' : 'border-white/10 hover:border-sky-500/50 hover:bg-white/5'}`}>
-                {uploadingPanelImage
-                  ? <><div className="w-5 h-5 border-2 border-sky-500/30 border-t-sky-500 rounded-full animate-spin" /><span className="text-sm font-black text-sky-400 uppercase tracking-widest">Enviando para CDN...</span></>
-                  : <><Upload size={18} className="text-zinc-400" /><span className="text-sm font-black text-zinc-400 uppercase tracking-widest">Upload de imagem para Bunny CDN</span></>
-                }
-                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handlePanelImageUpload} disabled={uploadingPanelImage} />
-              </label>
+
+              {/* Zona drag-and-drop */}
+              <div
+                onClick={() => batchInputRef.current?.click()}
+                onDragOver={e => { e.preventDefault(); setBatchDragOver(true); }}
+                onDragLeave={() => setBatchDragOver(false)}
+                onDrop={e => { e.preventDefault(); setBatchDragOver(false); handleBatchFilesSelect(e.dataTransfer.files); }}
+                className={`flex flex-col items-center justify-center gap-2 w-full py-8 rounded-2xl border-2 border-dashed cursor-pointer transition-all select-none ${batchDragOver ? 'border-sky-500 bg-sky-500/10' : 'border-white/10 hover:border-sky-500/50 hover:bg-white/5'}`}
+              >
+                <Upload size={22} className="text-zinc-500" />
+                <span className="text-sm font-black text-zinc-400 uppercase tracking-widest">Selecionar ou arrastar imagens</span>
+                <span className="text-[10px] text-zinc-600 font-bold">JPG · PNG · WEBP · até 138 painéis</span>
+              </div>
+              <input
+                ref={batchInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="hidden"
+                onChange={e => { handleBatchFilesSelect(e.target.files!); e.target.value = ''; }}
+              />
+
+              {/* Fila de arquivos selecionados */}
+              {batchFiles.length > 0 && (
+                <div className="bg-[var(--card-bg)] rounded-2xl border border-[var(--border-color)] overflow-hidden">
+                  {/* Cabeçalho da fila */}
+                  <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border-color)]">
+                    <span className="text-xs font-black text-zinc-400 uppercase tracking-widest">
+                      {batchFiles.length} imagem{batchFiles.length !== 1 ? 'ns' : ''} &nbsp;·&nbsp;
+                      <span className="text-emerald-400">{batchFiles.filter(f => f.status === 'done').length} ok</span>
+                      {batchFiles.filter(f => f.status === 'error').length > 0 && (
+                        <span className="text-rose-400"> &nbsp;·&nbsp; {batchFiles.filter(f => f.status === 'error').length} erro{batchFiles.filter(f => f.status === 'error').length !== 1 ? 's' : ''}</span>
+                      )}
+                    </span>
+                    <button
+                      onClick={() => setBatchFiles(prev => prev.filter(f => f.status === 'pending' || f.status === 'uploading'))}
+                      disabled={batchUploading}
+                      className="text-[10px] font-black text-zinc-600 hover:text-rose-400 uppercase tracking-widest transition-colors disabled:opacity-30"
+                    >
+                      Limpar concluídos
+                    </button>
+                  </div>
+
+                  {/* Lista de miniaturas */}
+                  <div className="max-h-60 overflow-y-auto p-3 grid grid-cols-4 sm:grid-cols-6 gap-2">
+                    {batchFiles.map((f, i) => (
+                      <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-zinc-900 border border-[var(--border-color)] group">
+                        <img src={f.preview} alt="" className="w-full h-full object-cover" />
+                        {/* Status overlay */}
+                        <div className={`absolute inset-0 flex items-center justify-center transition-all ${f.status === 'pending' ? 'bg-black/0' : 'bg-black/50'}`}>
+                          {f.status === 'uploading' && <div className="w-5 h-5 border-2 border-sky-500/30 border-t-sky-500 rounded-full animate-spin" />}
+                          {f.status === 'done' && <CheckCircle2 size={20} className="text-emerald-400" />}
+                          {f.status === 'error' && <span title={f.error}><AlertCircle size={20} className="text-rose-400" /></span>}
+                        </div>
+                        {/* Número de ordem */}
+                        <div className="absolute bottom-1 left-1 bg-black/60 rounded px-1 text-[8px] font-black text-zinc-300">
+                          {i + 1}
+                        </div>
+                        {/* Remover (só pendentes) */}
+                        {f.status === 'pending' && !batchUploading && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setBatchFiles(prev => prev.filter((_, idx) => idx !== i)); URL.revokeObjectURL(f.preview); }}
+                            className="absolute top-1 right-1 p-0.5 bg-rose-600/80 rounded opacity-0 group-hover:opacity-100 transition-all"
+                          >
+                            <X size={10} className="text-white" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Botão de envio em lote */}
+              {batchFiles.filter(f => f.status === 'pending').length > 0 && (
+                <button
+                  onClick={handleBatchUpload}
+                  disabled={batchUploading}
+                  className="flex items-center justify-center gap-2 w-full py-4 bg-sky-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-sky-500 transition-all disabled:opacity-50"
+                >
+                  {batchUploading
+                    ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Enviando para Bunny CDN...</>
+                    : <><Upload size={16} /> Enviar {batchFiles.filter(f => f.status === 'pending').length} imagem{batchFiles.filter(f => f.status === 'pending').length !== 1 ? 'ns' : ''}</>
+                  }
+                </button>
+              )}
+
+              {/* Alternativa: colar URL */}
               <div className="flex gap-3">
                 <input
                   type="text"
