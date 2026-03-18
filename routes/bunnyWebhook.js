@@ -178,7 +178,7 @@ router.post('/upload-image', (req, res) => {
           const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
           const remotePath = `lorflux/${filename}`;
 
-          const uploadRes = await fetch(`https://storage.bunnycdn.com/${storageZone}/${remotePath}`, {
+          const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
             method: 'PUT',
             headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
             body: req.file.buffer
@@ -238,7 +238,7 @@ router.post('/upload-image-batch', (req, res) => {
             const filename = `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.${ext}`;
             const remotePath = `lorflux/panels/${filename}`;
 
-            const uploadRes = await fetch(`https://storage.bunnycdn.com/${storageZone}/${remotePath}`, {
+            const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
               method: 'PUT',
               headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
               body: file.buffer
@@ -303,7 +303,7 @@ router.post('/upload-audio', (req, res) => {
           const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
           const remotePath = `lorflux/audio/${filename}`;
 
-          const uploadRes = await fetch(`https://storage.bunnycdn.com/${storageZone}/${remotePath}`, {
+          const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
             method: 'PUT',
             headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
             body: req.file.buffer
