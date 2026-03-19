@@ -114,12 +114,13 @@ const App: React.FC = () => {
             user={user}
             onOpen={(ep, series) => {
               setActiveVideo({
-                id: ep.id.toString(),
+                id: (ep._id || ep.id)?.toString(),
                 titulo: ep.title,
                 categoria: series.genre,
                 descricao: ep.description,
                 duracao: 15,
                 arquivoUrl: ep.video_url,
+                bunnyVideoId: ep.bunnyVideoId,
                 thumbnailUrl: ep.thumbnail,
                 isPremium: series.isPremium,
                 criadoEm: new Date().toISOString(),
@@ -135,12 +136,13 @@ const App: React.FC = () => {
             user={user}
             onOpen={(ep, series) => {
               setActiveVideo({
-                id: ep.id.toString(),
+                id: (ep._id || ep.id)?.toString(),
                 titulo: ep.title,
                 categoria: series.genre,
                 descricao: ep.description,
                 duracao: 10,
                 arquivoUrl: ep.video_url,
+                bunnyVideoId: ep.bunnyVideoId,
                 thumbnailUrl: ep.thumbnail,
                 isPremium: series.isPremium,
                 criadoEm: new Date().toISOString(),

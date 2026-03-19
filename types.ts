@@ -88,11 +88,13 @@ export interface Episode {
   title: string;
   description: string;
   video_url: string;
+  bunnyVideoId?: string;
   duration: number;
   thumbnail: string;
   likes?: number;
   comments?: number;
   series_title?: string;
+  status?: string;
 }
 
 // Fix: Export missing Ad type
