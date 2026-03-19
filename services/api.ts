@@ -238,18 +238,13 @@ class ApiService {
   }
 
   async uploadSeriesThumbnail(seriesId: string, file: File): Promise<string> {
-    const formData = new FormData();
-    formData.append('thumbnail', file);
-    const fullUrl = `${(await import('../config/api')).default}/admin/management/update-thumbnail/${seriesId}`;
-    const response = await fetch(fullUrl, {
+    // Upload para Bunny Storage e atualiza cover_image da série
+    const url = await this.uploadImageToBunny(file);
+    await this.request(`/content/series/${seriesId}`, {
       method: 'PUT',
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
-      body: formData,
-      credentials: 'include'
+      body: JSON.stringify({ cover_image: url })
     });
-    if (!response.ok) throw new Error(`Erro API: ${response.status}`);
-    const data = await response.json();
-    return data.url;
+    return url;
   }
 
   async initBunnyUpload(title: string, episodeId: string) {

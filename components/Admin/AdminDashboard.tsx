@@ -554,7 +554,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setSavingEpThumb(true);
     try {
       const epId = epThumbModal.ep._id || epThumbModal.ep.id;
-      const url = await api.uploadSeriesThumbnail(epId, file);
+      const url = await api.uploadImageToBunny(file);
       const updated = await api.updateEpisode(epId, { thumbnail: url });
       setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === epId ? { ...ep, thumbnail: updated.thumbnail } : ep));
       setEpThumbModal(null);
