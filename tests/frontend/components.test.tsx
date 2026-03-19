@@ -18,6 +18,8 @@ vi.mock('../../services/api', () => ({
     getRandomAd: vi.fn().mockResolvedValue(null),
     login: vi.fn(),
     register: vi.fn(),
+    forgotPassword: vi.fn(),
+    resetPassword: vi.fn(),
     setStatusCallback: vi.fn(),
     setAuthExpiredCallback: vi.fn(),
     setToken: vi.fn(),
