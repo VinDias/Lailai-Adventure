@@ -122,6 +122,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [batchUploading, setBatchUploading] = useState(false);
   const [batchDragOver, setBatchDragOver] = useState(false);
   const batchInputRef = useRef<HTMLInputElement>(null);
+  const [batchLanguage, setBatchLanguage] = useState<'original' | 'pt' | 'en' | 'es' | 'zh'>('original');
+
+  // Seleção múltipla de painéis
+  const [selectedPanels, setSelectedPanels] = useState<Set<number>>(new Set());
+  const [deletingPanels, setDeletingPanels] = useState(false);
 
   // Modal de traduções de painel
   const [translationModal, setTranslationModal] = useState<{ panelIdx: number; panel: any } | null>(null);
@@ -341,18 +346,49 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         if (!r) return { ...f, status: 'error', error: 'Sem resposta do servidor.' };
         return r.success ? { ...f, status: 'done', url: r.url } : { ...f, status: 'error', error: r.error };
       }));
-      const successUrls = result.results
-        .filter(r => r.success && r.url)
-        .map((r, i) => ({ image_url: r.url!, order: panelsList.length + i + 1 }));
+      const successUrls = result.results.filter(r => r.success && r.url).map(r => r.url!);
+      const epId = selectedEpisode._id || selectedEpisode.id;
       if (successUrls.length > 0) {
-        const updated = await api.addPanels(selectedEpisode._id || selectedEpisode.id, successUrls);
-        setPanelsList(updated.episode?.panels ?? [...panelsList, ...successUrls.map(u => ({ image_url: u.image_url, order: u.order }))]);
+        if (batchLanguage === 'original') {
+          const panels = successUrls.map((url, i) => ({ image_url: url, order: panelsList.length + i + 1 }));
+          const updated = await api.addPanels(epId, panels);
+          setPanelsList(updated.episode?.panels ?? [...panelsList, ...panels]);
+        } else {
+          // Sobrescreve translation layers dos painéis existentes por índice
+          await Promise.all(successUrls.map((url, i) => api.updatePanelTranslation(epId, i, batchLanguage, url)));
+          const full = await api.getEpisode(epId);
+          setPanelsList(full.panels ?? panelsList);
+        }
       }
     } catch (err: any) {
       setBatchFiles(prev => prev.map(f => f.status === 'uploading' ? { ...f, status: 'error', error: err.message } : f));
     } finally {
       setBatchUploading(false);
     }
+  };
+
+  const togglePanelSelection = (idx: number) => {
+    setSelectedPanels(prev => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+  };
+
+  const handleBatchDeletePanels = async () => {
+    if (selectedPanels.size === 0 || !selectedEpisode) return;
+    if (!confirm(`Excluir ${selectedPanels.size} painel${selectedPanels.size !== 1 ? 'is' : ''} permanentemente? Esta ação não pode ser desfeita.`)) return;
+    setDeletingPanels(true);
+    try {
+      const epId = selectedEpisode._id || selectedEpisode.id;
+      // Deleta do maior índice para o menor para não deslocar os índices
+      const indices = Array.from(selectedPanels).sort((a, b) => b - a);
+      for (const i of indices) await api.deletePanel(epId, i);
+      setSelectedPanels(new Set());
+      const full = await api.getEpisode(epId);
+      setPanelsList(full.panels ?? []);
+    } catch { alert('Erro ao excluir painéis.'); }
+    setDeletingPanels(false);
   };
 
   const loadUsers = async (page = usersPage, filter = userFilter) => {
@@ -849,6 +885,31 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             {/* Adicionar painéis — Batch Upload */}
             <div className="space-y-3 mb-6">
 
+              {/* Seletor de idioma dos painéis */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest shrink-0">Idioma:</span>
+                {([
+                  { value: 'original', label: 'Original (Base)' },
+                  { value: 'pt', label: 'PT' },
+                  { value: 'en', label: 'EN' },
+                  { value: 'es', label: 'ES' },
+                  { value: 'zh', label: 'ZH' },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setBatchLanguage(opt.value)}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${batchLanguage === opt.value ? (opt.value === 'original' ? 'bg-sky-600 text-white' : 'bg-rose-600 text-white') : 'bg-white/5 text-zinc-500 hover:bg-white/10'}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+                {batchLanguage !== 'original' && (
+                  <span className="text-[10px] text-amber-400 font-bold">
+                    As imagens serão adicionadas como camada {batchLanguage.toUpperCase()} nos painéis existentes (por ordem)
+                  </span>
+                )}
+              </div>
+
               {/* Zona drag-and-drop */}
               <div
                 onClick={() => batchInputRef.current?.click()}
@@ -926,11 +987,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <button
                   onClick={handleBatchUpload}
                   disabled={batchUploading}
-                  className="flex items-center justify-center gap-2 w-full py-4 bg-sky-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-sky-500 transition-all disabled:opacity-50"
+                  className={`flex items-center justify-center gap-2 w-full py-4 rounded-2xl text-sm font-black uppercase tracking-widest transition-all disabled:opacity-50 ${batchLanguage === 'original' ? 'bg-sky-600 hover:bg-sky-500' : 'bg-rose-600 hover:bg-rose-500'}`}
                 >
                   {batchUploading
-                    ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Enviando para Bunny CDN...</>
-                    : <><Upload size={16} /> Enviar {batchFiles.filter(f => f.status === 'pending').length} imagem{batchFiles.filter(f => f.status === 'pending').length !== 1 ? 'ns' : ''}</>
+                    ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Enviando...</>
+                    : <><Upload size={16} /> Enviar {batchFiles.filter(f => f.status === 'pending').length} imagem{batchFiles.filter(f => f.status === 'pending').length !== 1 ? 'ns' : ''} {batchLanguage !== 'original' ? `· Idioma ${batchLanguage.toUpperCase()}` : '· Base'}</>
                   }
                 </button>
               )}
@@ -964,14 +1025,49 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
               </div>
             ) : (
               <>
+              {/* Controles de seleção múltipla */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setSelectedPanels(selectedPanels.size === panelsList.length ? new Set() : new Set(panelsList.map((_: any, i: number) => i)))}
+                    className="text-[10px] font-black text-zinc-500 hover:text-white uppercase tracking-widest transition-colors"
+                  >
+                    {selectedPanels.size === panelsList.length ? 'Desselecionar todos' : 'Selecionar todos'}
+                  </button>
+                  {selectedPanels.size > 0 && (
+                    <span className="text-[10px] font-black text-zinc-400">{selectedPanels.size} selecionado{selectedPanels.size !== 1 ? 's' : ''}</span>
+                  )}
+                </div>
+                {selectedPanels.size > 0 && (
+                  <button
+                    onClick={handleBatchDeletePanels}
+                    disabled={deletingPanels}
+                    className="flex items-center gap-2 px-4 py-2 bg-rose-600/20 border border-rose-500/30 rounded-xl text-rose-400 text-[11px] font-black uppercase tracking-widest hover:bg-rose-600/40 transition-all disabled:opacity-50"
+                  >
+                    {deletingPanels ? <div className="w-3 h-3 border-2 border-rose-400/30 border-t-rose-400 rounded-full animate-spin" /> : <Trash2 size={13} />}
+                    Excluir {selectedPanels.size}
+                  </button>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {panelsList.map((panel, idx) => {
                   const langs: string[] = (panel.translationLayers ?? []).map((l: any) => l.language);
                   return (
-                    <div key={idx} className="relative group rounded-2xl overflow-hidden border border-[var(--border-color)] bg-zinc-900 flex flex-col">
+                    <div
+                      key={idx}
+                      className={`relative group rounded-2xl overflow-hidden border bg-zinc-900 flex flex-col transition-all ${selectedPanels.has(idx) ? 'border-rose-500 ring-1 ring-rose-500' : 'border-[var(--border-color)]'}`}
+                    >
                       <div className="relative">
                         <img src={panel.image_url} alt={`Painel ${idx + 1}`} className="w-full object-cover" loading="lazy" />
-                        <div className="absolute top-2 left-2 bg-black/60 rounded-lg px-2 py-1 text-[10px] font-black text-zinc-300">
+                        {/* Checkbox de seleção */}
+                        <button
+                          onClick={() => togglePanelSelection(idx)}
+                          className={`absolute top-2 left-2 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${selectedPanels.has(idx) ? 'bg-rose-600 border-rose-500' : 'bg-black/60 border-white/20 opacity-0 group-hover:opacity-100'}`}
+                        >
+                          {selectedPanels.has(idx) && <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        </button>
+                        <div className="absolute top-2 left-9 bg-black/60 rounded-lg px-2 py-1 text-[10px] font-black text-zinc-300">
                           #{idx + 1}
                         </div>
                         <button
