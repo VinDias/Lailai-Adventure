@@ -58,7 +58,17 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
-  const [settingsForm, setSettingsForm] = useState({ adsense_client_id: '', adsense_slot_id: '' });
+  const [settingsForm, setSettingsForm] = useState({
+    adsense_client_id: '',
+    adsense_slot_id: '',
+    platform_tagline: '',
+    bunny_cdn_base: '',
+    premium_price_display: '',
+    premium_cpm_rate: '',
+    ad_skip_seconds: '',
+    ad_frequency_feed: '',
+    ad_frequency_webtoon: '',
+  });
 
   // Anúncios
   const [adsList, setAdsList] = useState<any[]>([]);
@@ -373,8 +383,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setSettingsMsg('');
     try {
       await Promise.all([
-        api.updateSetting('adsense_client_id', settingsForm.adsense_client_id, 'AdSense Publisher ID'),
-        api.updateSetting('adsense_slot_id', settingsForm.adsense_slot_id, 'AdSense Slot ID'),
+        api.updateSetting('adsense_client_id',    settingsForm.adsense_client_id,    'AdSense Publisher ID'),
+        api.updateSetting('adsense_slot_id',       settingsForm.adsense_slot_id,       'AdSense Slot ID'),
+        api.updateSetting('platform_tagline',      settingsForm.platform_tagline,      'Tagline da plataforma'),
+        api.updateSetting('bunny_cdn_base',        settingsForm.bunny_cdn_base,        'Bunny CDN Base URL'),
+        api.updateSetting('premium_price_display', settingsForm.premium_price_display, 'Preço Premium (exibição)'),
+        api.updateSetting('premium_cpm_rate',      settingsForm.premium_cpm_rate,      'CPM Rate (R$)'),
+        api.updateSetting('ad_skip_seconds',       settingsForm.ad_skip_seconds,       'Segundos para pular anúncio'),
+        api.updateSetting('ad_frequency_feed',     settingsForm.ad_frequency_feed,     'Frequência de anúncio no feed'),
+        api.updateSetting('ad_frequency_webtoon',  settingsForm.ad_frequency_webtoon,  'Frequência de anúncio no webtoon'),
       ]);
       setSettingsMsg('Configurações salvas!');
       setTimeout(() => setSettingsMsg(''), 3000);
@@ -996,9 +1013,107 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" />
               </div>
             ) : (
-              <form onSubmit={handleSaveSettings} className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-8 space-y-6">
+              <form onSubmit={handleSaveSettings} className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-8 space-y-8">
+
+                {/* Plataforma */}
                 <div>
-                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-6">Google AdSense</p>
+                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-4">Plataforma</p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-zinc-400 block mb-1">Tagline <span className="text-zinc-600 font-normal">(exibida na tela de login)</span></label>
+                      <input
+                        type="text"
+                        placeholder="Cinematic Comics. O futuro é aqui."
+                        value={settingsForm.platform_tagline}
+                        onChange={e => setSettingsForm(p => ({ ...p, platform_tagline: e.target.value }))}
+                        className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-zinc-400 block mb-1">Bunny CDN Base URL <span className="text-zinc-600 font-normal">(URL base dos vídeos)</span></label>
+                      <input
+                        type="text"
+                        placeholder="https://vz-fbaa1d24-d2c.b-cdn.net"
+                        value={settingsForm.bunny_cdn_base}
+                        onChange={e => setSettingsForm(p => ({ ...p, bunny_cdn_base: e.target.value }))}
+                        className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Preços */}
+                <div>
+                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-4">Preços</p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-zinc-400 block mb-1">Preço Premium <span className="text-zinc-600 font-normal">(exibido ao usuário)</span></label>
+                      <input
+                        type="text"
+                        placeholder="R$ 3,99"
+                        value={settingsForm.premium_price_display}
+                        onChange={e => setSettingsForm(p => ({ ...p, premium_price_display: e.target.value }))}
+                        className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-zinc-400 block mb-1">CPM Rate <span className="text-zinc-600 font-normal">(R$ por 1.000 impressões)</span></label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="15.00"
+                        value={settingsForm.premium_cpm_rate}
+                        onChange={e => setSettingsForm(p => ({ ...p, premium_cpm_rate: e.target.value }))}
+                        className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Anúncios */}
+                <div>
+                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-4">Anúncios</p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-zinc-400 block mb-1">Segundos para pular anúncio</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="60"
+                        placeholder="5"
+                        value={settingsForm.ad_skip_seconds}
+                        onChange={e => setSettingsForm(p => ({ ...p, ad_skip_seconds: e.target.value }))}
+                        className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-zinc-400 block mb-1">Frequência de anúncio no feed <span className="text-zinc-600 font-normal">(exibir a cada N séries)</span></label>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="4"
+                        value={settingsForm.ad_frequency_feed}
+                        onChange={e => setSettingsForm(p => ({ ...p, ad_frequency_feed: e.target.value }))}
+                        className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-zinc-400 block mb-1">Frequência de anúncio no webtoon <span className="text-zinc-600 font-normal">(exibir a cada N painéis)</span></label>
+                      <input
+                        type="number"
+                        min="1"
+                        placeholder="7"
+                        value={settingsForm.ad_frequency_webtoon}
+                        onChange={e => setSettingsForm(p => ({ ...p, ad_frequency_webtoon: e.target.value }))}
+                        className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Google AdSense */}
+                <div>
+                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-4">Google AdSense</p>
                   <div className="space-y-4">
                     <div>
                       <label className="text-xs font-bold text-zinc-400 block mb-1">Publisher ID <span className="text-zinc-600 font-normal">(data-ad-client)</span></label>

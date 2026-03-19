@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
 import BrandLogo from './BrandLogo';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface AuthProps {
   onLogin: (user: User) => void;
@@ -12,6 +13,7 @@ type Mode = 'login' | 'register' | 'forgot' | 'reset';
 const inputClass = "w-full bg-[rgba(128,128,128,0.1)] border border-[rgba(128,128,128,0.1)] rounded-2xl px-5 py-4 focus:outline-none focus:border-rose-500 transition-all text-[var(--text-color)] placeholder-zinc-600";
 
 const Auth: React.FC<AuthProps> = ({ onLogin }) => {
+  const { platform_tagline } = useSettings();
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -94,7 +96,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     <div className="text-center mb-10">
       <BrandLogo />
       <h1 className="text-4xl font-semibold mt-4 text-[var(--text-color)] tracking-tight">Lorflux</h1>
-      <p className="text-sm opacity-60 mt-2 text-[var(--text-color)]">Cinematic Comics. O futuro é aqui.</p>
+      <p className="text-sm opacity-60 mt-2 text-[var(--text-color)]">{platform_tagline}</p>
     </div>
   );
 

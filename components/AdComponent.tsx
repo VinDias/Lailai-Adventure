@@ -1,12 +1,14 @@
 
 import React, { useEffect, useState } from 'react';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface AdComponentProps {
   onFinish: () => void;
 }
 
 const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
-  const [timeLeft, setTimeLeft] = useState(5);
+  const { ad_skip_seconds } = useSettings();
+  const [timeLeft, setTimeLeft] = useState(ad_skip_seconds);
 
   useEffect(() => {
     const timer = setInterval(() => {

@@ -5,8 +5,7 @@ import { Video, User } from '../types';
 import { X, ThumbsUp, ThumbsDown } from 'lucide-react';
 import AdComponent from './AdComponent';
 import { api } from '../services/api';
-
-const BUNNY_CDN_BASE = 'https://vz-fbaa1d24-d2c.b-cdn.net';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface PlayerProps {
   video: Video;
@@ -15,6 +14,7 @@ interface PlayerProps {
 }
 
 const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
+  const { bunny_cdn_base } = useSettings();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audio1Ref = useRef<HTMLAudioElement>(null);
   const audio2Ref = useRef<HTMLAudioElement>(null);
@@ -98,7 +98,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
 
   const getVideoSrc = () => {
     if (video.bunnyVideoId) {
-      return `${BUNNY_CDN_BASE}/${video.bunnyVideoId}/playlist.m3u8`;
+      return `${bunny_cdn_base}/${video.bunnyVideoId}/playlist.m3u8`;
     }
     return video.arquivoUrl;
   };

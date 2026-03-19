@@ -4,8 +4,10 @@ import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
 import Ads from './Ads';
 import ImageWithFallback from './ImageWithFallback';
+import { useSettings } from '../contexts/SettingsContext';
 
 const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series, episodes: any[]) => void }> = ({ user, onOpen }) => {
+  const { ad_frequency_feed } = useSettings();
   const [series, setSeries] = useState<Series[]>([]);
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
   const [content, setContent] = useState<{seasons: any[], episodes: Episode[]} | null>(null);
@@ -59,7 +61,7 @@ const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series, epis
                   </div>
                 </div>
                 {/* Intercalar anúncios a cada 4 itens no feed se não for premium */}
-                {!user?.isPremium && (idx + 1) % 4 === 0 && <div className="col-span-2 md:col-span-4 lg:col-span-5"><Ads /></div>}
+                {!user?.isPremium && (idx + 1) % ad_frequency_feed === 0 && <div className="col-span-2 md:col-span-4 lg:col-span-5"><Ads /></div>}
               </React.Fragment>
             ))}
           </div>

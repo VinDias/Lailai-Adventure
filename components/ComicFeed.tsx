@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Comic, User, Channel, Ad } from '../types';
 import { ICONS } from '../constants';
 import { MOCK_CHANNELS, MOCK_ADS } from '../services/mockData';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface ComicFeedProps {
   comics: Comic[];
@@ -12,6 +13,7 @@ interface ComicFeedProps {
 }
 
 const ComicFeed: React.FC<ComicFeedProps> = ({ comics, user, onUpgrade, onUpdateUser }) => {
+  const { ad_frequency_webtoon } = useSettings();
   const [readingComic, setReadingComic] = useState<Comic | null>(null);
   const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,7 +58,7 @@ const ComicFeed: React.FC<ComicFeedProps> = ({ comics, user, onUpgrade, onUpdate
                 <img src={url} alt={`P-${idx}`} className="w-full h-auto block" loading="lazy" />
                 
                 {/* Monetization: Interstitial Ad every 7 panels */}
-                {!user?.isPremium && idx > 0 && idx % 7 === 0 && (
+                {!user?.isPremium && idx > 0 && idx % ad_frequency_webtoon === 0 && (
                   <div className="w-full p-10 bg-zinc-950 border-y border-white/5 flex flex-col items-center">
                     <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-4">Anúncio Patrocinado</span>
                     <div className="w-full aspect-[9/16] rounded-3xl overflow-hidden mb-6 border border-white/10">

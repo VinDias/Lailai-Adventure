@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { ICONS } from '../constants';
 import { User, Ad } from '../types';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface PremiumProps {
   user: User;
@@ -14,6 +15,7 @@ type TabType = 'user' | 'business';
 type Step = 'selection' | 'form' | 'payment';
 
 const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase, onBack }) => {
+  const { premium_price_display, premium_cpm_rate } = useSettings();
   const [activeTab, setActiveTab] = useState<TabType>('user');
   const [step, setStep] = useState<Step>('selection');
   const [loading, setLoading] = useState(false);
@@ -27,8 +29,7 @@ const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase
     impressions: 1000
   });
 
-  const CPM_RATE = 15.00; // R$ 15,00 por 1000 impressões
-  const totalPrice = (campaignData.impressions / 1000) * CPM_RATE;
+  const totalPrice = (campaignData.impressions / 1000) * premium_cpm_rate;
 
   const handleUserUpgrade = () => {
     setLoading(true);
@@ -96,10 +97,10 @@ const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase
                 <p className="text-zinc-500 mb-10 text-sm text-center">
                   {activeTab === 'user' 
                     ? 'Assista a 1080p nativo, 60 FPS, sem anúncios e com áudio espacial.' 
-                    : 'Alcance 1.000 pessoas por apenas R$ 15,00. Vídeos de 90s em FullHD.'}
+                    : `Alcance 1.000 pessoas por apenas R$ ${premium_cpm_rate.toFixed(2).replace('.', ',')}. Vídeos de 90s em FullHD.`}
                 </p>
                 <div className={`w-full py-5 font-black rounded-2xl ${activeTab === 'user' ? 'bg-white text-black' : 'bg-indigo-600 text-white'}`}>
-                  {activeTab === 'user' ? 'Assinar R$ 3,99/mês' : 'Contratar CPM R$ 15,00'}
+                  {activeTab === 'user' ? `Assinar ${premium_price_display}/mês` : `Contratar CPM R$ ${premium_cpm_rate.toFixed(2).replace('.', ',')}`}
                 </div>
               </div>
             </div>
@@ -120,7 +121,7 @@ const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase
                     </ul>
                  </div>
                  <button onClick={handleUserUpgrade} className="w-full py-5 bg-white text-black rounded-2xl font-black hover:bg-zinc-200 transition-all flex items-center justify-center">
-                   {loading ? <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : 'Confirmar R$ 3,99'}
+                   {loading ? <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : `Confirmar ${premium_price_display}`}
                  </button>
                </div>
              ) : (
@@ -131,7 +132,7 @@ const Premium: React.FC<PremiumProps> = ({ user, onUpgradeComplete, onAdPurchase
                       <li>• Resolução: 1080x1920 (Vertical)</li>
                       <li>• Frame Rate: 30 a 60 FPS</li>
                       <li>• Duração Máxima: 90 Segundos</li>
-                      <li>• Custo: R$ 15,00 por 1.000 views</li>
+                      <li>• Custo: R$ {premium_cpm_rate.toFixed(2).replace('.', ',')} por 1.000 views</li>
                     </ul>
                  </div>
 

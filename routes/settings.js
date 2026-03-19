@@ -6,7 +6,12 @@ const requireAdmin = require('../middlewares/requireAdmin');
 const logger = require('../utils/logger');
 
 // Chaves permitidas na rota pública (sem autenticação)
-const PUBLIC_KEYS = ['adsense_slot_id', 'adsense_client_id'];
+const PUBLIC_KEYS = [
+  'adsense_slot_id', 'adsense_client_id',
+  'platform_tagline', 'bunny_cdn_base',
+  'premium_price_display', 'premium_cpm_rate',
+  'ad_skip_seconds', 'ad_frequency_feed', 'ad_frequency_webtoon',
+];
 
 // GET /api/settings/public — configurações públicas (sem auth)
 router.get('/public', async (req, res) => {
