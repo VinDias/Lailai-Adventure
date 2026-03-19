@@ -201,6 +201,13 @@ class ApiService {
     });
   }
 
+  async updateEpisode(id: string, data: Partial<{ thumbnail: string; title: string; description: string; isPremium: boolean; video_url: string }>) {
+    return this.request<any>(`/content/episodes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
   async deleteSeries(id: string) {
     return this.request<any>(`/content/series/${id}`, { method: 'DELETE' });
   }

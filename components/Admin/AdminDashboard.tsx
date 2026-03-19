@@ -10,6 +10,11 @@ import {
   CheckCircle2, AlertCircle, Music, Mic, Music2
 } from 'lucide-react';
 import API_URL from '../../config/api';
+import ImageWithFallback from '../ImageWithFallback';
+
+function isValidUrl(str: string) {
+  try { return Boolean(str && new URL(str).protocol.startsWith('http')); } catch { return false; }
+}
 
 interface AdminProps {
   onLogout: () => void;
@@ -83,6 +88,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const videoFileInputRef = useRef<HTMLInputElement>(null);
   const [videoUploadTargetEp, setVideoUploadTargetEp] = useState<any>(null);
   const [uploadingVideoId, setUploadingVideoId] = useState<string | null>(null);
+
+  // Modal de thumbnail de episódio
+  const [epThumbModal, setEpThumbModal] = useState<{ ep: any; url: string } | null>(null);
+  const [savingEpThumb, setSavingEpThumb] = useState(false);
+  const epThumbFileRef = useRef<HTMLInputElement>(null);
 
   // Modal de canais de áudio
   const [audioModalEp, setAudioModalEp] = useState<any>(null);
@@ -398,6 +408,34 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     } catch { alert('Erro ao atualizar status.'); }
   };
 
+  const handleSaveEpThumb = async () => {
+    if (!epThumbModal) return;
+    const url = epThumbModal.url.trim();
+    if (url && !isValidUrl(url)) { alert('URL inválida. Use http:// ou https://'); return; }
+    setSavingEpThumb(true);
+    try {
+      const epId = epThumbModal.ep._id || epThumbModal.ep.id;
+      const updated = await api.updateEpisode(epId, { thumbnail: url });
+      setEpisodes(prev => prev.map(e => (e._id || e.id) === epId ? { ...e, thumbnail: updated.thumbnail } : e));
+      setEpThumbModal(null);
+    } catch { alert('Erro ao salvar thumbnail.'); }
+    finally { setSavingEpThumb(false); }
+  };
+
+  const handleEpThumbFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !epThumbModal) return;
+    setSavingEpThumb(true);
+    try {
+      const epId = epThumbModal.ep._id || epThumbModal.ep.id;
+      const url = await api.uploadSeriesThumbnail(epId, file);
+      const updated = await api.updateEpisode(epId, { thumbnail: url });
+      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === epId ? { ...ep, thumbnail: updated.thumbnail } : ep));
+      setEpThumbModal(null);
+    } catch { alert('Erro ao fazer upload da imagem.'); }
+    finally { setSavingEpThumb(false); e.target.value = ''; }
+  };
+
   const handleThumbnailClick = (id: string) => {
     setUploadTargetId(id);
     fileInputRef.current?.click();
@@ -421,6 +459,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   const handleCreateSeries = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (newSeries.cover_image && !isValidUrl(newSeries.cover_image)) {
+      setCreateMsg('URL da capa inválida. Use http:// ou https://'); return;
+    }
     setCreating(true);
     setCreateMsg('');
     try {
@@ -446,6 +487,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   const handleCreateEpisode = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (newEpisode.thumbnail && !isValidUrl(newEpisode.thumbnail)) {
+      setEpisodeMsg('URL da thumbnail inválida. Use http:// ou https://'); return;
+    }
+    if (newEpisode.video_url && !isValidUrl(newEpisode.video_url)) {
+      setEpisodeMsg('URL do vídeo inválida. Use http:// ou https://'); return;
+    }
     setCreatingEpisode(true);
     setEpisodeMsg('');
     try {
@@ -558,10 +605,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                             className="w-12 h-20 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-[var(--border-color)] relative group cursor-pointer"
                             title="Clique para trocar a capa"
                           >
-                            {item.cover_image
-                              ? <img src={item.cover_image} className="w-full h-full object-cover" alt={item.title} />
-                              : <div className="w-full h-full flex items-center justify-center text-zinc-600"><Camera size={14} /></div>
-                            }
+                            <ImageWithFallback src={item.cover_image} className="w-full h-full object-cover" alt={item.title} />
                             <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
                               {uploadingId === id
                                 ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -635,9 +679,16 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                       const epId = ep._id || ep.id;
                       return (
                         <div key={epId} className="flex items-center gap-6 p-6 hover:bg-white/5 transition-all">
-                          <div className="w-16 h-10 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-[var(--border-color)]">
-                            {ep.thumbnail && <img src={ep.thumbnail} className="w-full h-full object-cover" alt={ep.title} />}
-                          </div>
+                          <button
+                            onClick={() => setEpThumbModal({ ep, url: ep.thumbnail || '' })}
+                            className="w-16 h-10 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-[var(--border-color)] relative group cursor-pointer"
+                            title="Clique para trocar a thumbnail"
+                          >
+                            <ImageWithFallback src={ep.thumbnail} className="w-full h-full object-cover" alt={ep.title} />
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
+                              <Camera size={12} className="text-white" />
+                            </div>
+                          </button>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-sm mb-1 truncate">
                               <span className="text-zinc-500 mr-2">Ep.{ep.episode_number}</span>{ep.title}
@@ -867,7 +918,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                       return (
                         <div key={id} className="flex items-center gap-5 p-5 hover:bg-white/5 transition-all">
                           <div className="w-20 h-14 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-[var(--border-color)]">
-                            {ad.image_url && <img src={ad.image_url} className="w-full h-full object-cover" alt={ad.title} />}
+                            <ImageWithFallback src={ad.image_url} className="w-full h-full object-cover" alt={ad.title} />
                           </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-sm truncate">{ad.title}</h4>
@@ -982,6 +1033,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         className="hidden"
         onChange={handleThumbnailFileChange}
       />
+      {/* Input oculto para thumbnail de episódio */}
+      <input ref={epThumbFileRef} type="file" accept="image/*" className="hidden" onChange={handleEpThumbFileChange} />
       {/* Input de arquivo oculto para upload de vídeo para Bunny Stream */}
       <input
         ref={videoFileInputRef}
@@ -994,6 +1047,51 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       {/* Inputs ocultos para upload de áudio */}
       <input ref={audioTrack1Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track1')} />
       <input ref={audioTrack2Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track2')} />
+
+      {/* Modal — Thumbnail do Episódio */}
+      {epThumbModal && (
+        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-md">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xl font-black tracking-tighter">Thumbnail do Episódio</h3>
+              <button onClick={() => setEpThumbModal(null)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
+            </div>
+            <p className="text-xs text-zinc-600 font-bold mb-6 truncate">Ep.{epThumbModal.ep.episode_number} — {epThumbModal.ep.title}</p>
+
+            {/* Preview */}
+            <div className="w-full h-36 rounded-2xl overflow-hidden mb-6 bg-zinc-900">
+              <ImageWithFallback src={epThumbModal.url || epThumbModal.ep.thumbnail} className="w-full h-full object-cover" alt="preview" />
+            </div>
+
+            <div className="space-y-3">
+              <input
+                type="url"
+                placeholder="https://cdn.exemplo.com/thumb.jpg"
+                value={epThumbModal.url}
+                onChange={e => setEpThumbModal(m => m ? { ...m, url: e.target.value } : m)}
+                className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-5 py-3 text-sm text-[var(--text-color)] focus:outline-none focus:border-rose-500 transition-all"
+              />
+              <button
+                onClick={() => epThumbFileRef.current?.click()}
+                className="w-full flex items-center justify-center gap-2 py-3 bg-white/5 rounded-2xl text-sm font-bold text-zinc-400 hover:text-white hover:bg-white/10 transition-all border border-[var(--border-color)]"
+              >
+                <Upload size={15} /> Fazer upload de imagem
+              </button>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setEpThumbModal(null)} className="flex-1 py-3 bg-white/5 rounded-2xl text-sm font-bold text-zinc-400 hover:bg-white/10 transition-all">Cancelar</button>
+              <button
+                onClick={handleSaveEpThumb}
+                disabled={savingEpThumb}
+                className="flex-1 py-3 bg-rose-600 rounded-2xl text-sm font-black text-white hover:bg-rose-500 transition-all disabled:opacity-50"
+              >
+                {savingEpThumb ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal — Canais de Áudio */}
       {audioModalEp && (
