@@ -115,6 +115,20 @@ class ApiService {
     return { ...data.user, accessToken: data.accessToken, refreshToken: data.refreshToken };
   }
 
+  async forgotPassword(email: string) {
+    return this.request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+  }
+
+  async resetPassword(token: string, password: string) {
+    return this.request<{ message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password })
+    });
+  }
+
   async getSeries(type?: string) {
     const path = type ? `/content/series?type=${type}` : '/content/series';
     return this.request<any[]>(path);

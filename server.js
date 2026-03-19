@@ -356,6 +356,58 @@ app.post('/api/auth/refresh-token', async (req, res) => {
   }
 });
 
+// ESQUECI MINHA SENHA — gera token e envia e-mail
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'E-mail obrigatório.' });
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    // Sempre responde 200 para não revelar se o e-mail existe
+    if (!user) return res.json({ message: 'Se o e-mail estiver cadastrado, você receberá um link em breve.' });
+
+    const crypto = require('crypto');
+    const PasswordResetToken = require('./models/PasswordResetToken');
+
+    await PasswordResetToken.deleteMany({ userId: user._id });
+    const token = crypto.randomBytes(32).toString('hex');
+    await PasswordResetToken.create({ userId: user._id, token });
+
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/redefinir-senha?token=${token}`;
+    const { sendPasswordReset } = require('./services/emailService');
+    await sendPasswordReset(user, resetUrl);
+
+    res.json({ message: 'Se o e-mail estiver cadastrado, você receberá um link em breve.' });
+  } catch (err) {
+    logger.error('[ForgotPassword]', err);
+    res.status(500).json({ error: 'Erro ao processar solicitação.' });
+  }
+});
+
+// REDEFINIR SENHA — valida token e salva nova senha
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'Token e nova senha são obrigatórios.' });
+    if (password.length < 6) return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres.' });
+
+    const PasswordResetToken = require('./models/PasswordResetToken');
+    const stored = await PasswordResetToken.findOne({ token });
+    if (!stored) return res.status(400).json({ error: 'Link inválido ou expirado.' });
+
+    const bcrypt = require('bcrypt');
+    const passwordHash = await bcrypt.hash(password, 12);
+    await User.findByIdAndUpdate(stored.userId, { passwordHash });
+    await PasswordResetToken.deleteMany({ userId: stored.userId });
+    await RefreshToken.deleteMany({ userId: stored.userId.toString() });
+
+    res.json({ message: 'Senha redefinida com sucesso.' });
+  } catch (err) {
+    logger.error('[ResetPassword]', err);
+    res.status(500).json({ error: 'Erro ao redefinir senha.' });
+  }
+});
+
 // Handlers de Erro Sentry
 if (process.env.SENTRY_DSN) {
   app.use(Sentry.Handlers.errorHandler());
