@@ -1,30 +1,29 @@
-
 import React from 'react';
 
 export default function BrandLogo() {
   return (
-    <div style={{ 
-      textAlign: "center", 
-      background: "#ffffff", 
-      padding: "20px", 
-      borderRadius: "24px", 
-      marginBottom: "20px",
-      display: "inline-block",
-      boxShadow: "0 10px 30px rgba(0,0,0,0.1)"
-    }}>
-      <div
-        style={{
-          fontSize: "72px",
-          fontWeight: "900",
-          letterSpacing: "-2px",
-          fontFamily: "'Helvetica Neue', 'Arial Black', sans-serif",
-          color: "#000",
-          textTransform: "uppercase",
-          lineHeight: "1"
-        }}
-      >
-        L
-      </div>
+    <div style={{ display: 'inline-block', marginBottom: '20px' }}>
+      <svg width="96" height="96" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+        <rect width="1024" height="1024" fill="#000000" rx="180" />
+        <rect x="128" y="128" width="768" height="768" rx="180" fill="none" stroke="#FFFFFF" strokeWidth="12" />
+        <path d="M360 300 H440 V620 H760 V700 H360 Z" fill="#FFFFFF" />
+        <g stroke="#000000" strokeWidth="6" strokeLinecap="round">
+          <line x1="360" y1="340" x2="400" y2="340" />
+          <line x1="360" y1="420" x2="400" y2="420" />
+          <line x1="360" y1="500" x2="400" y2="500" />
+          <line x1="360" y1="580" x2="400" y2="580" />
+          <line x1="360" y1="380" x2="385" y2="380" />
+          <line x1="360" y1="460" x2="385" y2="460" />
+          <line x1="360" y1="540" x2="385" y2="540" />
+          <line x1="420" y1="700" x2="420" y2="660" />
+          <line x1="520" y1="700" x2="520" y2="660" />
+          <line x1="620" y1="700" x2="620" y2="660" />
+          <line x1="720" y1="700" x2="720" y2="660" />
+          <line x1="470" y1="700" x2="470" y2="675" />
+          <line x1="570" y1="700" x2="570" y2="675" />
+          <line x1="670" y1="700" x2="670" y2="675" />
+        </g>
+      </svg>
     </div>
   );
 }
