@@ -278,3 +278,116 @@ describe('Métodos de votos', () => {
     expect(result).toBeNull();
   });
 });
+
+// ─── Upload de vídeo ──────────────────────────────────────────────────────────
+
+describe('api.uploadVideoToBunny()', () => {
+  it('chama POST /bunny/upload-video com FormData', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ bunnyVideoId: 'abc', videoUrl: 'https://cdn.example.com/abc/playlist.m3u8' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['video'], 'test.mp4', { type: 'video/mp4' });
+    await api.uploadVideoToBunny(file, 'ep-1', 'Título do Episódio');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain('/bunny/upload-video');
+    expect(opts.method).toBe('POST');
+    expect(opts.body).toBeInstanceOf(FormData);
+  });
+
+  it('retorna { bunnyVideoId, videoUrl } em sucesso', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ bunnyVideoId: 'xyz789', videoUrl: 'https://cdn.example.com/xyz789/playlist.m3u8' }),
+    }));
+    const file = new File(['video'], 'ep.mp4', { type: 'video/mp4' });
+    const result = await api.uploadVideoToBunny(file, 'ep-1', 'Ep 1');
+    expect(result.bunnyVideoId).toBe('xyz789');
+    expect(result.videoUrl).toContain('xyz789');
+  });
+
+  it('envia Authorization header quando token está definido', async () => {
+    api.setToken('meu-token-video');
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ bunnyVideoId: 'id1' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['v'], 'v.mp4', { type: 'video/mp4' });
+    await api.uploadVideoToBunny(file, 'ep-2', 'Título');
+    expect(fetchMock.mock.calls[0][1].headers['Authorization']).toBe('Bearer meu-token-video');
+  });
+
+  it('lança erro quando resposta não é ok', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 413,
+      json: () => Promise.resolve({ error: 'Arquivo muito grande.' }),
+    }));
+    const file = new File(['v'], 'v.mp4', { type: 'video/mp4' });
+    await expect(api.uploadVideoToBunny(file, 'ep-3', 'T')).rejects.toThrow('Arquivo muito grande.');
+  });
+});
+
+// ─── Upload de áudio ──────────────────────────────────────────────────────────
+
+describe('api.uploadAudioToBunny()', () => {
+  it('chama POST /bunny/upload-audio', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ url: 'https://cdn.example.com/dub1.mp3' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['audio'], 'dub.mp3', { type: 'audio/mpeg' });
+    await api.uploadAudioToBunny(file);
+    expect(fetchMock.mock.calls[0][0]).toContain('/bunny/upload-audio');
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST');
+  });
+
+  it('retorna { url } em sucesso', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ url: 'https://cdn.example.com/audio.mp3' }),
+    }));
+    const file = new File(['audio'], 'audio.mp3', { type: 'audio/mpeg' });
+    const result = await api.uploadAudioToBunny(file);
+    expect(result.url).toContain('audio.mp3');
+  });
+
+  it('lança erro quando resposta não é ok', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ error: 'Formato de áudio inválido.' }),
+    }));
+    const file = new File(['x'], 'bad.txt', { type: 'text/plain' });
+    await expect(api.uploadAudioToBunny(file)).rejects.toThrow('Formato de áudio inválido.');
+  });
+});
+
+// ─── Upload de imagem ─────────────────────────────────────────────────────────
+
+describe('api.uploadImageToBunny()', () => {
+  it('chama POST /bunny/upload-image', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve('https://cdn.example.com/img.jpg'),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['img'], 'thumb.jpg', { type: 'image/jpeg' });
+    await api.uploadImageToBunny(file);
+    expect(fetchMock.mock.calls[0][0]).toContain('/bunny/upload-image');
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST');
+  });
+
+  it('retorna URL da imagem em sucesso', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ url: 'https://cdn.example.com/cover.png' }),
+    }));
+    const file = new File(['img'], 'cover.png', { type: 'image/png' });
+    const result = await api.uploadImageToBunny(file);
+    expect(result).toContain('cover.png');
+  });
+});
