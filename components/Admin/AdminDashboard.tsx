@@ -104,6 +104,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const videoFileInputRef = useRef<HTMLInputElement>(null);
   const [videoUploadTargetEp, setVideoUploadTargetEp] = useState<any>(null);
   const [uploadingVideoId, setUploadingVideoId] = useState<string | null>(null);
+  const [dragOverEpId, setDragOverEpId] = useState<string | null>(null);
+  const [publishingEpId, setPublishingEpId] = useState<string | null>(null);
 
   // Modal de thumbnail de episódio
   const [epThumbModal, setEpThumbModal] = useState<{ ep: any; url: string } | null>(null);
@@ -284,6 +286,33 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       setUploadingVideoId(null);
       setVideoUploadTargetEp(null);
     }
+  };
+
+  const handleEpVideoDrop = async (ep: any, file: File) => {
+    if (!file.type.startsWith('video/')) return;
+    const epId = ep._id || ep.id;
+    setDragOverEpId(null);
+    setUploadingVideoId(epId);
+    try {
+      const result = await api.uploadVideoToBunny(file, epId, ep.title);
+      setEpisodes(prev => prev.map(e =>
+        (e._id || e.id) === epId ? { ...e, bunnyVideoId: result.bunnyVideoId, status: 'processing' } : e
+      ));
+    } catch (err: any) {
+      alert(`Erro ao enviar vídeo: ${err.message}`);
+    } finally {
+      setUploadingVideoId(null);
+    }
+  };
+
+  const handlePublishEpisode = async (ep: any) => {
+    const epId = ep._id || ep.id;
+    setPublishingEpId(epId);
+    try {
+      await api.updateEpisode(epId, { status: 'published' });
+      setEpisodes(prev => prev.map(e => (e._id || e.id) === epId ? { ...e, status: 'published' } : e));
+    } catch { alert('Erro ao publicar episódio.'); }
+    setPublishingEpId(null);
   };
 
   const handleOpenAudioModal = (ep: any) => {
@@ -805,7 +834,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                     {episodes.map((ep) => {
                       const epId = ep._id || ep.id;
                       return (
-                        <div key={epId} className="flex items-center gap-6 p-6 hover:bg-white/5 transition-all">
+                        <div
+                          key={epId}
+                          className={`flex items-center gap-6 p-6 transition-all relative ${dragOverEpId === epId ? 'bg-sky-600/10 ring-2 ring-sky-500 ring-inset rounded-2xl' : 'hover:bg-white/5'}`}
+                          onDragOver={e => { e.preventDefault(); if (e.dataTransfer.types.includes('Files')) setDragOverEpId(epId); }}
+                          onDragLeave={() => setDragOverEpId(null)}
+                          onDrop={e => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file) handleEpVideoDrop(ep, file); }}
+                        >
+                          {dragOverEpId === epId && (
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                              <span className="text-sky-400 font-black text-xs uppercase tracking-widest bg-[var(--bg-color)] px-4 py-2 rounded-xl border border-sky-500/40">Soltar para enviar ao Bunny</span>
+                            </div>
+                          )}
                           <button
                             onClick={() => setEpThumbModal({ ep, url: ep.thumbnail || '' })}
                             className="w-16 h-10 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-[var(--border-color)] relative group cursor-pointer"
@@ -824,7 +864,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                               {ep.bunnyVideoId && <span className="text-[9px] font-black text-sky-400 uppercase tracking-widest">BUNNY</span>}
                               {ep.video_url && !ep.bunnyVideoId && <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">URL</span>}
                               {ep.isPremium && <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">PREMIUM</span>}
-                              <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">{ep.status ?? 'published'}</span>
+                              {(ep.status === 'processing' || ep.status === 'draft') ? (
+                                <button
+                                  onClick={() => handlePublishEpisode(ep)}
+                                  disabled={publishingEpId === epId}
+                                  className="text-[9px] font-black text-amber-400 uppercase tracking-widest hover:text-emerald-400 transition-colors disabled:opacity-50"
+                                  title="Publicar manualmente (use se o webhook Bunny não estiver configurado)"
+                                >
+                                  {publishingEpId === epId ? '...' : (ep.status ?? 'draft') + ' ▶ publicar'}
+                                </button>
+                              ) : (
+                                <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">{ep.status ?? 'published'}</span>
+                              )}
                             </div>
                             {ep.description && <p className="text-zinc-600 text-[11px] mt-1 truncate">{ep.description}</p>}
                           </div>

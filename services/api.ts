@@ -222,7 +222,7 @@ class ApiService {
     });
   }
 
-  async updateEpisode(id: string, data: Partial<{ thumbnail: string; title: string; description: string; isPremium: boolean; video_url: string }>) {
+  async updateEpisode(id: string, data: Partial<{ thumbnail: string; title: string; description: string; isPremium: boolean; video_url: string; status: string }>) {
     return this.request<any>(`/content/episodes/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
