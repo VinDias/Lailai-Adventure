@@ -167,6 +167,13 @@ class ApiService {
     return this.request<any>(`/content/episodes/${episodeId}/panels/${index}`, { method: 'DELETE' });
   }
 
+  async updatePanelTranslation(episodeId: string, panelIndex: number, language: string, imageUrl: string) {
+    return this.request<any>(`/content/episodes/${episodeId}/panels/${panelIndex}/translations`, {
+      method: 'PUT',
+      body: JSON.stringify({ language, imageUrl })
+    });
+  }
+
   async getMyChannels() {
     try {
       return await this.request<any[]>('/channels/me');

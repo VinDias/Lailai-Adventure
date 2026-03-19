@@ -85,7 +85,7 @@ const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series, epis
                  {content.episodes.map(ep => (
                    <div key={ep._id || ep.id} onClick={() => onOpen(ep, selectedSeries, content.episodes)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
                       <div className="w-20 h-28 bg-black rounded-2xl overflow-hidden shrink-0">
-                         <ImageWithFallback src={ep.thumbnail} className="w-full h-full object-cover opacity-60" alt={ep.title} />
+                         <ImageWithFallback src={ep.thumbnail || (ep as any).panels?.[0]?.image_url} className="w-full h-full object-cover opacity-60" alt={ep.title} />
                       </div>
                       <div className="flex-1">
                          <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Capítulo {ep.episode_number}</span>
