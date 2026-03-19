@@ -26,6 +26,9 @@ vi.mock('../../services/api', () => ({
     setRefreshToken: vi.fn(),
     vote: vi.fn(),
     removeVote: vi.fn(),
+    getPublicSettings: vi.fn().mockResolvedValue({}),
+    getAdminSettings: vi.fn().mockResolvedValue([]),
+    updateSetting: vi.fn().mockResolvedValue({}),
   },
 }));
 

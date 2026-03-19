@@ -276,6 +276,27 @@ class ApiService {
     return this.request<{ likes: number; dislikes: number; total: number }>(`/admin/episodes/${episodeId}/metrics`);
   }
 
+  // Settings (público)
+  async getPublicSettings(): Promise<Record<string, string>> {
+    try {
+      return await this.request<Record<string, string>>('/settings/public');
+    } catch {
+      return {};
+    }
+  }
+
+  // Settings (admin)
+  async getAdminSettings(): Promise<any[]> {
+    return this.request<any[]>('/settings');
+  }
+
+  async updateSetting(key: string, value: string, label?: string): Promise<any> {
+    return this.request<any>(`/settings/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value, label })
+    });
+  }
+
   // Ads (admin)
   async getAds() {
     return this.request<any[]>('/admin/ads');

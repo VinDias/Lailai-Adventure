@@ -7,7 +7,7 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle, Music, Mic, Music2
+  CheckCircle2, AlertCircle, Music, Mic, Music2, Settings
 } from 'lucide-react';
 import API_URL from '../../config/api';
 import ImageWithFallback from '../ImageWithFallback';
@@ -53,6 +53,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   });
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState('');
+
+  // Configurações Globais
+  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsForm, setSettingsForm] = useState({ adsense_client_id: '', adsense_slot_id: '' });
 
   // Anúncios
   const [adsList, setAdsList] = useState<any[]>([]);
@@ -347,8 +353,41 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     finally { setLoadingAds(false); }
   };
 
+  const loadSettings = async () => {
+    setLoadingSettings(true);
+    try {
+      const list = await api.getAdminSettings();
+      const map: Record<string, string> = {};
+      list.forEach((s: any) => { map[s.key] = s.value; });
+      setSettingsForm(prev => ({ ...prev, ...map }));
+    } catch {
+      // silently ignore
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
+
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSettings(true);
+    setSettingsMsg('');
+    try {
+      await Promise.all([
+        api.updateSetting('adsense_client_id', settingsForm.adsense_client_id, 'AdSense Publisher ID'),
+        api.updateSetting('adsense_slot_id', settingsForm.adsense_slot_id, 'AdSense Slot ID'),
+      ]);
+      setSettingsMsg('Configurações salvas!');
+      setTimeout(() => setSettingsMsg(''), 3000);
+    } catch {
+      setSettingsMsg('Erro ao salvar configurações.');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
   useEffect(() => {
     if (currentSubView === ViewMode.ADMIN_ADS) loadAds();
+    if (currentSubView === ViewMode.ADMIN_SETTINGS) loadSettings();
   }, [currentSubView]);
 
   const openNewAd = () => {
@@ -534,6 +573,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
           <SidebarLink active={currentSubView === ViewMode.ADMIN_DASHBOARD} onClick={() => setSubView(ViewMode.ADMIN_DASHBOARD)} icon={<LayoutDashboard size={18} />} label="Dashboard" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_CONTENT} onClick={() => { setSelectedSeries(null); setSubView(ViewMode.ADMIN_CONTENT); }} icon={<Layers size={18} />} label="Gerenciar Conteúdo" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_ADS} onClick={() => setSubView(ViewMode.ADMIN_ADS)} icon={<Megaphone size={18} />} label="Anúncios" />
+          <SidebarLink active={currentSubView === ViewMode.ADMIN_SETTINGS} onClick={() => setSubView(ViewMode.ADMIN_SETTINGS)} icon={<Settings size={18} />} label="Configurações" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_USERS} onClick={() => setSubView(ViewMode.ADMIN_USERS)} icon={<Users size={18} />} label="Usuários" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_PAYMENTS} onClick={() => setSubView(ViewMode.ADMIN_PAYMENTS)} icon={<DollarSign size={18} />} label="Assinantes" />
         </nav>
@@ -942,6 +982,63 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                   </div>
                 )}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* CONFIGURAÇÕES GLOBAIS */}
+        {currentSubView === ViewMode.ADMIN_SETTINGS && (
+          <div className="max-w-2xl animate-apple">
+            <h2 className="text-4xl font-black tracking-tighter mb-8">Configurações</h2>
+
+            {loadingSettings ? (
+              <div className="flex items-center justify-center h-40">
+                <div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" />
+              </div>
+            ) : (
+              <form onSubmit={handleSaveSettings} className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-8 space-y-6">
+                <div>
+                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-6">Google AdSense</p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-bold text-zinc-400 block mb-1">Publisher ID <span className="text-zinc-600 font-normal">(data-ad-client)</span></label>
+                      <input
+                        type="text"
+                        placeholder="ca-pub-XXXXXXXXXXXXXXXX"
+                        value={settingsForm.adsense_client_id}
+                        onChange={e => setSettingsForm(p => ({ ...p, adsense_client_id: e.target.value }))}
+                        className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-zinc-400 block mb-1">Slot ID <span className="text-zinc-600 font-normal">(data-ad-slot)</span></label>
+                      <input
+                        type="text"
+                        placeholder="XXXXXXXXXX"
+                        value={settingsForm.adsense_slot_id}
+                        onChange={e => setSettingsForm(p => ({ ...p, adsense_slot_id: e.target.value }))}
+                        className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                      />
+                      <p className="text-[10px] text-zinc-600 mt-1">Gere o Slot ID no painel do Google AdSense em <span className="font-mono">Anúncios → Por unidade de anúncio</span>.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <button
+                    type="submit"
+                    disabled={savingSettings}
+                    className="px-8 py-3 bg-rose-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-rose-500 transition-all disabled:opacity-50"
+                  >
+                    {savingSettings ? 'Salvando...' : 'Salvar'}
+                  </button>
+                  {settingsMsg && (
+                    <p className={`text-xs font-bold ${settingsMsg.includes('Erro') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                      {settingsMsg}
+                    </p>
+                  )}
+                </div>
+              </form>
             )}
           </div>
         )}

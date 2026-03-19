@@ -162,6 +162,7 @@ app.use("/donation", require("./routes/donation"));
 app.use("/api/admin/management", require("./routes/admin"));
 app.use("/api/admin/users", require("./routes/adminManagement"));
 app.use("/api/admin/ads", require("./routes/ads"));
+app.use("/api/settings", require("./routes/settings"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
 app.use("/api/content", require("./routes/content"));
 app.use("/api/channels", require("./routes/channels"));
