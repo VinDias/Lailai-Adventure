@@ -80,9 +80,18 @@ app.get("/health", async (req, res) => {
 });
 
 // 4. CONFIGURAÇÃO SEGURA DE CORS
-app.use(cors({ 
-  origin: process.env.FRONTEND_URL || "http://localhost:5173", 
-  credentials: true 
+const allowedOrigins = [
+  process.env.FRONTEND_URL || "http://localhost:5173",
+  "http://localhost:5173",
+  "https://lorflux.com",
+  "https://www.lorflux.com",
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error('CORS: origem não permitida'));
+  },
+  credentials: true
 }));
 
 // 5. PROTEÇÃO EXTRA STRIPE WEBHOOK (DEVE VIR ANTES DO express.json)
