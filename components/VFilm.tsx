@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
+import ImageWithFallback from './ImageWithFallback';
 
 const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => void }> = ({ user, onOpen }) => {
   const [series, setSeries] = useState<Series[]>([]);
@@ -47,7 +48,7 @@ const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
             {series.map(s => (
               <div key={s._id} onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
                 <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[0.98] group-hover:ring-rose-500/50">
-                  <img src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-700" alt={s.title} />
+                  <ImageWithFallback src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-700" alt={s.title} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent" />
                   <div className="absolute bottom-6 left-6 right-6">
                      <h3 className="text-lg font-black text-white leading-tight">{s.title}</h3>
@@ -64,7 +65,7 @@ const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
            <button onClick={() => setSelectedSeries(null)} className="absolute top-8 right-8 text-white/40 hover:text-white transition-all"><svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
            <div className="max-w-4xl mx-auto pt-20">
               <div className="flex flex-col md:flex-row gap-12 mb-16">
-                 <img src={selectedSeries.cover_image} className="w-64 aspect-[9/16] rounded-[2.5rem] object-cover shadow-2xl" alt={selectedSeries.title} />
+                 <ImageWithFallback src={selectedSeries.cover_image} className="w-64 aspect-[9/16] rounded-[2.5rem] object-cover shadow-2xl" alt={selectedSeries.title} />
                  <div className="flex-1">
                     <h2 className="text-6xl font-black text-white mb-6 tracking-tighter">{selectedSeries.title}</h2>
                     <p className="text-zinc-400 text-lg leading-relaxed mb-8">{selectedSeries.description}</p>
@@ -76,7 +77,7 @@ const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
                  {content.episodes.map(ep => (
                    <div key={ep._id || ep.id} onClick={() => onOpen(ep, selectedSeries)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
                       <div className="w-20 h-28 bg-black rounded-2xl overflow-hidden shrink-0">
-                         <img src={ep.thumbnail} className="w-full h-full object-cover opacity-60" alt={ep.title} />
+                         <ImageWithFallback src={ep.thumbnail} className="w-full h-full object-cover opacity-60" alt={ep.title} />
                       </div>
                       <div className="flex-1">
                          <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Produção #{ep.episode_number}</span>

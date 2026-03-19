@@ -36,8 +36,17 @@ router.put("/:id/toggle-premium", verifyToken, requireRole("superadmin"), async 
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: "Usuário não encontrado." });
     user.isPremium = !user.isPremium;
+    if (user.isPremium && !user.premiumExpiresAt) {
+      user.premiumExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 dias padrão
+    }
     await user.save();
     await AdminLog.create({ adminId: req.user.id, action: "TOGGLE_PREMIUM", targetId: user.id, details: { isPremium: user.isPremium } });
+
+    if (user.isPremium) {
+      const { sendPremiumConfirmation } = require('../services/emailService');
+      sendPremiumConfirmation(user).catch(err => logger.error('[Email] Falha ao enviar confirmação premium:', err.message));
+    }
+
     res.json({ id: user.id, isPremium: user.isPremium });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -268,6 +268,11 @@ app.post('/api/auth/register', async (req, res) => {
     await RefreshToken.create({ userId: user._id, token: refreshToken });
 
     logger.info(`Novo usuário registrado: ${email}`);
+
+    // Envia e-mail de boas-vindas de forma assíncrona (não bloqueia a resposta)
+    const { sendWelcome } = require('./services/emailService');
+    sendWelcome(user).catch(err => logger.error('[Email] Falha ao enviar boas-vindas:', err.message));
+
     res.status(201).json({
       success: true,
       user: {

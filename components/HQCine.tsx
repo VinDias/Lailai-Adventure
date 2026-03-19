@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
 import { Play } from 'lucide-react';
+import ImageWithFallback from './ImageWithFallback';
 
 const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => void }> = ({ user, onOpen }) => {
   const [series, setSeries] = useState<Series[]>([]);
@@ -30,7 +31,7 @@ const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => 
         {series.map(s => (
           <div key={s._id} onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
             <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[1.02] shadow-2xl">
-              <img src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+              <ImageWithFallback src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
               <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
               <div className="absolute bottom-6 left-6 right-6">
                 <h3 className="text-lg font-black text-white leading-tight drop-shadow-lg">{s.title}</h3>
@@ -47,7 +48,7 @@ const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => 
           </button>
           <div className="max-w-4xl mx-auto pt-20">
             <div className="flex flex-col md:flex-row gap-12 mb-16">
-              <img src={selectedSeries.cover_image} className="w-64 aspect-[9/16] rounded-[2.5rem] object-cover shadow-2xl border border-white/5" />
+              <ImageWithFallback src={selectedSeries.cover_image} className="w-64 aspect-[9/16] rounded-[2.5rem] object-cover shadow-2xl border border-white/5" />
               <div className="flex-1">
                 <h2 className="text-6xl font-black text-white mb-6 tracking-tighter italic">Original</h2>
                 <h3 className="text-4xl font-black text-white mb-4">{selectedSeries.title}</h3>
@@ -60,7 +61,7 @@ const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => 
               {episodes.map(ep => (
                 <div key={ep._id || ep.id} onClick={() => onOpen(ep, selectedSeries)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
                   <div className="w-20 h-28 bg-black rounded-2xl overflow-hidden shrink-0 relative">
-                    <img src={ep.thumbnail} className="w-full h-full object-cover opacity-60" />
+                    <ImageWithFallback src={ep.thumbnail} className="w-full h-full object-cover opacity-60" />
                     <Play size={16} className="absolute inset-0 m-auto text-white" />
                   </div>
                   <div>
