@@ -247,6 +247,11 @@ class ApiService {
     return url;
   }
 
+  async getSignedVideoUrl(videoId: string): Promise<string> {
+    const data = await this.request<{ signedUrl: string }>(`/bunny/signed-url?videoId=${encodeURIComponent(videoId)}`);
+    return data.signedUrl;
+  }
+
   async initBunnyUpload(title: string, episodeId: string) {
     return this.request<any>('/bunny/upload', {
       method: 'POST',

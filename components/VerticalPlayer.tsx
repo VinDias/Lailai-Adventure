@@ -31,6 +31,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
 
   const [showAd, setShowAd] = useState(!user?.isPremium);
   const [accessDenied] = useState(video.isPremium && !user?.isPremium);
+  const [signedSrc, setSignedSrc] = useState<string | null>(null);
   const [audioMode, setAudioMode] = useState<'original' | 'audio1' | 'audio2'>(() =>
     (localStorage.getItem('lorflux_audio_preference') as any) || 'original'
   );
@@ -51,11 +52,23 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     api.getMyVote(video.id).then(v => setMyVote(v?.type ?? null));
   }, [video.id, user]);
 
+  // Busca URL assinada antes de iniciar playback
   useEffect(() => {
     if (accessDenied || showAd) return;
+    if (video.bunnyVideoId) {
+      api.getSignedVideoUrl(video.bunnyVideoId)
+        .then(url => setSignedSrc(url))
+        .catch(() => setSignedSrc(`${bunny_cdn_base}/${video.bunnyVideoId}/playlist.m3u8`));
+    } else {
+      setSignedSrc(video.arquivoUrl);
+    }
+  }, [showAd, accessDenied]);
+
+  useEffect(() => {
+    if (!signedSrc) return;
     initializePlayback();
     return () => { hlsRef.current?.destroy(); };
-  }, [showAd, accessDenied]);
+  }, [signedSrc]);
 
   // Video event listeners
   useEffect(() => {
@@ -121,14 +134,9 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     }
   }, [audioMode]);
 
-  const getVideoSrc = () => {
-    if (video.bunnyVideoId) return `${bunny_cdn_base}/${video.bunnyVideoId}/playlist.m3u8`;
-    return video.arquivoUrl;
-  };
-
   const initializePlayback = () => {
     const v = videoRef.current;
-    const src = getVideoSrc();
+    const src = signedSrc;
     if (!v || !src) return;
     if (src.endsWith('.m3u8') && Hls.isSupported()) {
       const hls = new Hls({ autoStartLoad: true, enableWorker: true, lowLatencyMode: true });

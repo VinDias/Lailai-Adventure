@@ -105,7 +105,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [videoUploadTargetEp, setVideoUploadTargetEp] = useState<any>(null);
   const [uploadingVideoId, setUploadingVideoId] = useState<string | null>(null);
   const [dragOverEpId, setDragOverEpId] = useState<string | null>(null);
-  const [publishingEpId, setPublishingEpId] = useState<string | null>(null);
 
   // Modal de thumbnail de episódio
   const [epThumbModal, setEpThumbModal] = useState<{ ep: any; url: string } | null>(null);
@@ -305,17 +304,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     }
   };
 
-  const handlePublishEpisode = async (ep: any) => {
-    const epId = ep._id || ep.id;
-    setPublishingEpId(epId);
-    try {
-      await api.updateEpisode(epId, { status: 'published' });
-      setEpisodes(prev => prev.map(e => (e._id || e.id) === epId ? { ...e, status: 'published' } : e));
-    } catch { alert('Erro ao publicar episódio.'); }
-    setPublishingEpId(null);
-  };
-
-  const handleOpenAudioModal = (ep: any) => {
+const handleOpenAudioModal = (ep: any) => {
     setAudioModalEp(ep);
     setAudioForm({ audioTrack1Url: ep.audioTrack1Url || '', audioTrack2Url: ep.audioTrack2Url || '' });
   };
@@ -864,18 +853,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                               {ep.bunnyVideoId && <span className="text-[9px] font-black text-sky-400 uppercase tracking-widest">BUNNY</span>}
                               {ep.video_url && !ep.bunnyVideoId && <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">URL</span>}
                               {ep.isPremium && <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">PREMIUM</span>}
-                              {(ep.status === 'processing' || ep.status === 'draft') ? (
-                                <button
-                                  onClick={() => handlePublishEpisode(ep)}
-                                  disabled={publishingEpId === epId}
-                                  className="text-[9px] font-black text-amber-400 uppercase tracking-widest hover:text-emerald-400 transition-colors disabled:opacity-50"
-                                  title="Publicar manualmente (use se o webhook Bunny não estiver configurado)"
-                                >
-                                  {publishingEpId === epId ? '...' : (ep.status ?? 'draft') + ' ▶ publicar'}
-                                </button>
-                              ) : (
-                                <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">{ep.status ?? 'published'}</span>
-                              )}
+                              <span className={`text-[9px] font-black uppercase tracking-widest ${ep.status === 'published' ? 'text-emerald-500' : 'text-amber-400'}`}>{ep.status ?? 'draft'}</span>
                             </div>
                             {ep.description && <p className="text-zinc-600 text-[11px] mt-1 truncate">{ep.description}</p>}
                           </div>

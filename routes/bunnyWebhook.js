@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const logger = require('../utils/logger');
 const Episode = require('../models/Episode');
 const multer = require('multer');
@@ -398,6 +399,36 @@ router.post('/upload-video', (req, res) => {
         }
       });
     });
+  });
+});
+
+// GET /api/bunny/signed-url?videoId=xxx — gera URL assinada para playback seguro
+router.get('/signed-url', (req, res) => {
+  const verifyToken = require('../middlewares/verifyToken');
+  verifyToken(req, res, () => {
+    const { videoId } = req.query;
+    if (!videoId) return res.status(400).json({ error: 'videoId é obrigatório.' });
+
+    const tokenKey = process.env.BUNNY_TOKEN_KEY;
+    const cdnHostname = process.env.BUNNY_CDN_HOSTNAME;
+
+    // Se BUNNY_TOKEN_KEY não estiver configurado, retorna URL direta (modo sem autenticação)
+    if (!tokenKey || !cdnHostname) {
+      return res.json({ signedUrl: `https://${cdnHostname || 'vz-CONFIGURE-CDN_HOSTNAME.b-cdn.net'}/${videoId}/playlist.m3u8` });
+    }
+
+    // Expira em 4 horas
+    const expires = Math.floor(Date.now() / 1000) + 14400;
+
+    // Bunny CDN Token Authentication: SHA256(tokenKey + "/" + videoId + expires)
+    // O path "/" + videoId cobre todos os segmentos HLS do vídeo
+    const hashInput = tokenKey + '/' + videoId + expires;
+    const hash = crypto.createHash('sha256').update(hashInput).digest();
+    const token = Buffer.from(hash).toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+
+    const signedUrl = `https://${cdnHostname}/${videoId}/playlist.m3u8?token=${token}&expires=${expires}`;
+    res.json({ signedUrl, expires });
   });
 });
 
