@@ -402,6 +402,51 @@ router.post('/upload-video', (req, res) => {
   });
 });
 
+// GET /api/bunny/video-status/:videoId — consulta status real no Bunny e atualiza o episódio
+router.get('/video-status/:videoId', (req, res) => {
+  const verifyToken = require('../middlewares/verifyToken');
+  const requireAdmin = require('../middlewares/requireAdmin');
+  verifyToken(req, res, () => {
+    requireAdmin(req, res, async () => {
+      const { videoId } = req.params;
+      const apiKey = process.env.BUNNY_API_KEY;
+      const libraryId = process.env.BUNNY_LIBRARY_ID;
+      const cdnHostname = process.env.BUNNY_CDN_HOSTNAME;
+
+      if (!apiKey || !libraryId) {
+        return res.status(500).json({ error: 'BUNNY_API_KEY / BUNNY_LIBRARY_ID não configurados.' });
+      }
+
+      try {
+        const bunnyRes = await fetch(`https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`, {
+          headers: { 'AccessKey': apiKey }
+        });
+        if (!bunnyRes.ok) return res.status(502).json({ error: 'Erro ao consultar Bunny.' });
+
+        const video = await bunnyRes.json();
+        const mongoStatus = BUNNY_STATUS_MAP[video.status] ?? 'draft';
+
+        const updateData = { status: mongoStatus };
+        if (video.status === 4 && cdnHostname) {
+          updateData.video_url = `https://${cdnHostname}/${videoId}/playlist.m3u8`;
+        }
+
+        const episode = await Episode.findOneAndUpdate(
+          { bunnyVideoId: videoId },
+          { $set: updateData },
+          { new: true }
+        );
+
+        logger.info(`[Bunny Status] ${videoId} → Bunny:${video.status} DB:${mongoStatus}`);
+        res.json({ bunnyStatus: video.status, mongoStatus, episode });
+      } catch (err) {
+        logger.error('[Bunny Status Check]', err);
+        res.status(500).json({ error: 'Erro ao verificar status.' });
+      }
+    });
+  });
+});
+
 // GET /api/bunny/signed-url?videoId=xxx — gera URL assinada para playback seguro
 router.get('/signed-url', (req, res) => {
   const verifyToken = require('../middlewares/verifyToken');

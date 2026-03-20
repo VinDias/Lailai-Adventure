@@ -247,6 +247,10 @@ class ApiService {
     return url;
   }
 
+  async checkBunnyVideoStatus(videoId: string): Promise<{ bunnyStatus: number; mongoStatus: string }> {
+    return this.request(`/bunny/video-status/${encodeURIComponent(videoId)}`);
+  }
+
   async getSignedVideoUrl(videoId: string): Promise<string> {
     const data = await this.request<{ signedUrl: string }>(`/bunny/signed-url?videoId=${encodeURIComponent(videoId)}`);
     return data.signedUrl;

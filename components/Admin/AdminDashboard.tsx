@@ -109,6 +109,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [videoUploadTargetEp, setVideoUploadTargetEp] = useState<any>(null);
   const [uploadingVideoId, setUploadingVideoId] = useState<string | null>(null);
   const [dragOverEpId, setDragOverEpId] = useState<string | null>(null);
+  const [checkingStatusId, setCheckingStatusId] = useState<string | null>(null);
 
   // Modal de thumbnail de episódio
   const [epThumbModal, setEpThumbModal] = useState<{ ep: any; url: string } | null>(null);
@@ -174,6 +175,28 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       setLoadingEpisodes(false);
     }
   };
+
+  const handleCheckVideoStatus = async (ep: any) => {
+    if (!ep.bunnyVideoId) return;
+    const epId = ep._id || ep.id;
+    setCheckingStatusId(epId);
+    try {
+      const { mongoStatus } = await api.checkBunnyVideoStatus(ep.bunnyVideoId);
+      setEpisodes(prev => prev.map(e => (e._id || e.id) === epId ? { ...e, status: mongoStatus } : e));
+    } catch {}
+    setCheckingStatusId(null);
+  };
+
+  // Polling automático a cada 15s quando há episódios em processing
+  useEffect(() => {
+    if (!selectedSeries) return;
+    const processing = episodes.filter(e => e.bunnyVideoId && e.status !== 'published');
+    if (processing.length === 0) return;
+    const interval = setInterval(() => {
+      processing.forEach(ep => handleCheckVideoStatus(ep));
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [episodes, selectedSeries]);
 
   const handleReorder = async (id: string, direction: 'up' | 'down') => {
     const index = contentList.findIndex(i => (i._id || i.id) === id);
@@ -869,7 +892,18 @@ const handleOpenAudioModal = (ep: any) => {
                               {ep.bunnyVideoId && <span className="text-[9px] font-black text-sky-400 uppercase tracking-widest">BUNNY</span>}
                               {ep.video_url && !ep.bunnyVideoId && <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">URL</span>}
                               {ep.isPremium && <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">PREMIUM</span>}
-                              <span className={`text-[9px] font-black uppercase tracking-widest ${ep.status === 'published' ? 'text-emerald-500' : 'text-amber-400'}`}>{ep.status ?? 'draft'}</span>
+                              {ep.bunnyVideoId && ep.status !== 'published' ? (
+                                <button
+                                  onClick={() => handleCheckVideoStatus(ep)}
+                                  disabled={checkingStatusId === epId}
+                                  className="text-[9px] font-black uppercase tracking-widest text-amber-400 hover:text-emerald-400 transition-colors disabled:opacity-50 flex items-center gap-1"
+                                  title="Clique para verificar status no Bunny"
+                                >
+                                  {checkingStatusId === epId ? '...' : `↻ ${ep.status ?? 'draft'}`}
+                                </button>
+                              ) : (
+                                <span className={`text-[9px] font-black uppercase tracking-widest ${ep.status === 'published' ? 'text-emerald-500' : 'text-amber-400'}`}>{ep.status ?? 'draft'}</span>
+                              )}
                             </div>
                             {ep.description && <p className="text-zinc-600 text-[11px] mt-1 truncate">{ep.description}</p>}
                           </div>
