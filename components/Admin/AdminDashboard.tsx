@@ -94,6 +94,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [usersPages, setUsersPages] = useState(1);
   const [userFilter, setUserFilter] = useState<'all' | 'premium' | 'admin'>('all');
 
+  // Upload de imagem de anúncio
+  const adImageFileRef = useRef<HTMLInputElement>(null);
+  const [uploadingAdImage, setUploadingAdImage] = useState(false);
+
   // Upload de thumbnail de série
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadTargetId, setUploadTargetId] = useState<string | null>(null);
@@ -512,6 +516,18 @@ const handleOpenAudioModal = (ep: any) => {
     });
     setAdMsg('');
     setShowAdModal(true);
+  };
+
+  const handleAdImageUpload = async (file: File) => {
+    setUploadingAdImage(true);
+    try {
+      const url = await api.uploadImageToBunny(file);
+      setAdForm(f => ({ ...f, image_url: url }));
+    } catch {
+      alert('Erro ao fazer upload da imagem do anúncio.');
+    } finally {
+      setUploadingAdImage(false);
+    }
   };
 
   const handleSaveAd = async (e: React.FormEvent) => {
@@ -1687,7 +1703,44 @@ const handleOpenAudioModal = (ep: any) => {
             </div>
             <form onSubmit={handleSaveAd} className="space-y-4">
               <FormField label="Título *" value={adForm.title} onChange={v => setAdForm(f => ({ ...f, title: v }))} required />
-              <FormField label="URL da Imagem *" value={adForm.image_url} onChange={v => setAdForm(f => ({ ...f, image_url: v }))} required />
+
+              {/* Upload de imagem */}
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Imagem do Anúncio *</label>
+                <input ref={adImageFileRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleAdImageUpload(f); e.target.value = ''; }} />
+                <div
+                  onClick={() => adImageFileRef.current?.click()}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleAdImageUpload(f); }}
+                  className="relative border-2 border-dashed border-white/10 rounded-2xl overflow-hidden cursor-pointer hover:border-rose-500/50 transition-colors"
+                  style={{ minHeight: 120 }}
+                >
+                  {adForm.image_url ? (
+                    <img src={adForm.image_url} alt="preview" className="w-full max-h-48 object-contain bg-black/30" />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
+                      <ImagePlus size={28} className="mb-2" />
+                      <span className="text-xs font-bold">{uploadingAdImage ? 'Enviando...' : 'Clique ou arraste a imagem aqui'}</span>
+                    </div>
+                  )}
+                  {uploadingAdImage && (
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                      <span className="text-white text-xs font-black animate-pulse">ENVIANDO...</span>
+                    </div>
+                  )}
+                  {adForm.image_url && !uploadingAdImage && (
+                    <div className="absolute bottom-2 right-2 bg-black/60 rounded-lg px-2 py-1 text-[10px] text-zinc-300 font-bold">Clique para trocar</div>
+                  )}
+                </div>
+                {/* URL manual como alternativa */}
+                <input
+                  type="url"
+                  placeholder="Ou cole uma URL de imagem..."
+                  value={adForm.image_url}
+                  onChange={e => setAdForm(f => ({ ...f, image_url: e.target.value }))}
+                  className="mt-2 w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-3 py-2 text-xs font-mono text-zinc-400 outline-none focus:border-rose-500 transition-colors"
+                />
+              </div>
               <FormField label="URL de Destino (link)" value={adForm.link_url} onChange={v => setAdForm(f => ({ ...f, link_url: v }))} />
               <FormField label="Anunciante" value={adForm.advertiser} onChange={v => setAdForm(f => ({ ...f, advertiser: v }))} />
               <div className="grid grid-cols-2 gap-4">
