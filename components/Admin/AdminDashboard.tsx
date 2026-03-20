@@ -143,6 +143,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   useEffect(() => {
     setSelectedSeries(null);
+    setSelectedEpisode(null);
     loadDashboard();
   }, [currentSubView]);
 
@@ -715,7 +716,7 @@ const handleOpenAudioModal = (ep: any) => {
 
         <nav className="flex-1 space-y-2">
           <SidebarLink active={currentSubView === ViewMode.ADMIN_DASHBOARD} onClick={() => setSubView(ViewMode.ADMIN_DASHBOARD)} icon={<LayoutDashboard size={18} />} label="Dashboard" />
-          <SidebarLink active={currentSubView === ViewMode.ADMIN_CONTENT} onClick={() => { setSelectedSeries(null); setSubView(ViewMode.ADMIN_CONTENT); }} icon={<Layers size={18} />} label="Gerenciar Conteúdo" />
+          <SidebarLink active={currentSubView === ViewMode.ADMIN_CONTENT} onClick={() => { setSelectedSeries(null); setSelectedEpisode(null); setSubView(ViewMode.ADMIN_CONTENT); }} icon={<Layers size={18} />} label="Gerenciar Conteúdo" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_ADS} onClick={() => setSubView(ViewMode.ADMIN_ADS)} icon={<Megaphone size={18} />} label="Anúncios" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_SETTINGS} onClick={() => setSubView(ViewMode.ADMIN_SETTINGS)} icon={<Settings size={18} />} label="Configurações" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_USERS} onClick={() => setSubView(ViewMode.ADMIN_USERS)} icon={<Users size={18} />} label="Usuários" />
@@ -830,7 +831,7 @@ const handleOpenAudioModal = (ep: any) => {
         {currentSubView === ViewMode.ADMIN_CONTENT && selectedSeries && !selectedEpisode && (
           <div className="max-w-4xl animate-apple">
             <div className="flex items-center gap-4 mb-2">
-              <button onClick={() => setSelectedSeries(null)} className="p-2 bg-white/5 rounded-xl text-zinc-400 hover:text-white transition-all">
+              <button onClick={() => { setSelectedSeries(null); setSelectedEpisode(null); }} className="p-2 bg-white/5 rounded-xl text-zinc-400 hover:text-white transition-all">
                 <ChevronLeft size={20} />
               </button>
               <div>
@@ -949,7 +950,7 @@ const handleOpenAudioModal = (ep: any) => {
           </div>
         )}
         {/* PAINÉIS — Webtoon Hi-Qua */}
-        {currentSubView === ViewMode.ADMIN_CONTENT && selectedEpisode && (
+        {currentSubView === ViewMode.ADMIN_CONTENT && selectedSeries && selectedEpisode && (
           <div className="max-w-4xl animate-apple">
             <div className="flex items-center gap-4 mb-6">
               <button onClick={() => setSelectedEpisode(null)} className="p-2 bg-white/5 rounded-xl text-zinc-400 hover:text-white transition-all">
