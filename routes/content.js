@@ -302,4 +302,29 @@ router.put('/episodes/:episodeId/panels/:panelIndex/translations', verifyToken, 
   }
 });
 
+// DELETE /api/content/episodes/:episodeId/panels/:panelIndex/translations/:language — admin
+router.delete('/episodes/:episodeId/panels/:panelIndex/translations/:language', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const { language } = req.params;
+    const panelIndex = parseInt(req.params.panelIndex, 10);
+    const episode = await Episode.findById(req.params.episodeId);
+    if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    if (!episode.panels[panelIndex]) return res.status(404).json({ error: 'Painel não encontrado.' });
+
+    const panel = episode.panels[panelIndex];
+    if (panel.translationLayers) {
+      panel.translationLayers = panel.translationLayers.filter(l => l.language !== language);
+    }
+
+    episode.panels[panelIndex] = panel;
+    episode.markModified('panels');
+    await episode.save();
+
+    res.json({ success: true, panel: episode.panels[panelIndex] });
+  } catch (err) {
+    logger.error('[Content] DELETE /episodes/:episodeId/panels/:panelIndex/translations/:language', err);
+    res.status(500).json({ error: 'Erro ao remover camada de tradução.' });
+  }
+});
+
 module.exports = router;

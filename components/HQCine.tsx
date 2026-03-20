@@ -54,6 +54,7 @@ const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => 
                 <h3 className="text-4xl font-black text-white mb-4">{selectedSeries.title}</h3>
                 <p className="text-zinc-400 text-lg leading-relaxed mb-8">{selectedSeries.description}</p>
                 {selectedSeries.isPremium && <div className="mb-4 inline-block bg-amber-500 text-black text-[10px] font-black px-4 py-1.5 rounded-full">PREMIUM</div>}
+                <button className="px-12 py-5 bg-white text-black font-black rounded-2xl hover:bg-zinc-200 transition-all">ADICIONAR À LISTA</button>
               </div>
             </div>
             

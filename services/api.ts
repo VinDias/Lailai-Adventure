@@ -174,6 +174,12 @@ class ApiService {
     });
   }
 
+  async deletePanelTranslation(episodeId: string, panelIndex: number, language: string) {
+    return this.request<any>(`/content/episodes/${episodeId}/panels/${panelIndex}/translations/${language}`, {
+      method: 'DELETE'
+    });
+  }
+
   async getMyChannels() {
     try {
       return await this.request<any[]>('/channels/me');

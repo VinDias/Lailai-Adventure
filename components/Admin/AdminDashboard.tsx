@@ -294,6 +294,30 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setSavingTranslation(false);
   };
 
+  const handleDeleteTranslation = async () => {
+    if (!selectedEpisode || !translationModal) return;
+    const existing = (translationModal.panel.translationLayers ?? []).find((l: any) => l.language === translationLang);
+    if (!existing) { setTranslationMsg('Nenhuma tradução para remover neste idioma.'); return; }
+    if (!confirm(`Remover a tradução "${translationLang.toUpperCase()}" do painel #${translationModal.panelIdx + 1}?`)) return;
+    setSavingTranslation(true);
+    setTranslationMsg('');
+    try {
+      const epId = selectedEpisode._id || selectedEpisode.id;
+      await api.deletePanelTranslation(epId, translationModal.panelIdx, translationLang);
+      setPanelsList(prev => prev.map((p, i) => {
+        if (i !== translationModal.panelIdx) return p;
+        return { ...p, translationLayers: (p.translationLayers ?? []).filter((l: any) => l.language !== translationLang) };
+      }));
+      setTranslationModal(prev => prev ? {
+        ...prev,
+        panel: { ...prev.panel, translationLayers: (prev.panel.translationLayers ?? []).filter((l: any) => l.language !== translationLang) }
+      } : null);
+      setTranslationMsg('Tradução removida!');
+      setTranslationUrl('');
+    } catch { setTranslationMsg('Erro ao remover tradução.'); }
+    setSavingTranslation(false);
+  };
+
   const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -1217,13 +1241,22 @@ const handleOpenAudioModal = (ep: any) => {
                       <p className={`text-xs font-bold mb-3 ${translationMsg.includes('Erro') ? 'text-rose-400' : 'text-emerald-400'}`}>{translationMsg}</p>
                     )}
 
-                    <button
-                      onClick={handleSaveTranslation}
-                      disabled={savingTranslation}
-                      className="w-full py-3 bg-rose-600 text-white rounded-2xl font-black text-sm hover:bg-rose-500 transition-all flex items-center justify-center"
-                    >
-                      {savingTranslation ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Salvar Tradução'}
-                    </button>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={handleDeleteTranslation}
+                        disabled={savingTranslation}
+                        className="flex-1 py-3 bg-white/5 border border-white/10 text-zinc-400 rounded-2xl font-black text-sm hover:bg-rose-600/20 hover:text-rose-400 hover:border-rose-500/30 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Trash2 size={14} /> Remover
+                      </button>
+                      <button
+                        onClick={handleSaveTranslation}
+                        disabled={savingTranslation}
+                        className="flex-1 py-3 bg-rose-600 text-white rounded-2xl font-black text-sm hover:bg-rose-500 transition-all flex items-center justify-center"
+                      >
+                        {savingTranslation ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Salvar'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

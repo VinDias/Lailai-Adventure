@@ -76,8 +76,14 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     if (!v) return;
     const onPlay = () => {
       setIsPlaying(true);
-      if (audioMode === 'audio1') audio1Ref.current?.play();
-      if (audioMode === 'audio2') audio2Ref.current?.play();
+      if (audioMode === 'audio1' && audio1Ref.current) {
+        audio1Ref.current.currentTime = v.currentTime;
+        audio1Ref.current.play().catch(() => {});
+      }
+      if (audioMode === 'audio2' && audio2Ref.current) {
+        audio2Ref.current.currentTime = v.currentTime;
+        audio2Ref.current.play().catch(() => {});
+      }
     };
     const onPause = () => {
       setIsPlaying(false);
@@ -103,34 +109,44 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     };
   }, [showAd, audioMode]);
 
-  // Sync audio tracks with video position
+  // Sync audio tracks — só corrige se deriva > 0.3s para não engasgar o buffer
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const sync = () => {
-      if (audio1Ref.current) audio1Ref.current.currentTime = v.currentTime;
-      if (audio2Ref.current) audio2Ref.current.currentTime = v.currentTime;
+      if (audio1Ref.current && Math.abs(audio1Ref.current.currentTime - v.currentTime) > 0.3)
+        audio1Ref.current.currentTime = v.currentTime;
+      if (audio2Ref.current && Math.abs(audio2Ref.current.currentTime - v.currentTime) > 0.3)
+        audio2Ref.current.currentTime = v.currentTime;
     };
     v.addEventListener('timeupdate', sync);
     return () => v.removeEventListener('timeupdate', sync);
   }, [showAd]);
 
-  // Audio mode switching
+  // Audio mode switching — inicia/para o áudio mesmo com o vídeo já em reprodução
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     if (audioMode === 'original') {
       v.muted = false;
-      if (audio1Ref.current) audio1Ref.current.volume = 0;
-      if (audio2Ref.current) audio2Ref.current.volume = 0;
+      if (audio1Ref.current) { audio1Ref.current.pause(); audio1Ref.current.volume = 0; }
+      if (audio2Ref.current) { audio2Ref.current.pause(); audio2Ref.current.volume = 0; }
     } else if (audioMode === 'audio1') {
       v.muted = true;
-      if (audio1Ref.current) audio1Ref.current.volume = 1;
-      if (audio2Ref.current) audio2Ref.current.volume = 0;
+      if (audio2Ref.current) { audio2Ref.current.pause(); audio2Ref.current.volume = 0; }
+      if (audio1Ref.current) {
+        audio1Ref.current.volume = 1;
+        audio1Ref.current.currentTime = v.currentTime;
+        if (!v.paused) audio1Ref.current.play().catch(() => {});
+      }
     } else {
       v.muted = true;
-      if (audio1Ref.current) audio1Ref.current.volume = 0;
-      if (audio2Ref.current) audio2Ref.current.volume = 1;
+      if (audio1Ref.current) { audio1Ref.current.pause(); audio1Ref.current.volume = 0; }
+      if (audio2Ref.current) {
+        audio2Ref.current.volume = 1;
+        audio2Ref.current.currentTime = v.currentTime;
+        if (!v.paused) audio2Ref.current.play().catch(() => {});
+      }
     }
   }, [audioMode]);
 
@@ -177,6 +193,8 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     if (!v) return;
     const t = Number(e.target.value);
     v.currentTime = t;
+    if (audio1Ref.current) audio1Ref.current.currentTime = t;
+    if (audio2Ref.current) audio2Ref.current.currentTime = t;
     setCurrentTime(t);
   };
 
@@ -246,8 +264,8 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         onClick={() => { revealControls(); togglePlay(); }}
       />
 
-      {video.audioTrack1Url && <audio ref={audio1Ref} src={video.audioTrack1Url} />}
-      {video.audioTrack2Url && <audio ref={audio2Ref} src={video.audioTrack2Url} />}
+      {video.audioTrack1Url && <audio ref={audio1Ref} src={video.audioTrack1Url} preload="auto" />}
+      {video.audioTrack2Url && <audio ref={audio2Ref} src={video.audioTrack2Url} preload="auto" />}
 
       {/* Top bar */}
       <div

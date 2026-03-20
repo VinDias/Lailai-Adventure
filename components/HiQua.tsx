@@ -77,7 +77,7 @@ const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series, epis
                  <div className="flex-1">
                     <h2 className="text-6xl font-black text-white mb-6 tracking-tighter italic">{selectedSeries.title}</h2>
                     <p className="text-zinc-400 text-lg leading-relaxed mb-8">{selectedSeries.description}</p>
-                    <button className="px-12 py-5 bg-white text-black font-black rounded-2xl hover:bg-zinc-200 transition-all">SEGUIR CANAL</button>
+                    <button className="px-12 py-5 bg-white text-black font-black rounded-2xl hover:bg-zinc-200 transition-all">ADICIONAR À LISTA</button>
                  </div>
               </div>
               <div className="space-y-4">
