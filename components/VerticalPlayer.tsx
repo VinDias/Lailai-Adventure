@@ -98,52 +98,57 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    const onPlay = () => {
+    // 'playing' cobre tanto play inicial quanto retomada após buffering
+    const onPlaying = () => {
       setIsPlaying(true);
       setIsBuffering(false);
       const active = audioRefForMode(audioModeRef.current);
-      if (active) { active.currentTime = v.currentTime; active.play().catch(() => {}); }
+      // Só sincroniza e toca se estiver pausado (evita interromper buffer ativo)
+      if (active && active.paused) {
+        active.currentTime = v.currentTime;
+        active.play().catch(() => {});
+      }
     };
     const onPause = () => {
       setIsPlaying(false);
       allAudioRefs.forEach(r => r.current?.pause());
     };
-    const onWaiting = () => setIsBuffering(true);
+    const onWaiting = () => {
+      setIsBuffering(true);
+      // Pausa o áudio ativo para não adiantar enquanto o vídeo buferiza
+      audioRefForMode(audioModeRef.current)?.pause();
+    };
     const onCanPlay = () => setIsBuffering(false);
+    // Após seek concluído: sincroniza o áudio ativo com a nova posição
+    const onSeeked = () => {
+      const active = audioRefForMode(audioModeRef.current);
+      if (!active) return;
+      active.currentTime = v.currentTime;
+      if (!v.paused) active.play().catch(() => {});
+    };
     const onTimeUpdate = () => setCurrentTime(v.currentTime);
     const onLoaded = () => setDuration(v.duration);
     const onVolume = () => setIsMuted(v.muted);
-    v.addEventListener('play', onPlay);
+    v.addEventListener('playing', onPlaying);
     v.addEventListener('pause', onPause);
     v.addEventListener('waiting', onWaiting);
     v.addEventListener('canplay', onCanPlay);
+    v.addEventListener('seeked', onSeeked);
     v.addEventListener('timeupdate', onTimeUpdate);
     v.addEventListener('loadedmetadata', onLoaded);
     v.addEventListener('durationchange', onLoaded);
     v.addEventListener('volumechange', onVolume);
     return () => {
-      v.removeEventListener('play', onPlay);
+      v.removeEventListener('playing', onPlaying);
       v.removeEventListener('pause', onPause);
       v.removeEventListener('waiting', onWaiting);
       v.removeEventListener('canplay', onCanPlay);
+      v.removeEventListener('seeked', onSeeked);
       v.removeEventListener('timeupdate', onTimeUpdate);
       v.removeEventListener('loadedmetadata', onLoaded);
       v.removeEventListener('durationchange', onLoaded);
       v.removeEventListener('volumechange', onVolume);
     };
-  }, [showAd]);
-
-  // Sync: corrige apenas a faixa ativa, só quando tocando, drift > 0.5s
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const sync = () => {
-      const active = audioRefForMode(audioModeRef.current);
-      if (active && !active.paused && Math.abs(active.currentTime - v.currentTime) > 0.5)
-        active.currentTime = v.currentTime;
-    };
-    v.addEventListener('timeupdate', sync);
-    return () => v.removeEventListener('timeupdate', sync);
   }, [showAd]);
 
   // Audio mode effect: configura volume/muted (sem .play())
@@ -199,18 +204,16 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const skip = (secs: number) => {
     const v = videoRef.current;
     if (!v) return;
-    const t = Math.max(0, Math.min(v.duration || 0, v.currentTime + secs));
-    v.currentTime = t;
-    allAudioRefs.forEach(r => { if (r.current) r.current.currentTime = t; });
+    v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + secs));
+    // Sync de áudio tratado pelo evento 'seeked'
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = videoRef.current;
     if (!v) return;
-    const t = Number(e.target.value);
-    v.currentTime = t;
-    allAudioRefs.forEach(r => { if (r.current) r.current.currentTime = t; });
-    setCurrentTime(t);
+    v.currentTime = Number(e.target.value);
+    setCurrentTime(v.currentTime);
+    // Sync de áudio tratado pelo evento 'seeked'
   };
 
   const toggleMute = () => {
