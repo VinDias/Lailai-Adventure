@@ -123,15 +123,15 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     };
   }, [showAd]);
 
-  // Sync: corrige drift > 0.3s sem engasgar o buffer
+  // Sync: só corrige a faixa ATIVA e apenas se deriva > 0.5s
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const sync = () => {
-      if (audio1Ref.current && Math.abs(audio1Ref.current.currentTime - v.currentTime) > 0.3)
-        audio1Ref.current.currentTime = v.currentTime;
-      if (audio2Ref.current && Math.abs(audio2Ref.current.currentTime - v.currentTime) > 0.3)
-        audio2Ref.current.currentTime = v.currentTime;
+      const mode = audioModeRef.current;
+      const activeAudio = mode === 'audio1' ? audio1Ref.current : mode === 'audio2' ? audio2Ref.current : null;
+      if (activeAudio && !activeAudio.paused && Math.abs(activeAudio.currentTime - v.currentTime) > 0.5)
+        activeAudio.currentTime = v.currentTime;
     };
     v.addEventListener('timeupdate', sync);
     return () => v.removeEventListener('timeupdate', sync);
@@ -307,8 +307,8 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       />
 
       {/* Áudios externos (preload para buffering antecipado) */}
-      {video.audioTrack1Url && <audio ref={audio1Ref} src={video.audioTrack1Url} preload="auto" />}
-      {video.audioTrack2Url && <audio ref={audio2Ref} src={video.audioTrack2Url} preload="auto" />}
+      {video.audioTrack1Url && <audio ref={audio1Ref} src={video.audioTrack1Url} preload="none" />}
+      {video.audioTrack2Url && <audio ref={audio2Ref} src={video.audioTrack2Url} preload="none" />}
 
       {/* Spinner de buffering */}
       {isBuffering && (
