@@ -21,7 +21,9 @@ export interface Video {
   arquivoUrl: string;
   bunnyVideoId?: string;
   audioTrack1Url?: string;
+  audioTrack1Lang?: string;
   audioTrack2Url?: string;
+  audioTrack2Lang?: string;
   thumbnailUrl: string;
   isPremium: boolean;
   criadoEm: string;
@@ -90,7 +92,9 @@ export interface Episode {
   video_url: string;
   bunnyVideoId?: string;
   audioTrack1Url?: string;
+  audioTrack1Lang?: string;
   audioTrack2Url?: string;
+  audioTrack2Lang?: string;
   duration: number;
   thumbnail: string;
   likes?: number;

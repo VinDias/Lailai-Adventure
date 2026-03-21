@@ -118,7 +118,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   // Modal de canais de áudio
   const [audioModalEp, setAudioModalEp] = useState<any>(null);
-  const [audioForm, setAudioForm] = useState<{ audioTrack1Url: string; audioTrack2Url: string }>({ audioTrack1Url: '', audioTrack2Url: '' });
+  const [audioForm, setAudioForm] = useState<{ audioTrack1Url: string; audioTrack1Lang: string; audioTrack2Url: string; audioTrack2Lang: string }>({ audioTrack1Url: '', audioTrack1Lang: '', audioTrack2Url: '', audioTrack2Lang: '' });
   const [uploadingAudio, setUploadingAudio] = useState<{ track1: boolean; track2: boolean }>({ track1: false, track2: false });
   const audioTrack1Ref = useRef<HTMLInputElement>(null);
   const audioTrack2Ref = useRef<HTMLInputElement>(null);
@@ -358,7 +358,25 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
 const handleOpenAudioModal = (ep: any) => {
     setAudioModalEp(ep);
-    setAudioForm({ audioTrack1Url: ep.audioTrack1Url || '', audioTrack2Url: ep.audioTrack2Url || '' });
+    setAudioForm({
+      audioTrack1Url: ep.audioTrack1Url || '',
+      audioTrack1Lang: ep.audioTrack1Lang || '',
+      audioTrack2Url: ep.audioTrack2Url || '',
+      audioTrack2Lang: ep.audioTrack2Lang || '',
+    });
+  };
+
+  const handleLangChange = async (track: 'track1' | 'track2', lang: string) => {
+    const field = track === 'track1' ? 'audioTrack1Lang' : 'audioTrack2Lang';
+    const updated = { ...audioForm, [field]: lang };
+    setAudioForm(updated);
+    if (!audioModalEp) return;
+    const epId = audioModalEp._id || audioModalEp.id;
+    try {
+      await api.updateEpisodeAudio(epId, { [field]: lang });
+      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === epId ? { ...ep, [field]: lang } : ep));
+      setAudioModalEp((prev: any) => ({ ...prev, [field]: lang }));
+    } catch { /* silently ignore */ }
   };
 
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>, track: 'track1' | 'track2') => {
@@ -383,12 +401,14 @@ const handleOpenAudioModal = (ep: any) => {
 
   const handleRemoveAudio = async (track: 'track1' | 'track2') => {
     if (!audioModalEp) return;
-    const field = track === 'track1' ? 'audioTrack1Url' : 'audioTrack2Url';
+    const urlField = track === 'track1' ? 'audioTrack1Url' : 'audioTrack2Url';
+    const langField = track === 'track1' ? 'audioTrack1Lang' : 'audioTrack2Lang';
+    const epId = audioModalEp._id || audioModalEp.id;
     try {
-      await api.updateEpisodeAudio(audioModalEp._id || audioModalEp.id, { [field]: '' });
-      setAudioForm(prev => ({ ...prev, [field]: '' }));
-      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === (audioModalEp._id || audioModalEp.id) ? { ...ep, [field]: '' } : ep));
-      setAudioModalEp((prev: any) => ({ ...prev, [field]: '' }));
+      await api.updateEpisodeAudio(epId, { [urlField]: '', [langField]: '' });
+      setAudioForm(prev => ({ ...prev, [urlField]: '', [langField]: '' }));
+      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === epId ? { ...ep, [urlField]: '', [langField]: '' } : ep));
+      setAudioModalEp((prev: any) => ({ ...prev, [urlField]: '', [langField]: '' }));
     } catch (err: any) {
       alert(`Erro ao remover áudio: ${err.message}`);
     }
@@ -1632,24 +1652,28 @@ const handleOpenAudioModal = (ep: any) => {
             <p className="text-xs text-zinc-600 font-bold mb-8 truncate">Ep.{audioModalEp.episode_number} — {audioModalEp.title}</p>
 
             <div className="space-y-5">
-              {/* Canal 1 — Dublagem / Voice Comic */}
+              {/* Canal 1 */}
               <AudioChannelRow
-                label="Canal 1 — Dublagem / Voice Comic"
+                label="Canal 1"
                 icon={<Mic size={16} />}
                 url={audioForm.audioTrack1Url}
+                lang={audioForm.audioTrack1Lang}
                 uploading={uploadingAudio.track1}
                 onUpload={() => audioTrack1Ref.current?.click()}
                 onRemove={() => handleRemoveAudio('track1')}
+                onLangChange={lang => handleLangChange('track1', lang)}
               />
 
-              {/* Canal 2 — Trilha Sonora / Áudio Alternativo */}
+              {/* Canal 2 */}
               <AudioChannelRow
-                label="Canal 2 — Trilha Sonora / Alternativo"
+                label="Canal 2"
                 icon={<Music2 size={16} />}
                 url={audioForm.audioTrack2Url}
+                lang={audioForm.audioTrack2Lang}
                 uploading={uploadingAudio.track2}
                 onUpload={() => audioTrack2Ref.current?.click()}
                 onRemove={() => handleRemoveAudio('track2')}
+                onLangChange={lang => handleLangChange('track2', lang)}
               />
             </div>
 
@@ -1863,13 +1887,28 @@ const FormField = ({ label, value, onChange, required = false }: { label: string
   </div>
 );
 
-const AudioChannelRow = ({ label, icon, url, uploading, onUpload, onRemove }: {
+const AUDIO_LANGS = [
+  { value: '',      label: '— Selecionar idioma —' },
+  { value: 'pt-br', label: 'Português (PT-BR)' },
+  { value: 'en',    label: 'English' },
+  { value: 'es',    label: 'Español' },
+  { value: 'ja',    label: '日本語' },
+  { value: 'zh',    label: '中文' },
+  { value: 'ko',    label: '한국어' },
+  { value: 'fr',    label: 'Français' },
+  { value: 'de',    label: 'Deutsch' },
+  { value: 'it',    label: 'Italiano' },
+];
+
+const AudioChannelRow = ({ label, icon, url, lang, uploading, onUpload, onRemove, onLangChange }: {
   label: string;
   icon: React.ReactNode;
   url: string;
+  lang: string;
   uploading: boolean;
   onUpload: () => void;
   onRemove: () => void;
+  onLangChange: (lang: string) => void;
 }) => (
   <div className="bg-white/5 rounded-2xl border border-[var(--border-color)] p-5 space-y-3">
     <div className="flex items-center gap-2">
@@ -1880,6 +1919,16 @@ const AudioChannelRow = ({ label, icon, url, uploading, onUpload, onRemove }: {
         : <span className="ml-auto text-[9px] font-black text-zinc-600 uppercase tracking-widest">Não configurado</span>
       }
     </div>
+
+    {/* Seletor de idioma — sempre visível */}
+    <select
+      value={lang}
+      onChange={e => onLangChange(e.target.value)}
+      className="w-full bg-black/40 border border-[var(--border-color)] rounded-xl px-3 py-2 text-sm text-white font-bold outline-none focus:border-violet-500 transition-colors"
+    >
+      {AUDIO_LANGS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+
     {url && (
       <p className="text-[10px] text-zinc-600 font-mono truncate" title={url}>{url}</p>
     )}

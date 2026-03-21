@@ -288,6 +288,14 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const hasAudio1 = Boolean(video.audioTrack1Url);
   const hasAudio2 = Boolean(video.audioTrack2Url);
   const hasMultiAudio = hasAudio1 || hasAudio2;
+
+  const LANG_LABELS: Record<string, string> = {
+    'pt-br': 'PT-BR', 'en': 'English', 'es': 'Español',
+    'ja': '日本語', 'zh': '中文', 'ko': '한국어',
+    'fr': 'Français', 'de': 'Deutsch', 'it': 'Italiano',
+  };
+  const lang1Label = (video.audioTrack1Lang && LANG_LABELS[video.audioTrack1Lang]) || 'Faixa 1';
+  const lang2Label = (video.audioTrack2Lang && LANG_LABELS[video.audioTrack2Lang]) || 'Faixa 2';
   const hasQuality = qualityLevels.length > 0;
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -344,7 +352,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
                   onClick={() => changeAudioMode('audio1')}
                   className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === 'audio1' ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
                 >
-                  DUB 1
+                  {lang1Label}
                 </button>
               )}
               {hasAudio2 && (
@@ -352,7 +360,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
                   onClick={() => changeAudioMode('audio2')}
                   className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === 'audio2' ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
                 >
-                  DUB 2
+                  {lang2Label}
                 </button>
               )}
             </div>

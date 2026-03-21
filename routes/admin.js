@@ -144,10 +144,12 @@ router.put("/update-thumbnail/:id", verifyToken, requireAdmin, upload.single("th
 // ATUALIZAR CANAIS DE ÁUDIO DE UM EPISÓDIO
 router.patch("/episodes/:id/audio", verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { audioTrack1Url, audioTrack2Url } = req.body;
+    const { audioTrack1Url, audioTrack1Lang, audioTrack2Url, audioTrack2Lang } = req.body;
     const update = {};
     if (audioTrack1Url !== undefined) update.audioTrack1Url = audioTrack1Url;
+    if (audioTrack1Lang !== undefined) update.audioTrack1Lang = audioTrack1Lang;
     if (audioTrack2Url !== undefined) update.audioTrack2Url = audioTrack2Url;
+    if (audioTrack2Lang !== undefined) update.audioTrack2Lang = audioTrack2Lang;
 
     if (Object.keys(update).length === 0) {
       return res.status(400).json({ error: 'Nenhum campo de áudio fornecido.' });
@@ -157,7 +159,11 @@ router.patch("/episodes/:id/audio", verifyToken, requireAdmin, async (req, res) 
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
 
     logger.info(`[Admin] Áudio do episódio "${episode.title}" atualizado.`);
-    res.json({ success: true, audioTrack1Url: episode.audioTrack1Url, audioTrack2Url: episode.audioTrack2Url });
+    res.json({
+      success: true,
+      audioTrack1Url: episode.audioTrack1Url, audioTrack1Lang: episode.audioTrack1Lang,
+      audioTrack2Url: episode.audioTrack2Url, audioTrack2Lang: episode.audioTrack2Lang
+    });
   } catch (err) {
     logger.error('[Admin Audio Update Error]', err);
     res.status(500).json({ error: err.message });
