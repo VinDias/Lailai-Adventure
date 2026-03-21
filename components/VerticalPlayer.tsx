@@ -113,15 +113,18 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     };
     const onPause = () => {
       setIsPlaying(false);
+      v.playbackRate = 1;
       allAudioRefs.forEach(r => { if (r.current) { r.current.pause(); resetAudioRate(r.current); } });
     };
     const onWaiting = () => {
       setIsBuffering(true);
+      v.playbackRate = 1;
       const active = audioRefForMode(audioModeRef.current);
       if (active) { active.pause(); resetAudioRate(active); }
     };
     const onCanPlay = () => setIsBuffering(false);
     const onSeeked = () => {
+      v.playbackRate = 1;
       const active = audioRefForMode(audioModeRef.current);
       if (!active) return;
       active.pause();
@@ -131,32 +134,29 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     };
     const onTimeUpdate = () => {
       setCurrentTime(v.currentTime);
-      // Sync fino via playbackRate — acionado pelo clock do próprio vídeo
+      // Áudio é o clock mestre — vídeo ajusta playbackRate para alcançar o áudio
       const active = audioRefForMode(audioModeRef.current);
-      if (!active || active.paused || v.paused) return;
-      const drift = active.currentTime - v.currentTime; // positivo = áudio adiantado
-      if (Math.abs(drift) > 1.5) {
-        // Drift grande: hard resync
-        active.pause();
-        active.currentTime = v.currentTime;
-        resetAudioRate(active);
-        active.play().catch(() => {});
+      if (!active || active.paused || v.paused) {
+        if (v.playbackRate !== 1) v.playbackRate = 1;
+        return;
+      }
+      const drift = active.currentTime - v.currentTime; // positivo = áudio adiantado, vídeo atrasado
+      if (Math.abs(drift) > 3) {
+        // Drift irrecuperável: reseta vídeo para posição do áudio
+        v.playbackRate = 1;
+        v.currentTime = active.currentTime;
       } else if (drift > 0.08) {
-        active.playbackRate = 0.98; // áudio adiantado: desacelera 2%
+        // Vídeo atrasado: acelera proporcionalmente (máx +15%)
+        v.playbackRate = Math.min(1.15, 1 + drift * 0.12);
       } else if (drift < -0.08) {
-        active.playbackRate = 1.02; // áudio atrasado: acelera 2%
+        // Vídeo adiantado: desacelera levemente (máx -5%)
+        v.playbackRate = Math.max(0.95, 1 + drift * 0.05);
       } else {
-        if (active.playbackRate !== 1) resetAudioRate(active);
+        if (v.playbackRate !== 1) v.playbackRate = 1;
       }
     };
     const onLoaded = () => setDuration(v.duration);
     const onVolume = () => setIsMuted(v.muted);
-    const onRateChange = () => {
-      if (v.playbackRate !== 1) {
-        const active = audioRefForMode(audioModeRef.current);
-        if (active) { active.pause(); resetAudioRate(active); }
-      }
-    };
 
     v.addEventListener('playing', onPlaying);
     v.addEventListener('pause', onPause);
@@ -167,8 +167,8 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     v.addEventListener('loadedmetadata', onLoaded);
     v.addEventListener('durationchange', onLoaded);
     v.addEventListener('volumechange', onVolume);
-    v.addEventListener('ratechange', onRateChange);
     return () => {
+      v.playbackRate = 1;
       v.removeEventListener('playing', onPlaying);
       v.removeEventListener('pause', onPause);
       v.removeEventListener('waiting', onWaiting);
@@ -178,7 +178,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       v.removeEventListener('loadedmetadata', onLoaded);
       v.removeEventListener('durationchange', onLoaded);
       v.removeEventListener('volumechange', onVolume);
-      v.removeEventListener('ratechange', onRateChange);
     };
   }, [showAd]);
 
@@ -279,6 +278,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     setAudioMode(mode);
     localStorage.setItem('lorflux_audio_preference', mode);
     if (!v) return;
+    v.playbackRate = 1;
     if (mode === 'original') {
       v.muted = false;
       allAudioRefs.forEach(r => { if (r.current) { r.current.pause(); r.current.volume = 0; } });
