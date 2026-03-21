@@ -671,6 +671,17 @@ const handleOpenAudioModal = (ep: any) => {
     fileInputRef.current?.click();
   };
 
+  const handleDeleteThumbnail = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (!confirm('Remover capa desta série?')) return;
+    try {
+      await api.clearSeriesThumbnail(id);
+      setContentList(prev => prev.map(s => (s._id || s.id) === id ? { ...s, cover_image: '' } : s));
+    } catch {
+      alert('Erro ao remover capa.');
+    }
+  };
+
   const handleThumbnailFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !uploadTargetId) return;
@@ -756,7 +767,23 @@ const handleOpenAudioModal = (ep: any) => {
       {/* Sidebar */}
       <aside className="w-64 bg-[var(--card-bg)] border-r border-[var(--border-color)] flex flex-col p-6 shrink-0">
         <div className="flex items-center gap-3 mb-12 px-2">
-          <div className="w-10 h-10 bg-rose-600 rounded-xl flex items-center justify-center font-black italic text-sm">LF</div>
+          <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0">
+            <svg width="40" height="40" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+              <rect width="1024" height="1024" fill="#000000" rx="180" />
+              <rect x="128" y="128" width="768" height="768" rx="180" fill="none" stroke="#FFFFFF" strokeWidth="12" />
+              <path d="M360 300 H440 V620 H760 V700 H360 Z" fill="#FFFFFF" />
+              <g stroke="#000000" strokeWidth="6" strokeLinecap="round">
+                <line x1="360" y1="340" x2="400" y2="340" /><line x1="360" y1="420" x2="400" y2="420" />
+                <line x1="360" y1="500" x2="400" y2="500" /><line x1="360" y1="580" x2="400" y2="580" />
+                <line x1="360" y1="380" x2="385" y2="380" /><line x1="360" y1="460" x2="385" y2="460" />
+                <line x1="360" y1="540" x2="385" y2="540" />
+                <line x1="420" y1="700" x2="420" y2="660" /><line x1="520" y1="700" x2="520" y2="660" />
+                <line x1="620" y1="700" x2="620" y2="660" /><line x1="720" y1="700" x2="720" y2="660" />
+                <line x1="470" y1="700" x2="470" y2="675" /><line x1="570" y1="700" x2="570" y2="675" />
+                <line x1="670" y1="700" x2="670" y2="675" />
+              </g>
+            </svg>
+          </div>
           <h1 className="text-lg font-black tracking-tighter">Lorflux Studio</h1>
         </div>
 
@@ -831,19 +858,30 @@ const handleOpenAudioModal = (ep: any) => {
                       const id = item._id || item.id;
                       return (
                         <div key={id} className="flex items-center gap-6 p-6 hover:bg-white/5 transition-all">
-                          <button
-                            onClick={() => handleThumbnailClick(id)}
-                            className="w-12 h-20 bg-zinc-800 rounded-lg overflow-hidden shrink-0 border border-[var(--border-color)] relative group cursor-pointer"
-                            title="Clique para trocar a capa"
-                          >
-                            <ImageWithFallback src={item.cover_image} className="w-full h-full object-cover" alt={item.title} />
-                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
-                              {uploadingId === id
-                                ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                : <Camera size={14} className="text-white" />
-                              }
-                            </div>
-                          </button>
+                          <div className="relative shrink-0">
+                            <button
+                              onClick={() => handleThumbnailClick(id)}
+                              className="w-12 h-20 bg-zinc-800 rounded-lg overflow-hidden border border-[var(--border-color)] relative group cursor-pointer block"
+                              title="Clique para trocar a capa"
+                            >
+                              <ImageWithFallback src={item.cover_image} className="w-full h-full object-cover" alt={item.title} />
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
+                                {uploadingId === id
+                                  ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                  : <Camera size={14} className="text-white" />
+                                }
+                              </div>
+                            </button>
+                            {item.cover_image && (
+                              <button
+                                onClick={(e) => handleDeleteThumbnail(e, id)}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rose-600 rounded-full flex items-center justify-center border-2 border-[var(--card-bg)] hover:bg-rose-500 transition-all"
+                                title="Remover capa"
+                              >
+                                <X size={10} className="text-white" />
+                              </button>
+                            )}
+                          </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-sm mb-1 truncate">{item.title}</h4>
                             <div className="flex gap-3 flex-wrap">

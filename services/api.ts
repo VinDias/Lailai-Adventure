@@ -243,6 +243,13 @@ class ApiService {
     return this.request<any>(`/content/episodes/${id}`, { method: 'DELETE' });
   }
 
+  async clearSeriesThumbnail(seriesId: string): Promise<void> {
+    await this.request(`/content/series/${seriesId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ cover_image: '' })
+    });
+  }
+
   async uploadSeriesThumbnail(seriesId: string, file: File): Promise<string> {
     // Upload para Bunny Storage e atualiza cover_image da série
     const url = await this.uploadImageToBunny(file);
