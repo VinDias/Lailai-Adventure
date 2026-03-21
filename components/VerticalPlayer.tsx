@@ -94,45 +94,70 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     return () => { hlsRef.current?.destroy(); };
   }, [signedSrc]);
 
-  // Video event listeners — usa ref para audioMode para evitar closure stale
+  // Video event listeners + sync contínuo num único useEffect
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    // 'playing' cobre tanto play inicial quanto retomada após buffering
+
+    const resetAudioRate = (a: HTMLAudioElement) => { a.playbackRate = 1; };
+
     const onPlaying = () => {
       setIsPlaying(true);
       setIsBuffering(false);
       const active = audioRefForMode(audioModeRef.current);
-      // Só sincroniza e toca se estiver pausado (evita interromper buffer ativo)
       if (active && active.paused) {
         active.currentTime = v.currentTime;
+        resetAudioRate(active);
         active.play().catch(() => {});
       }
     };
     const onPause = () => {
       setIsPlaying(false);
-      allAudioRefs.forEach(r => r.current?.pause());
+      allAudioRefs.forEach(r => { if (r.current) { r.current.pause(); resetAudioRate(r.current); } });
     };
     const onWaiting = () => {
       setIsBuffering(true);
-      // Pausa o áudio ativo para não adiantar enquanto o vídeo buferiza
-      audioRefForMode(audioModeRef.current)?.pause();
+      const active = audioRefForMode(audioModeRef.current);
+      if (active) { active.pause(); resetAudioRate(active); }
     };
     const onCanPlay = () => setIsBuffering(false);
-    // Após seek concluído: sincroniza o áudio ativo com a nova posição
     const onSeeked = () => {
       const active = audioRefForMode(audioModeRef.current);
       if (!active) return;
+      active.pause();
       active.currentTime = v.currentTime;
+      resetAudioRate(active);
       if (!v.paused) active.play().catch(() => {});
     };
-    const onTimeUpdate = () => setCurrentTime(v.currentTime);
+    const onTimeUpdate = () => {
+      setCurrentTime(v.currentTime);
+      // Sync fino via playbackRate — acionado pelo clock do próprio vídeo
+      const active = audioRefForMode(audioModeRef.current);
+      if (!active || active.paused || v.paused) return;
+      const drift = active.currentTime - v.currentTime; // positivo = áudio adiantado
+      if (Math.abs(drift) > 1.5) {
+        // Drift grande: hard resync
+        active.pause();
+        active.currentTime = v.currentTime;
+        resetAudioRate(active);
+        active.play().catch(() => {});
+      } else if (drift > 0.08) {
+        active.playbackRate = 0.98; // áudio adiantado: desacelera 2%
+      } else if (drift < -0.08) {
+        active.playbackRate = 1.02; // áudio atrasado: acelera 2%
+      } else {
+        if (active.playbackRate !== 1) resetAudioRate(active);
+      }
+    };
     const onLoaded = () => setDuration(v.duration);
     const onVolume = () => setIsMuted(v.muted);
-    // Se a velocidade do vídeo mudar (ex: HLS catch-up), pausa o áudio para evitar dessincronia
     const onRateChange = () => {
-      if (v.playbackRate !== 1) audioRefForMode(audioModeRef.current)?.pause();
+      if (v.playbackRate !== 1) {
+        const active = audioRefForMode(audioModeRef.current);
+        if (active) { active.pause(); resetAudioRate(active); }
+      }
     };
+
     v.addEventListener('playing', onPlaying);
     v.addEventListener('pause', onPause);
     v.addEventListener('waiting', onWaiting);
@@ -155,39 +180,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       v.removeEventListener('volumechange', onVolume);
       v.removeEventListener('ratechange', onRateChange);
     };
-  }, [showAd]);
-
-  // Sync contínuo via playbackRate — sem flush de buffer, sem stutter
-  // Ajusta a velocidade do áudio para eliminar drift gradualmente
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    const tick = setInterval(() => {
-      const active = audioRefForMode(audioModeRef.current);
-      // Só corrige quando ambos estão tocando e o vídeo tem dados
-      if (!active || active.paused || v.paused || v.readyState < 3) {
-        if (active && active.playbackRate !== 1) active.playbackRate = 1;
-        return;
-      }
-      const drift = active.currentTime - v.currentTime; // positivo = áudio adiantado
-      if (Math.abs(drift) > 2.5) {
-        // Drift grande demais — hard seek com pausa breve
-        active.pause();
-        active.currentTime = v.currentTime;
-        active.playbackRate = 1;
-        active.play().catch(() => {});
-      } else if (drift > 0.15) {
-        // Áudio adiantado — desacelera proporcionalmente (máx 10%)
-        active.playbackRate = Math.max(0.90, 1 - Math.min(drift, 1) * 0.10);
-      } else if (drift < -0.15) {
-        // Áudio atrasado — acelera proporcionalmente (máx 10%)
-        active.playbackRate = Math.min(1.10, 1 + Math.min(-drift, 1) * 0.10);
-      } else {
-        // Em sincronia — normaliza
-        if (active.playbackRate !== 1) active.playbackRate = 1;
-      }
-    }, 250);
-    return () => clearInterval(tick);
   }, [showAd]);
 
   // Audio mode effect: configura volume/muted (sem .play())
