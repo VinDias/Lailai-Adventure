@@ -34,8 +34,8 @@ const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
   return (
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
       <header className="p-8 pt-16 md:p-12">
-        <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">V-FILM</h1>
-        <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Experimental Vertical Cinema</p>
+        <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">VCINE</h1>
+        <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Original Vertical Cinema</p>
       </header>
 
       <section className="px-8">
