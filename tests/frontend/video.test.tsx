@@ -59,8 +59,6 @@ const makeVideo = (overrides: Partial<Video> = {}): Video => ({
   duracao: 120,
   arquivoUrl: 'https://cdn.example.com/video.mp4',
   bunnyVideoId: undefined,
-  audioTrack1Url: undefined,
-  audioTrack2Url: undefined,
   thumbnailUrl: '',
   isPremium: false,
   criadoEm: '',
@@ -196,23 +194,12 @@ describe('VerticalPlayer — Renderização', () => {
     fireEvent.click(document.querySelector('button[aria-label]') || screen.getByRole('button', { hidden: true, name: /fechar/i }) as Element);
   });
 
-  it('não exibe botões de áudio quando não há faixas alternativas', async () => {
+  it('não exibe seletor de áudio quando o HLS não tem faixas alternativas', async () => {
     const user = makeUser({ isPremium: true });
-    const video = makeVideo({ audioTrack1Url: undefined, audioTrack2Url: undefined });
+    const video = makeVideo();
     render(<VerticalPlayer video={video} user={user} onClose={vi.fn()} />);
     await waitFor(() => document.querySelector('video'));
-    expect(screen.queryByText('Dublagem 1')).not.toBeInTheDocument();
-    expect(screen.queryByText('Dublagem 2')).not.toBeInTheDocument();
-  });
-
-  it('exibe opções de idioma quando há faixa de áudio alternativa', async () => {
-    const user = makeUser({ isPremium: true });
-    const video = makeVideo({ audioTrack1Url: 'https://cdn.example.com/dub1.mp3' });
-    render(<VerticalPlayer video={video} user={user} onClose={vi.fn()} />);
-    await waitFor(() => {
-      expect(screen.getByText('Original')).toBeInTheDocument();
-      expect(screen.getByText('Dublagem 1')).toBeInTheDocument();
-    });
+    expect(screen.queryByText('Faixa 1')).not.toBeInTheDocument();
   });
 });
 

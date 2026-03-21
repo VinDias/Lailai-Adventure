@@ -7,7 +7,7 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle, Music, Mic, Music2, Settings
+  CheckCircle2, AlertCircle, Settings
 } from 'lucide-react';
 import API_URL from '../../config/api';
 import ImageWithFallback from '../ImageWithFallback';
@@ -116,14 +116,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [savingEpThumb, setSavingEpThumb] = useState(false);
   const epThumbFileRef = useRef<HTMLInputElement>(null);
 
-  // Modal de canais de áudio
-  const [audioModalEp, setAudioModalEp] = useState<any>(null);
-  const [audioForm, setAudioForm] = useState<{ audioTrack1Url: string; audioTrack1Lang: string; audioTrack2Url: string; audioTrack2Lang: string; audioTrack3Url: string; audioTrack3Lang: string; audioTrack4Url: string; audioTrack4Lang: string }>({ audioTrack1Url: '', audioTrack1Lang: '', audioTrack2Url: '', audioTrack2Lang: '', audioTrack3Url: '', audioTrack3Lang: '', audioTrack4Url: '', audioTrack4Lang: '' });
-  const [uploadingAudio, setUploadingAudio] = useState<{ track1: boolean; track2: boolean; track3: boolean; track4: boolean }>({ track1: false, track2: false, track3: false, track4: false });
-  const audioTrack1Ref = useRef<HTMLInputElement>(null);
-  const audioTrack2Ref = useRef<HTMLInputElement>(null);
-  const audioTrack3Ref = useRef<HTMLInputElement>(null);
-  const audioTrack4Ref = useRef<HTMLInputElement>(null);
 
   // Batch upload de painéis
   const [batchFiles, setBatchFiles] = useState<Array<{ file: File; preview: string; status: 'pending' | 'uploading' | 'done' | 'error'; url?: string; error?: string }>>([]);
@@ -358,63 +350,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     }
   };
 
-const handleOpenAudioModal = (ep: any) => {
-    setAudioModalEp(ep);
-    setAudioForm({
-      audioTrack1Url: ep.audioTrack1Url || '', audioTrack1Lang: ep.audioTrack1Lang || '',
-      audioTrack2Url: ep.audioTrack2Url || '', audioTrack2Lang: ep.audioTrack2Lang || '',
-      audioTrack3Url: ep.audioTrack3Url || '', audioTrack3Lang: ep.audioTrack3Lang || '',
-      audioTrack4Url: ep.audioTrack4Url || '', audioTrack4Lang: ep.audioTrack4Lang || '',
-    });
-  };
-
-  const handleLangChange = async (track: 'track1' | 'track2' | 'track3' | 'track4', lang: string) => {
-    const field = `audioTrack${track.slice(-1)}Lang` as any;
-    const updated = { ...audioForm, [field]: lang };
-    setAudioForm(updated);
-    if (!audioModalEp) return;
-    const epId = audioModalEp._id || audioModalEp.id;
-    try {
-      await api.updateEpisodeAudio(epId, { [field]: lang });
-      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === epId ? { ...ep, [field]: lang } : ep));
-      setAudioModalEp((prev: any) => ({ ...prev, [field]: lang }));
-    } catch { /* silently ignore */ }
-  };
-
-  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>, track: 'track1' | 'track2' | 'track3' | 'track4') => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !audioModalEp) return;
-    setUploadingAudio(prev => ({ ...prev, [track]: true }));
-    try {
-      const { url } = await api.uploadAudioToBunny(file);
-      const field = `audioTrack${track.slice(-1)}Url` as any;
-      const updated = { ...audioForm, [field]: url };
-      setAudioForm(updated);
-      await api.updateEpisodeAudio(audioModalEp._id || audioModalEp.id, { [field]: url });
-      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === (audioModalEp._id || audioModalEp.id) ? { ...ep, [field]: url } : ep));
-      setAudioModalEp((prev: any) => ({ ...prev, [field]: url }));
-    } catch (err: any) {
-      alert(`Erro ao enviar áudio: ${err.message}`);
-    } finally {
-      setUploadingAudio(prev => ({ ...prev, [track]: false }));
-    }
-  };
-
-  const handleRemoveAudio = async (track: 'track1' | 'track2' | 'track3' | 'track4') => {
-    if (!audioModalEp) return;
-    const urlField = `audioTrack${track.slice(-1)}Url` as any;
-    const langField = `audioTrack${track.slice(-1)}Lang` as any;
-    const epId = audioModalEp._id || audioModalEp.id;
-    try {
-      await api.updateEpisodeAudio(epId, { [urlField]: '', [langField]: '' });
-      setAudioForm(prev => ({ ...prev, [urlField]: '', [langField]: '' }));
-      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === epId ? { ...ep, [urlField]: '', [langField]: '' } : ep));
-      setAudioModalEp((prev: any) => ({ ...prev, [urlField]: '', [langField]: '' }));
-    } catch (err: any) {
-      alert(`Erro ao remover áudio: ${err.message}`);
-    }
-  };
 
   const handleBatchFilesSelect = (incoming: FileList | File[]) => {
     const arr = Array.from(incoming).filter(f => f.type.startsWith('image/'));
@@ -1009,18 +944,6 @@ const handleOpenAudioModal = (ep: any) => {
                             )}
                             {selectedSeries?.content_type === 'hiqua' && (
                               <button onClick={() => handleOpenPanels(ep)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Gerenciar painéis"><BookOpen size={15} /></button>
-                            )}
-                            {selectedSeries?.content_type !== 'hiqua' && (
-                              <button
-                                onClick={() => handleOpenAudioModal(ep)}
-                                className="p-2 bg-white/5 rounded-lg transition-all"
-                                title="Gerenciar canais de áudio"
-                              >
-                                {(ep.audioTrack1Url || ep.audioTrack2Url)
-                                  ? <Music size={15} className="text-violet-400" />
-                                  : <Music size={15} className="text-zinc-500 hover:text-violet-400" />
-                                }
-                              </button>
                             )}
                             <button onClick={() => handleDeleteEpisode(epId)} className="p-2 bg-rose-600/10 rounded-lg text-rose-500 hover:bg-rose-600 hover:text-white transition-all"><Trash2 size={16} /></button>
                           </div>
@@ -1632,11 +1555,6 @@ const handleOpenAudioModal = (ep: any) => {
         onChange={handleVideoFileChange}
       />
 
-      {/* Inputs ocultos para upload de áudio */}
-      <input ref={audioTrack1Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track1')} />
-      <input ref={audioTrack2Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track2')} />
-      <input ref={audioTrack3Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track3')} />
-      <input ref={audioTrack4Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track4')} />
 
       {/* Modal — Thumbnail do Episódio */}
       {epThumbModal && (
@@ -1684,40 +1602,6 @@ const handleOpenAudioModal = (ep: any) => {
       )}
 
       {/* Modal — Canais de Áudio */}
-      {audioModalEp && (
-        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
-          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-2xl font-black tracking-tighter">Canais de Áudio</h3>
-              <button onClick={() => setAudioModalEp(null)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
-            </div>
-            <p className="text-xs text-zinc-600 font-bold mb-8 truncate">Ep.{audioModalEp.episode_number} — {audioModalEp.title}</p>
-
-            <div className="space-y-4">
-              {([
-                { track: 'track1' as const, icon: <Mic size={16} />, url: audioForm.audioTrack1Url, lang: audioForm.audioTrack1Lang, ref: audioTrack1Ref, uploading: uploadingAudio.track1 },
-                { track: 'track2' as const, icon: <Music2 size={16} />, url: audioForm.audioTrack2Url, lang: audioForm.audioTrack2Lang, ref: audioTrack2Ref, uploading: uploadingAudio.track2 },
-                { track: 'track3' as const, icon: <Mic size={16} />, url: audioForm.audioTrack3Url, lang: audioForm.audioTrack3Lang, ref: audioTrack3Ref, uploading: uploadingAudio.track3 },
-                { track: 'track4' as const, icon: <Music2 size={16} />, url: audioForm.audioTrack4Url, lang: audioForm.audioTrack4Lang, ref: audioTrack4Ref, uploading: uploadingAudio.track4 },
-              ]).map((ch, i) => (
-                <AudioChannelRow
-                  key={ch.track}
-                  label={`Canal ${i + 1}`}
-                  icon={ch.icon}
-                  url={ch.url}
-                  lang={ch.lang}
-                  uploading={ch.uploading}
-                  onUpload={() => ch.ref.current?.click()}
-                  onRemove={() => handleRemoveAudio(ch.track)}
-                  onLangChange={lang => handleLangChange(ch.track, lang)}
-                />
-              ))}
-            </div>
-
-            <p className="text-[10px] text-zinc-700 font-bold mt-8">MP3 · AAC · M4A · OGG · WAV — máx. 200 MB por arquivo</p>
-          </div>
-        </div>
-      )}
 
       {/* Modal — Nova Série */}
       {showCreateModal && (
@@ -1924,73 +1808,5 @@ const FormField = ({ label, value, onChange, required = false }: { label: string
   </div>
 );
 
-const AUDIO_LANGS = [
-  { value: '',      label: '— Selecionar idioma —' },
-  { value: 'pt-br', label: 'Português (PT-BR)' },
-  { value: 'en',    label: 'English' },
-  { value: 'es',    label: 'Español' },
-  { value: 'ja',    label: '日本語' },
-  { value: 'zh',    label: '中文' },
-  { value: 'ko',    label: '한국어' },
-  { value: 'fr',    label: 'Français' },
-  { value: 'de',    label: 'Deutsch' },
-  { value: 'it',    label: 'Italiano' },
-];
-
-const AudioChannelRow = ({ label, icon, url, lang, uploading, onUpload, onRemove, onLangChange }: {
-  label: string;
-  icon: React.ReactNode;
-  url: string;
-  lang: string;
-  uploading: boolean;
-  onUpload: () => void;
-  onRemove: () => void;
-  onLangChange: (lang: string) => void;
-}) => (
-  <div className="bg-white/5 rounded-2xl border border-[var(--border-color)] p-5 space-y-3">
-    <div className="flex items-center gap-2">
-      <span className="text-violet-400">{icon}</span>
-      <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{label}</span>
-      {url
-        ? <span className="ml-auto flex items-center gap-1 text-[9px] font-black text-emerald-400 uppercase tracking-widest"><CheckCircle2 size={12} /> Configurado</span>
-        : <span className="ml-auto text-[9px] font-black text-zinc-600 uppercase tracking-widest">Não configurado</span>
-      }
-    </div>
-
-    {/* Seletor de idioma — sempre visível */}
-    <select
-      value={lang}
-      onChange={e => onLangChange(e.target.value)}
-      className="w-full bg-black/40 border border-[var(--border-color)] rounded-xl px-3 py-2 text-sm text-white font-bold outline-none focus:border-violet-500 transition-colors"
-    >
-      {AUDIO_LANGS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
-
-    {url && (
-      <p className="text-[10px] text-zinc-600 font-mono truncate" title={url}>{url}</p>
-    )}
-    <div className="flex gap-2">
-      <button
-        onClick={onUpload}
-        disabled={uploading}
-        className="flex items-center gap-2 px-4 py-2 bg-violet-600 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-violet-500 transition-all disabled:opacity-50"
-      >
-        {uploading
-          ? <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Enviando...</>
-          : <><Upload size={13} /> {url ? 'Substituir' : 'Upload'}</>
-        }
-      </button>
-      {url && (
-        <button
-          onClick={onRemove}
-          disabled={uploading}
-          className="flex items-center gap-2 px-4 py-2 bg-rose-600/20 rounded-xl text-xs font-black text-rose-400 uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all disabled:opacity-30"
-        >
-          <Trash2 size={13} /> Remover
-        </button>
-      )}
-    </div>
-  </div>
-);
 
 export default AdminDashboard;

@@ -13,8 +13,6 @@ interface PlayerProps {
   onClose: () => void;
 }
 
-type AudioMode = 'original' | 'audio1' | 'audio2' | 'audio3' | 'audio4';
-
 const fmt = (s: number) => {
   if (!isFinite(s) || isNaN(s)) return '0:00';
   const m = Math.floor(s / 60);
@@ -23,7 +21,7 @@ const fmt = (s: number) => {
 };
 
 const LANG_LABELS: Record<string, string> = {
-  'pt-br': 'PT-BR', 'en': 'English', 'es': 'Español',
+  'pt-br': 'PT-BR', 'pt': 'PT-BR', 'en': 'English', 'es': 'Español',
   'ja': '日本語', 'zh': '中文', 'ko': '한국어',
   'fr': 'Français', 'de': 'Deutsch', 'it': 'Italiano',
 };
@@ -31,24 +29,18 @@ const LANG_LABELS: Record<string, string> = {
 const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const { bunny_cdn_base } = useSettings();
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audio1Ref = useRef<HTMLAudioElement>(null);
-  const audio2Ref = useRef<HTMLAudioElement>(null);
-  const audio3Ref = useRef<HTMLAudioElement>(null);
-  const audio4Ref = useRef<HTMLAudioElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const audioModeRef = useRef<AudioMode>('original');
 
   const [showAd, setShowAd] = useState(!user?.isPremium);
   const [accessDenied] = useState(video.isPremium && !user?.isPremium);
   const [signedSrc, setSignedSrc] = useState<string | null>(null);
-  const [audioMode, setAudioMode] = useState<AudioMode>(() => {
-    const saved = localStorage.getItem('lorflux_audio_preference') as AudioMode | null;
-    return saved || 'original';
-  });
+
   const [qualityLevels, setQualityLevels] = useState<any[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
+  const [audioTracks, setAudioTracks] = useState<any[]>([]);
+  const [currentAudioTrack, setCurrentAudioTrack] = useState(-1);
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
 
@@ -58,19 +50,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [showQuality, setShowQuality] = useState(false);
-
-  // Map mode → ref (helper usado em vários lugares)
-  const audioRefForMode = (mode: AudioMode) => {
-    if (mode === 'audio1') return audio1Ref.current;
-    if (mode === 'audio2') return audio2Ref.current;
-    if (mode === 'audio3') return audio3Ref.current;
-    if (mode === 'audio4') return audio4Ref.current;
-    return null;
-  };
-
-  const allAudioRefs = [audio1Ref, audio2Ref, audio3Ref, audio4Ref];
-
-  useEffect(() => { audioModeRef.current = audioMode; }, [audioMode]);
 
   useEffect(() => {
     if (!user || !video.id) return;
@@ -94,107 +73,35 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     return () => { hlsRef.current?.destroy(); };
   }, [signedSrc]);
 
-  // Video event listeners + sync contínuo num único useEffect
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-
-    const resetAudioRate = (a: HTMLAudioElement) => { a.playbackRate = 1; };
-
-    const onPlaying = () => {
-      setIsPlaying(true);
-      setIsBuffering(false);
-      const active = audioRefForMode(audioModeRef.current);
-      if (active && active.paused) {
-        active.currentTime = v.currentTime;
-        resetAudioRate(active);
-        active.play().catch(() => {});
-      }
-    };
-    const onPause = () => {
-      setIsPlaying(false);
-      v.playbackRate = 1;
-      allAudioRefs.forEach(r => { if (r.current) { r.current.pause(); resetAudioRate(r.current); } });
-    };
-    const onWaiting = () => {
-      setIsBuffering(true);
-      v.playbackRate = 1;
-      const active = audioRefForMode(audioModeRef.current);
-      if (active) { active.pause(); resetAudioRate(active); }
-    };
+    const onPlaying = () => { setIsPlaying(true); setIsBuffering(false); };
+    const onPause = () => setIsPlaying(false);
+    const onWaiting = () => setIsBuffering(true);
     const onCanPlay = () => setIsBuffering(false);
-    const onSeeked = () => {
-      v.playbackRate = 1;
-      const active = audioRefForMode(audioModeRef.current);
-      if (!active) return;
-      active.pause();
-      active.currentTime = v.currentTime;
-      resetAudioRate(active);
-      if (!v.paused) active.play().catch(() => {});
-    };
-    const onTimeUpdate = () => {
-      setCurrentTime(v.currentTime);
-      // Áudio é o clock mestre — vídeo ajusta playbackRate para alcançar o áudio
-      const active = audioRefForMode(audioModeRef.current);
-      if (!active || active.paused || v.paused) {
-        if (v.playbackRate !== 1) v.playbackRate = 1;
-        return;
-      }
-      const drift = active.currentTime - v.currentTime; // positivo = áudio adiantado, vídeo atrasado
-      if (Math.abs(drift) > 3) {
-        // Drift irrecuperável: reseta vídeo para posição do áudio
-        v.playbackRate = 1;
-        v.currentTime = active.currentTime;
-      } else if (drift > 0.08) {
-        // Vídeo atrasado: acelera proporcionalmente (máx +15%)
-        v.playbackRate = Math.min(1.15, 1 + drift * 0.12);
-      } else if (drift < -0.08) {
-        // Vídeo adiantado: desacelera levemente (máx -5%)
-        v.playbackRate = Math.max(0.95, 1 + drift * 0.05);
-      } else {
-        if (v.playbackRate !== 1) v.playbackRate = 1;
-      }
-    };
+    const onTimeUpdate = () => setCurrentTime(v.currentTime);
     const onLoaded = () => setDuration(v.duration);
     const onVolume = () => setIsMuted(v.muted);
-
     v.addEventListener('playing', onPlaying);
     v.addEventListener('pause', onPause);
     v.addEventListener('waiting', onWaiting);
     v.addEventListener('canplay', onCanPlay);
-    v.addEventListener('seeked', onSeeked);
     v.addEventListener('timeupdate', onTimeUpdate);
     v.addEventListener('loadedmetadata', onLoaded);
     v.addEventListener('durationchange', onLoaded);
     v.addEventListener('volumechange', onVolume);
     return () => {
-      v.playbackRate = 1;
       v.removeEventListener('playing', onPlaying);
       v.removeEventListener('pause', onPause);
       v.removeEventListener('waiting', onWaiting);
       v.removeEventListener('canplay', onCanPlay);
-      v.removeEventListener('seeked', onSeeked);
       v.removeEventListener('timeupdate', onTimeUpdate);
       v.removeEventListener('loadedmetadata', onLoaded);
       v.removeEventListener('durationchange', onLoaded);
       v.removeEventListener('volumechange', onVolume);
     };
   }, [showAd]);
-
-  // Audio mode effect: configura volume/muted (sem .play())
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (audioMode === 'original') {
-      v.muted = false;
-      allAudioRefs.forEach(r => { if (r.current) r.current.volume = 0; });
-    } else {
-      v.muted = true;
-      allAudioRefs.forEach((r, i) => {
-        if (r.current) r.current.volume = audioMode === `audio${i + 1}` ? 1 : 0;
-      });
-    }
-  }, [audioMode]);
 
   const initializePlayback = () => {
     const v = videoRef.current;
@@ -207,6 +114,12 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setQualityLevels(hls.levels);
         v.play().catch(() => {});
+      });
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
+        setAudioTracks(data.audioTracks || []);
+      });
+      hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_, data) => {
+        setCurrentAudioTrack(data.id);
       });
       hlsRef.current = hls;
     } else if (src.endsWith('.m3u8') && v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -235,7 +148,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     const v = videoRef.current;
     if (!v) return;
     v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + secs));
-    // Sync de áudio tratado pelo evento 'seeked'
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -243,20 +155,12 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     if (!v) return;
     v.currentTime = Number(e.target.value);
     setCurrentTime(v.currentTime);
-    // Sync de áudio tratado pelo evento 'seeked'
   };
 
   const toggleMute = () => {
     const v = videoRef.current;
     if (!v) return;
-    const active = audioRefForMode(audioMode);
-    if (active) {
-      const muting = active.volume > 0;
-      active.volume = muting ? 0 : 1;
-      setIsMuted(muting);
-    } else {
-      v.muted = !v.muted;
-    }
+    v.muted = !v.muted;
   };
 
   const toggleFullscreen = () => {
@@ -272,32 +176,10 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     setCurrentQuality(level);
   };
 
-  // Troca de faixa — dentro do onClick (gesture context)
-  const changeAudioMode = (mode: AudioMode) => {
-    const v = videoRef.current;
-    setAudioMode(mode);
-    localStorage.setItem('lorflux_audio_preference', mode);
-    if (!v) return;
-    v.playbackRate = 1;
-    if (mode === 'original') {
-      v.muted = false;
-      allAudioRefs.forEach(r => { if (r.current) { r.current.pause(); r.current.volume = 0; } });
-    } else {
-      v.muted = true;
-      allAudioRefs.forEach((r, i) => {
-        if (!r.current) return;
-        if (mode === `audio${i + 1}`) {
-          r.current.volume = 1;
-          r.current.playbackRate = 1;
-          r.current.currentTime = v.currentTime;
-          if (!v.paused) r.current.play().catch(() => {});
-        } else {
-          r.current.pause();
-          r.current.volume = 0;
-          r.current.playbackRate = 1;
-        }
-      });
-    }
+  const changeAudioTrack = (id: number) => {
+    if (!hlsRef.current) return;
+    hlsRef.current.audioTrack = id;
+    setCurrentAudioTrack(id);
   };
 
   const handleVote = async (type: 'like' | 'dislike') => {
@@ -320,15 +202,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     );
   }
 
-  // Faixas disponíveis (só as que têm URL)
-  const tracks = [
-    { mode: 'audio1' as AudioMode, url: video.audioTrack1Url, lang: video.audioTrack1Lang },
-    { mode: 'audio2' as AudioMode, url: video.audioTrack2Url, lang: video.audioTrack2Lang },
-    { mode: 'audio3' as AudioMode, url: video.audioTrack3Url, lang: video.audioTrack3Lang },
-    { mode: 'audio4' as AudioMode, url: video.audioTrack4Url, lang: video.audioTrack4Lang },
-  ].filter(t => Boolean(t.url));
-
-  const hasMultiAudio = tracks.length > 0;
+  const hasMultiAudio = audioTracks.length > 1;
   const hasQuality = qualityLevels.length > 0;
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -346,11 +220,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         onClick={() => { revealControls(); togglePlay(); }}
       />
 
-      {video.audioTrack1Url && <audio ref={audio1Ref} src={video.audioTrack1Url} preload="none" />}
-      {video.audioTrack2Url && <audio ref={audio2Ref} src={video.audioTrack2Url} preload="none" />}
-      {video.audioTrack3Url && <audio ref={audio3Ref} src={video.audioTrack3Url} preload="none" />}
-      {video.audioTrack4Url && <audio ref={audio4Ref} src={video.audioTrack4Url} preload="none" />}
-
       {isBuffering && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin" />
@@ -367,22 +236,15 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         </button>
 
         <div className="flex gap-2 flex-wrap justify-end">
-          {/* Seletor de idioma — visível na barra superior */}
           {hasMultiAudio && (
             <div className="flex gap-1 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 p-1">
-              <button
-                onClick={() => changeAudioMode('original')}
-                className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === 'original' ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}
-              >
-                Original
-              </button>
-              {tracks.map(t => (
+              {audioTracks.map((t, i) => (
                 <button
-                  key={t.mode}
-                  onClick={() => changeAudioMode(t.mode)}
-                  className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === t.mode ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
+                  key={t.id ?? i}
+                  onClick={() => changeAudioTrack(t.id ?? i)}
+                  className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${currentAudioTrack === (t.id ?? i) ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
                 >
-                  {(t.lang && LANG_LABELS[t.lang]) || t.mode.replace('audio', 'Faixa ')}
+                  {LANG_LABELS[t.lang?.toLowerCase()] || t.name || `Faixa ${i + 1}`}
                 </button>
               ))}
             </div>

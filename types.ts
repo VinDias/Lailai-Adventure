@@ -20,10 +20,6 @@ export interface Video {
   duracao: number;
   arquivoUrl: string;
   bunnyVideoId?: string;
-  audioTrack1Url?: string; audioTrack1Lang?: string;
-  audioTrack2Url?: string; audioTrack2Lang?: string;
-  audioTrack3Url?: string; audioTrack3Lang?: string;
-  audioTrack4Url?: string; audioTrack4Lang?: string;
   thumbnailUrl: string;
   isPremium: boolean;
   criadoEm: string;
@@ -91,10 +87,6 @@ export interface Episode {
   description: string;
   video_url: string;
   bunnyVideoId?: string;
-  audioTrack1Url?: string; audioTrack1Lang?: string;
-  audioTrack2Url?: string; audioTrack2Lang?: string;
-  audioTrack3Url?: string; audioTrack3Lang?: string;
-  audioTrack4Url?: string; audioTrack4Lang?: string;
   duration: number;
   thumbnail: string;
   likes?: number;
