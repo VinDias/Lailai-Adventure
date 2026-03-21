@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 import { Video, User } from '../types';
-import { X, ThumbsUp, ThumbsDown, Play, Pause, Volume2, VolumeX, Maximize, Settings } from 'lucide-react';
+import { X, ThumbsUp, ThumbsDown, Play, Pause, Volume2, VolumeX, Maximize, Settings, RotateCcw, RotateCw } from 'lucide-react';
 import AdComponent from './AdComponent';
 import { api } from '../services/api';
 import { useSettings } from '../contexts/SettingsContext';
@@ -28,16 +28,19 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioModeRef = useRef<'original' | 'audio1' | 'audio2'>('original');
 
   const [showAd, setShowAd] = useState(!user?.isPremium);
   const [accessDenied] = useState(video.isPremium && !user?.isPremium);
   const [signedSrc, setSignedSrc] = useState<string | null>(null);
-  const [audioMode, setAudioMode] = useState<'original' | 'audio1' | 'audio2'>(() =>
-    (localStorage.getItem('lorflux_audio_preference') as any) || 'original'
-  );
+  const [audioMode, setAudioMode] = useState<'original' | 'audio1' | 'audio2'>(() => {
+    const saved = localStorage.getItem('lorflux_audio_preference') as any;
+    return saved || 'original';
+  });
   const [qualityLevels, setQualityLevels] = useState<any[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
+  const [isBuffering, setIsBuffering] = useState(false);
 
   // Player UI state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -45,14 +48,17 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showQuality, setShowQuality] = useState(false);
+
+  // Keep ref in sync for use inside event handlers without stale closure
+  useEffect(() => { audioModeRef.current = audioMode; }, [audioMode]);
 
   useEffect(() => {
     if (!user || !video.id) return;
     api.getMyVote(video.id).then(v => setMyVote(v?.type ?? null));
   }, [video.id, user]);
 
-  // Busca URL assinada antes de iniciar playback
+  // Busca URL assinada
   useEffect(() => {
     if (accessDenied || showAd) return;
     if (video.bunnyVideoId) {
@@ -70,17 +76,19 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     return () => { hlsRef.current?.destroy(); };
   }, [signedSrc]);
 
-  // Video event listeners
+  // Video event listeners — usa ref para audioMode para evitar closure stale
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const onPlay = () => {
       setIsPlaying(true);
-      if (audioMode === 'audio1' && audio1Ref.current) {
+      setIsBuffering(false);
+      const mode = audioModeRef.current;
+      if (mode === 'audio1' && audio1Ref.current) {
         audio1Ref.current.currentTime = v.currentTime;
         audio1Ref.current.play().catch(() => {});
       }
-      if (audioMode === 'audio2' && audio2Ref.current) {
+      if (mode === 'audio2' && audio2Ref.current) {
         audio2Ref.current.currentTime = v.currentTime;
         audio2Ref.current.play().catch(() => {});
       }
@@ -90,11 +98,15 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       audio1Ref.current?.pause();
       audio2Ref.current?.pause();
     };
+    const onWaiting = () => setIsBuffering(true);
+    const onCanPlay = () => setIsBuffering(false);
     const onTimeUpdate = () => setCurrentTime(v.currentTime);
     const onLoaded = () => setDuration(v.duration);
     const onVolume = () => setIsMuted(v.muted);
     v.addEventListener('play', onPlay);
     v.addEventListener('pause', onPause);
+    v.addEventListener('waiting', onWaiting);
+    v.addEventListener('canplay', onCanPlay);
     v.addEventListener('timeupdate', onTimeUpdate);
     v.addEventListener('loadedmetadata', onLoaded);
     v.addEventListener('durationchange', onLoaded);
@@ -102,14 +114,16 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     return () => {
       v.removeEventListener('play', onPlay);
       v.removeEventListener('pause', onPause);
+      v.removeEventListener('waiting', onWaiting);
+      v.removeEventListener('canplay', onCanPlay);
       v.removeEventListener('timeupdate', onTimeUpdate);
       v.removeEventListener('loadedmetadata', onLoaded);
       v.removeEventListener('durationchange', onLoaded);
       v.removeEventListener('volumechange', onVolume);
     };
-  }, [showAd, audioMode]);
+  }, [showAd]);
 
-  // Sync audio tracks — só corrige se deriva > 0.3s para não engasgar o buffer
+  // Sync: corrige drift > 0.3s sem engasgar o buffer
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -123,7 +137,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     return () => v.removeEventListener('timeupdate', sync);
   }, [showAd]);
 
-  // Audio mode — configura apenas volume/muted; .play() fica no changeAudioMode (gesture context)
+  // Audio mode: só volume/muted — .play() fica no changeAudioMode (gesture context)
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -167,10 +181,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const revealControls = () => {
     setShowControls(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      setShowControls(false);
-      setShowSettings(false);
-    }, 3500);
+    hideTimer.current = setTimeout(() => setShowControls(false), 4000);
   };
 
   const togglePlay = () => {
@@ -178,6 +189,15 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     if (!v) return;
     if (v.paused) v.play().catch(() => {});
     else v.pause();
+  };
+
+  const skip = (secs: number) => {
+    const v = videoRef.current;
+    if (!v) return;
+    const t = Math.max(0, Math.min(v.duration || 0, v.currentTime + secs));
+    v.currentTime = t;
+    if (audio1Ref.current) audio1Ref.current.currentTime = t;
+    if (audio2Ref.current) audio2Ref.current.currentTime = t;
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -193,7 +213,18 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const toggleMute = () => {
     const v = videoRef.current;
     if (!v) return;
-    v.muted = !v.muted;
+    // Em modo multi-áudio, muta/desmuta o áudio externo
+    if (audioMode === 'audio1' && audio1Ref.current) {
+      const muted = audio1Ref.current.volume > 0;
+      audio1Ref.current.volume = muted ? 0 : 1;
+      setIsMuted(muted);
+    } else if (audioMode === 'audio2' && audio2Ref.current) {
+      const muted = audio2Ref.current.volume > 0;
+      audio2Ref.current.volume = muted ? 0 : 1;
+      setIsMuted(muted);
+    } else {
+      v.muted = !v.muted;
+    }
   };
 
   const toggleFullscreen = () => {
@@ -209,12 +240,12 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     setCurrentQuality(level);
   };
 
+  // Troca de faixa de áudio — dentro do onClick (gesture context) para não bloquear autoplay
   const changeAudioMode = (mode: 'original' | 'audio1' | 'audio2') => {
     const v = videoRef.current;
     setAudioMode(mode);
     localStorage.setItem('lorflux_audio_preference', mode);
     if (!v) return;
-    // .play() aqui: dentro do onClick → gesture context → não é bloqueado pelo autoplay policy
     if (mode === 'original') {
       v.muted = false;
       if (audio1Ref.current) { audio1Ref.current.pause(); audio1Ref.current.volume = 0; }
@@ -258,7 +289,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const hasAudio2 = Boolean(video.audioTrack2Url);
   const hasMultiAudio = hasAudio1 || hasAudio2;
   const hasQuality = qualityLevels.length > 0;
-  const hasSettings = hasMultiAudio || hasQuality;
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
@@ -276,8 +306,16 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         onClick={() => { revealControls(); togglePlay(); }}
       />
 
+      {/* Áudios externos (preload para buffering antecipado) */}
       {video.audioTrack1Url && <audio ref={audio1Ref} src={video.audioTrack1Url} preload="auto" />}
       {video.audioTrack2Url && <audio ref={audio2Ref} src={video.audioTrack2Url} preload="auto" />}
+
+      {/* Spinner de buffering */}
+      {isBuffering && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin" />
+        </div>
+      )}
 
       {/* Top bar */}
       <div
@@ -290,24 +328,53 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         >
           <X size={22} />
         </button>
-        {user && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => handleVote('like')}
-              className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-black/50 border-white/10 text-white/70'}`}
-              aria-label="Curtir"
-            >
-              <ThumbsUp size={20} fill={myVote === 'like' ? 'currentColor' : 'none'} />
-            </button>
-            <button
-              onClick={() => handleVote('dislike')}
-              className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-black/50 border-white/10 text-white/70'}`}
-              aria-label="Não curtir"
-            >
-              <ThumbsDown size={20} fill={myVote === 'dislike' ? 'currentColor' : 'none'} />
-            </button>
-          </div>
-        )}
+
+        <div className="flex gap-2">
+          {/* Seletor de faixa de áudio — visível diretamente na barra superior quando disponível */}
+          {hasMultiAudio && (
+            <div className="flex gap-1 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 p-1">
+              <button
+                onClick={() => changeAudioMode('original')}
+                className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === 'original' ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}
+              >
+                ORIG
+              </button>
+              {hasAudio1 && (
+                <button
+                  onClick={() => changeAudioMode('audio1')}
+                  className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === 'audio1' ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
+                >
+                  DUB 1
+                </button>
+              )}
+              {hasAudio2 && (
+                <button
+                  onClick={() => changeAudioMode('audio2')}
+                  className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === 'audio2' ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
+                >
+                  DUB 2
+                </button>
+              )}
+            </div>
+          )}
+
+          {user && (
+            <>
+              <button
+                onClick={() => handleVote('like')}
+                className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-black/50 border-white/10 text-white/70'}`}
+              >
+                <ThumbsUp size={18} fill={myVote === 'like' ? 'currentColor' : 'none'} />
+              </button>
+              <button
+                onClick={() => handleVote('dislike')}
+                className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-black/50 border-white/10 text-white/70'}`}
+              >
+                <ThumbsDown size={18} fill={myVote === 'dislike' ? 'currentColor' : 'none'} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Bottom controls */}
@@ -315,45 +382,31 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         className={`absolute bottom-0 left-0 right-0 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 16px)' }}
       >
-        <div className="bg-gradient-to-t from-black/95 via-black/60 to-transparent pt-16 px-4 pb-4">
+        <div className="bg-gradient-to-t from-black/95 via-black/60 to-transparent pt-20 px-4 pb-4">
 
-          {/* Title */}
-          <div className="mb-3">
-            <h2 className="text-white font-black text-lg leading-tight drop-shadow">{video.titulo}</h2>
+          {/* Título */}
+          <div className="mb-4">
+            <h2 className="text-white font-black text-base leading-tight drop-shadow">{video.titulo}</h2>
             {video.descricao && (
-              <p className="text-zinc-400 text-sm line-clamp-1 mt-0.5">{video.descricao}</p>
+              <p className="text-zinc-400 text-xs line-clamp-1 mt-0.5">{video.descricao}</p>
             )}
           </div>
 
-          {/* Settings panel */}
-          {showSettings && hasSettings && (
-            <div className="mb-3 bg-black/80 backdrop-blur-md rounded-2xl p-3 flex flex-wrap gap-4">
-              {hasMultiAudio && (
-                <div>
-                  <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Idioma</div>
-                  <div className="flex gap-2">
-                    <button onClick={() => changeAudioMode('original')} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${audioMode === 'original' ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>Original</button>
-                    {hasAudio1 && <button onClick={() => changeAudioMode('audio1')} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${audioMode === 'audio1' ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>Dub 1</button>}
-                    {hasAudio2 && <button onClick={() => changeAudioMode('audio2')} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${audioMode === 'audio2' ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>Dub 2</button>}
-                  </div>
-                </div>
-              )}
-              {hasQuality && (
-                <div>
-                  <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Qualidade</div>
-                  <div className="flex gap-2 flex-wrap">
-                    <button onClick={() => changeQuality(-1)} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${currentQuality === -1 ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>Auto</button>
-                    {qualityLevels.map((q, i) => (
-                      <button key={i} onClick={() => changeQuality(i)} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${currentQuality === i ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>{q.height}p</button>
-                    ))}
-                  </div>
-                </div>
-              )}
+          {/* Painel de qualidade (opcional) */}
+          {showQuality && hasQuality && (
+            <div className="mb-3 bg-black/80 backdrop-blur-md rounded-2xl px-4 py-3">
+              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Qualidade</div>
+              <div className="flex gap-2 flex-wrap">
+                <button onClick={() => changeQuality(-1)} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${currentQuality === -1 ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>Auto</button>
+                {qualityLevels.map((q, i) => (
+                  <button key={i} onClick={() => changeQuality(i)} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${currentQuality === i ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>{q.height}p</button>
+                ))}
+              </div>
             </div>
           )}
 
           {/* Seek bar */}
-          <div className="relative mb-3 group">
+          <div className="relative mb-3">
             <input
               type="range"
               min={0}
@@ -363,42 +416,57 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
               onChange={handleSeek}
               onClick={e => e.stopPropagation()}
               className="w-full h-1 appearance-none rounded-full cursor-pointer focus:outline-none"
-              style={{
-                background: `linear-gradient(to right, #E11D48 ${pct}%, rgba(255,255,255,0.25) ${pct}%)`
-              }}
+              style={{ background: `linear-gradient(to right, #E11D48 ${pct}%, rgba(255,255,255,0.2) ${pct}%)` }}
             />
           </div>
 
           {/* Controls row */}
-          <div className="flex items-center gap-3">
-            <button onClick={togglePlay} className="text-white">
-              {isPlaying
-                ? <Pause size={28} fill="white" strokeWidth={0} />
-                : <Play size={28} fill="white" strokeWidth={0} />
-              }
-            </button>
-
-            <span className="text-white/60 text-xs font-mono tabular-nums">
+          <div className="flex items-center gap-2">
+            {/* Tempo */}
+            <span className="text-white/60 text-xs font-mono tabular-nums min-w-[80px]">
               {fmt(currentTime)}&nbsp;/&nbsp;{fmt(duration)}
             </span>
 
             <div className="flex-1" />
 
-            <button onClick={toggleMute} className="text-white/80 hover:text-white transition-colors">
-              {isMuted ? <VolumeX size={22} /> : <Volume2 size={22} />}
+            {/* Skip -10 */}
+            <button onClick={() => skip(-10)} className="text-white/80 hover:text-white transition-colors p-1">
+              <RotateCcw size={20} />
             </button>
 
-            {hasSettings && (
+            {/* Play / Pause */}
+            <button onClick={togglePlay} className="text-white p-1">
+              {isPlaying
+                ? <Pause size={30} fill="white" strokeWidth={0} />
+                : <Play size={30} fill="white" strokeWidth={0} />
+              }
+            </button>
+
+            {/* Skip +10 */}
+            <button onClick={() => skip(10)} className="text-white/80 hover:text-white transition-colors p-1">
+              <RotateCw size={20} />
+            </button>
+
+            <div className="flex-1" />
+
+            {/* Mute */}
+            <button onClick={toggleMute} className="text-white/80 hover:text-white transition-colors p-1">
+              {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+            </button>
+
+            {/* Qualidade (só se HLS tiver níveis) */}
+            {hasQuality && (
               <button
-                onClick={() => setShowSettings(s => !s)}
-                className={`transition-colors ${showSettings ? 'text-rose-500' : 'text-white/80 hover:text-white'}`}
+                onClick={() => setShowQuality(q => !q)}
+                className={`transition-colors p-1 ${showQuality ? 'text-rose-500' : 'text-white/80 hover:text-white'}`}
               >
-                <Settings size={22} />
+                <Settings size={20} />
               </button>
             )}
 
-            <button onClick={toggleFullscreen} className="text-white/80 hover:text-white transition-colors">
-              <Maximize size={22} />
+            {/* Fullscreen */}
+            <button onClick={toggleFullscreen} className="text-white/80 hover:text-white transition-colors p-1">
+              <Maximize size={20} />
             </button>
           </div>
         </div>

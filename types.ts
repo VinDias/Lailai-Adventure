@@ -89,6 +89,8 @@ export interface Episode {
   description: string;
   video_url: string;
   bunnyVideoId?: string;
+  audioTrack1Url?: string;
+  audioTrack2Url?: string;
   duration: number;
   thumbnail: string;
   likes?: number;
