@@ -129,6 +129,10 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     const onTimeUpdate = () => setCurrentTime(v.currentTime);
     const onLoaded = () => setDuration(v.duration);
     const onVolume = () => setIsMuted(v.muted);
+    // Se a velocidade do vídeo mudar (ex: HLS catch-up), pausa o áudio para evitar dessincronia
+    const onRateChange = () => {
+      if (v.playbackRate !== 1) audioRefForMode(audioModeRef.current)?.pause();
+    };
     v.addEventListener('playing', onPlaying);
     v.addEventListener('pause', onPause);
     v.addEventListener('waiting', onWaiting);
@@ -138,6 +142,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     v.addEventListener('loadedmetadata', onLoaded);
     v.addEventListener('durationchange', onLoaded);
     v.addEventListener('volumechange', onVolume);
+    v.addEventListener('ratechange', onRateChange);
     return () => {
       v.removeEventListener('playing', onPlaying);
       v.removeEventListener('pause', onPause);
@@ -148,6 +153,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       v.removeEventListener('loadedmetadata', onLoaded);
       v.removeEventListener('durationchange', onLoaded);
       v.removeEventListener('volumechange', onVolume);
+      v.removeEventListener('ratechange', onRateChange);
     };
   }, [showAd]);
 
@@ -171,7 +177,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     const src = signedSrc;
     if (!v || !src) return;
     if (src.endsWith('.m3u8') && Hls.isSupported()) {
-      const hls = new Hls({ autoStartLoad: true, enableWorker: true, lowLatencyMode: true });
+      const hls = new Hls({ autoStartLoad: true, enableWorker: true, maxBufferLength: 30, maxMaxBufferLength: 60 });
       hls.loadSource(src);
       hls.attachMedia(v);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
