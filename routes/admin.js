@@ -144,12 +144,17 @@ router.put("/update-thumbnail/:id", verifyToken, requireAdmin, upload.single("th
 // ATUALIZAR CANAIS DE ÁUDIO DE UM EPISÓDIO
 router.patch("/episodes/:id/audio", verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { audioTrack1Url, audioTrack1Lang, audioTrack2Url, audioTrack2Lang } = req.body;
+    const { audioTrack1Url, audioTrack1Lang, audioTrack2Url, audioTrack2Lang,
+            audioTrack3Url, audioTrack3Lang, audioTrack4Url, audioTrack4Lang } = req.body;
     const update = {};
     if (audioTrack1Url !== undefined) update.audioTrack1Url = audioTrack1Url;
     if (audioTrack1Lang !== undefined) update.audioTrack1Lang = audioTrack1Lang;
     if (audioTrack2Url !== undefined) update.audioTrack2Url = audioTrack2Url;
     if (audioTrack2Lang !== undefined) update.audioTrack2Lang = audioTrack2Lang;
+    if (audioTrack3Url !== undefined) update.audioTrack3Url = audioTrack3Url;
+    if (audioTrack3Lang !== undefined) update.audioTrack3Lang = audioTrack3Lang;
+    if (audioTrack4Url !== undefined) update.audioTrack4Url = audioTrack4Url;
+    if (audioTrack4Lang !== undefined) update.audioTrack4Lang = audioTrack4Lang;
 
     if (Object.keys(update).length === 0) {
       return res.status(400).json({ error: 'Nenhum campo de áudio fornecido.' });
@@ -162,7 +167,9 @@ router.patch("/episodes/:id/audio", verifyToken, requireAdmin, async (req, res) 
     res.json({
       success: true,
       audioTrack1Url: episode.audioTrack1Url, audioTrack1Lang: episode.audioTrack1Lang,
-      audioTrack2Url: episode.audioTrack2Url, audioTrack2Lang: episode.audioTrack2Lang
+      audioTrack2Url: episode.audioTrack2Url, audioTrack2Lang: episode.audioTrack2Lang,
+      audioTrack3Url: episode.audioTrack3Url, audioTrack3Lang: episode.audioTrack3Lang,
+      audioTrack4Url: episode.audioTrack4Url, audioTrack4Lang: episode.audioTrack4Lang,
     });
   } catch (err) {
     logger.error('[Admin Audio Update Error]', err);

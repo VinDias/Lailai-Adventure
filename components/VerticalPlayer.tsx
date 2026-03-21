@@ -13,6 +13,8 @@ interface PlayerProps {
   onClose: () => void;
 }
 
+type AudioMode = 'original' | 'audio1' | 'audio2' | 'audio3' | 'audio4';
+
 const fmt = (s: number) => {
   if (!isFinite(s) || isNaN(s)) return '0:00';
   const m = Math.floor(s / 60);
@@ -20,21 +22,29 @@ const fmt = (s: number) => {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 };
 
+const LANG_LABELS: Record<string, string> = {
+  'pt-br': 'PT-BR', 'en': 'English', 'es': 'Español',
+  'ja': '日本語', 'zh': '中文', 'ko': '한국어',
+  'fr': 'Français', 'de': 'Deutsch', 'it': 'Italiano',
+};
+
 const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const { bunny_cdn_base } = useSettings();
   const videoRef = useRef<HTMLVideoElement>(null);
   const audio1Ref = useRef<HTMLAudioElement>(null);
   const audio2Ref = useRef<HTMLAudioElement>(null);
+  const audio3Ref = useRef<HTMLAudioElement>(null);
+  const audio4Ref = useRef<HTMLAudioElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const audioModeRef = useRef<'original' | 'audio1' | 'audio2'>('original');
+  const audioModeRef = useRef<AudioMode>('original');
 
   const [showAd, setShowAd] = useState(!user?.isPremium);
   const [accessDenied] = useState(video.isPremium && !user?.isPremium);
   const [signedSrc, setSignedSrc] = useState<string | null>(null);
-  const [audioMode, setAudioMode] = useState<'original' | 'audio1' | 'audio2'>(() => {
-    const saved = localStorage.getItem('lorflux_audio_preference') as any;
+  const [audioMode, setAudioMode] = useState<AudioMode>(() => {
+    const saved = localStorage.getItem('lorflux_audio_preference') as AudioMode | null;
     return saved || 'original';
   });
   const [qualityLevels, setQualityLevels] = useState<any[]>([]);
@@ -42,7 +52,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
   const [isBuffering, setIsBuffering] = useState(false);
 
-  // Player UI state
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -50,7 +59,17 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const [showControls, setShowControls] = useState(true);
   const [showQuality, setShowQuality] = useState(false);
 
-  // Keep ref in sync for use inside event handlers without stale closure
+  // Map mode → ref (helper usado em vários lugares)
+  const audioRefForMode = (mode: AudioMode) => {
+    if (mode === 'audio1') return audio1Ref.current;
+    if (mode === 'audio2') return audio2Ref.current;
+    if (mode === 'audio3') return audio3Ref.current;
+    if (mode === 'audio4') return audio4Ref.current;
+    return null;
+  };
+
+  const allAudioRefs = [audio1Ref, audio2Ref, audio3Ref, audio4Ref];
+
   useEffect(() => { audioModeRef.current = audioMode; }, [audioMode]);
 
   useEffect(() => {
@@ -58,7 +77,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     api.getMyVote(video.id).then(v => setMyVote(v?.type ?? null));
   }, [video.id, user]);
 
-  // Busca URL assinada
   useEffect(() => {
     if (accessDenied || showAd) return;
     if (video.bunnyVideoId) {
@@ -83,20 +101,12 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     const onPlay = () => {
       setIsPlaying(true);
       setIsBuffering(false);
-      const mode = audioModeRef.current;
-      if (mode === 'audio1' && audio1Ref.current) {
-        audio1Ref.current.currentTime = v.currentTime;
-        audio1Ref.current.play().catch(() => {});
-      }
-      if (mode === 'audio2' && audio2Ref.current) {
-        audio2Ref.current.currentTime = v.currentTime;
-        audio2Ref.current.play().catch(() => {});
-      }
+      const active = audioRefForMode(audioModeRef.current);
+      if (active) { active.currentTime = v.currentTime; active.play().catch(() => {}); }
     };
     const onPause = () => {
       setIsPlaying(false);
-      audio1Ref.current?.pause();
-      audio2Ref.current?.pause();
+      allAudioRefs.forEach(r => r.current?.pause());
     };
     const onWaiting = () => setIsBuffering(true);
     const onCanPlay = () => setIsBuffering(false);
@@ -123,36 +133,31 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     };
   }, [showAd]);
 
-  // Sync: só corrige a faixa ATIVA e apenas se deriva > 0.5s
+  // Sync: corrige apenas a faixa ativa, só quando tocando, drift > 0.5s
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const sync = () => {
-      const mode = audioModeRef.current;
-      const activeAudio = mode === 'audio1' ? audio1Ref.current : mode === 'audio2' ? audio2Ref.current : null;
-      if (activeAudio && !activeAudio.paused && Math.abs(activeAudio.currentTime - v.currentTime) > 0.5)
-        activeAudio.currentTime = v.currentTime;
+      const active = audioRefForMode(audioModeRef.current);
+      if (active && !active.paused && Math.abs(active.currentTime - v.currentTime) > 0.5)
+        active.currentTime = v.currentTime;
     };
     v.addEventListener('timeupdate', sync);
     return () => v.removeEventListener('timeupdate', sync);
   }, [showAd]);
 
-  // Audio mode: só volume/muted — .play() fica no changeAudioMode (gesture context)
+  // Audio mode effect: configura volume/muted (sem .play())
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     if (audioMode === 'original') {
       v.muted = false;
-      if (audio1Ref.current) audio1Ref.current.volume = 0;
-      if (audio2Ref.current) audio2Ref.current.volume = 0;
-    } else if (audioMode === 'audio1') {
-      v.muted = true;
-      if (audio1Ref.current) audio1Ref.current.volume = 1;
-      if (audio2Ref.current) audio2Ref.current.volume = 0;
+      allAudioRefs.forEach(r => { if (r.current) r.current.volume = 0; });
     } else {
       v.muted = true;
-      if (audio1Ref.current) audio1Ref.current.volume = 0;
-      if (audio2Ref.current) audio2Ref.current.volume = 1;
+      allAudioRefs.forEach((r, i) => {
+        if (r.current) r.current.volume = audioMode === `audio${i + 1}` ? 1 : 0;
+      });
     }
   }, [audioMode]);
 
@@ -196,8 +201,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     if (!v) return;
     const t = Math.max(0, Math.min(v.duration || 0, v.currentTime + secs));
     v.currentTime = t;
-    if (audio1Ref.current) audio1Ref.current.currentTime = t;
-    if (audio2Ref.current) audio2Ref.current.currentTime = t;
+    allAudioRefs.forEach(r => { if (r.current) r.current.currentTime = t; });
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -205,23 +209,18 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     if (!v) return;
     const t = Number(e.target.value);
     v.currentTime = t;
-    if (audio1Ref.current) audio1Ref.current.currentTime = t;
-    if (audio2Ref.current) audio2Ref.current.currentTime = t;
+    allAudioRefs.forEach(r => { if (r.current) r.current.currentTime = t; });
     setCurrentTime(t);
   };
 
   const toggleMute = () => {
     const v = videoRef.current;
     if (!v) return;
-    // Em modo multi-áudio, muta/desmuta o áudio externo
-    if (audioMode === 'audio1' && audio1Ref.current) {
-      const muted = audio1Ref.current.volume > 0;
-      audio1Ref.current.volume = muted ? 0 : 1;
-      setIsMuted(muted);
-    } else if (audioMode === 'audio2' && audio2Ref.current) {
-      const muted = audio2Ref.current.volume > 0;
-      audio2Ref.current.volume = muted ? 0 : 1;
-      setIsMuted(muted);
+    const active = audioRefForMode(audioMode);
+    if (active) {
+      const muting = active.volume > 0;
+      active.volume = muting ? 0 : 1;
+      setIsMuted(muting);
     } else {
       v.muted = !v.muted;
     }
@@ -240,28 +239,28 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     setCurrentQuality(level);
   };
 
-  // Troca de faixa de áudio — dentro do onClick (gesture context) para não bloquear autoplay
-  const changeAudioMode = (mode: 'original' | 'audio1' | 'audio2') => {
+  // Troca de faixa — dentro do onClick (gesture context)
+  const changeAudioMode = (mode: AudioMode) => {
     const v = videoRef.current;
     setAudioMode(mode);
     localStorage.setItem('lorflux_audio_preference', mode);
     if (!v) return;
     if (mode === 'original') {
       v.muted = false;
-      if (audio1Ref.current) { audio1Ref.current.pause(); audio1Ref.current.volume = 0; }
-      if (audio2Ref.current) { audio2Ref.current.pause(); audio2Ref.current.volume = 0; }
-    } else if (mode === 'audio1' && audio1Ref.current) {
+      allAudioRefs.forEach(r => { if (r.current) { r.current.pause(); r.current.volume = 0; } });
+    } else {
       v.muted = true;
-      if (audio2Ref.current) { audio2Ref.current.pause(); audio2Ref.current.volume = 0; }
-      audio1Ref.current.volume = 1;
-      audio1Ref.current.currentTime = v.currentTime;
-      if (!v.paused) audio1Ref.current.play().catch(() => {});
-    } else if (mode === 'audio2' && audio2Ref.current) {
-      v.muted = true;
-      if (audio1Ref.current) { audio1Ref.current.pause(); audio1Ref.current.volume = 0; }
-      audio2Ref.current.volume = 1;
-      audio2Ref.current.currentTime = v.currentTime;
-      if (!v.paused) audio2Ref.current.play().catch(() => {});
+      allAudioRefs.forEach((r, i) => {
+        if (!r.current) return;
+        if (mode === `audio${i + 1}`) {
+          r.current.volume = 1;
+          r.current.currentTime = v.currentTime;
+          if (!v.paused) r.current.play().catch(() => {});
+        } else {
+          r.current.pause();
+          r.current.volume = 0;
+        }
+      });
     }
   };
 
@@ -285,17 +284,15 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     );
   }
 
-  const hasAudio1 = Boolean(video.audioTrack1Url);
-  const hasAudio2 = Boolean(video.audioTrack2Url);
-  const hasMultiAudio = hasAudio1 || hasAudio2;
+  // Faixas disponíveis (só as que têm URL)
+  const tracks = [
+    { mode: 'audio1' as AudioMode, url: video.audioTrack1Url, lang: video.audioTrack1Lang },
+    { mode: 'audio2' as AudioMode, url: video.audioTrack2Url, lang: video.audioTrack2Lang },
+    { mode: 'audio3' as AudioMode, url: video.audioTrack3Url, lang: video.audioTrack3Lang },
+    { mode: 'audio4' as AudioMode, url: video.audioTrack4Url, lang: video.audioTrack4Lang },
+  ].filter(t => Boolean(t.url));
 
-  const LANG_LABELS: Record<string, string> = {
-    'pt-br': 'PT-BR', 'en': 'English', 'es': 'Español',
-    'ja': '日本語', 'zh': '中文', 'ko': '한국어',
-    'fr': 'Français', 'de': 'Deutsch', 'it': 'Italiano',
-  };
-  const lang1Label = (video.audioTrack1Lang && LANG_LABELS[video.audioTrack1Lang]) || 'Faixa 1';
-  const lang2Label = (video.audioTrack2Lang && LANG_LABELS[video.audioTrack2Lang]) || 'Faixa 2';
+  const hasMultiAudio = tracks.length > 0;
   const hasQuality = qualityLevels.length > 0;
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -306,7 +303,6 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       onMouseMove={revealControls}
       onTouchStart={revealControls}
     >
-      {/* Video */}
       <video
         ref={videoRef}
         className="w-full h-full object-contain"
@@ -314,11 +310,11 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         onClick={() => { revealControls(); togglePlay(); }}
       />
 
-      {/* Áudios externos (preload para buffering antecipado) */}
       {video.audioTrack1Url && <audio ref={audio1Ref} src={video.audioTrack1Url} preload="none" />}
       {video.audioTrack2Url && <audio ref={audio2Ref} src={video.audioTrack2Url} preload="none" />}
+      {video.audioTrack3Url && <audio ref={audio3Ref} src={video.audioTrack3Url} preload="none" />}
+      {video.audioTrack4Url && <audio ref={audio4Ref} src={video.audioTrack4Url} preload="none" />}
 
-      {/* Spinner de buffering */}
       {isBuffering && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin" />
@@ -330,39 +326,29 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         className={`absolute top-0 left-0 right-0 flex items-start justify-between px-4 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 48px)' }}
       >
-        <button
-          onClick={onClose}
-          className="p-3 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 text-white"
-        >
+        <button onClick={onClose} className="p-3 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 text-white">
           <X size={22} />
         </button>
 
-        <div className="flex gap-2">
-          {/* Seletor de faixa de áudio — visível diretamente na barra superior quando disponível */}
+        <div className="flex gap-2 flex-wrap justify-end">
+          {/* Seletor de idioma — visível na barra superior */}
           {hasMultiAudio && (
             <div className="flex gap-1 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 p-1">
               <button
                 onClick={() => changeAudioMode('original')}
                 className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === 'original' ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}
               >
-                ORIG
+                Original
               </button>
-              {hasAudio1 && (
+              {tracks.map(t => (
                 <button
-                  onClick={() => changeAudioMode('audio1')}
-                  className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === 'audio1' ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
+                  key={t.mode}
+                  onClick={() => changeAudioMode(t.mode)}
+                  className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === t.mode ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
                 >
-                  {lang1Label}
+                  {(t.lang && LANG_LABELS[t.lang]) || t.mode.replace('audio', 'Faixa ')}
                 </button>
-              )}
-              {hasAudio2 && (
-                <button
-                  onClick={() => changeAudioMode('audio2')}
-                  className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${audioMode === 'audio2' ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
-                >
-                  {lang2Label}
-                </button>
-              )}
+              ))}
             </div>
           )}
 
@@ -391,16 +377,11 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 16px)' }}
       >
         <div className="bg-gradient-to-t from-black/95 via-black/60 to-transparent pt-20 px-4 pb-4">
-
-          {/* Título */}
           <div className="mb-4">
             <h2 className="text-white font-black text-base leading-tight drop-shadow">{video.titulo}</h2>
-            {video.descricao && (
-              <p className="text-zinc-400 text-xs line-clamp-1 mt-0.5">{video.descricao}</p>
-            )}
+            {video.descricao && <p className="text-zinc-400 text-xs line-clamp-1 mt-0.5">{video.descricao}</p>}
           </div>
 
-          {/* Painel de qualidade (opcional) */}
           {showQuality && hasQuality && (
             <div className="mb-3 bg-black/80 backdrop-blur-md rounded-2xl px-4 py-3">
               <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Qualidade</div>
@@ -413,69 +394,35 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
             </div>
           )}
 
-          {/* Seek bar */}
           <div className="relative mb-3">
             <input
-              type="range"
-              min={0}
-              max={duration || 0}
-              step={0.1}
-              value={currentTime}
-              onChange={handleSeek}
-              onClick={e => e.stopPropagation()}
+              type="range" min={0} max={duration || 0} step={0.1} value={currentTime}
+              onChange={handleSeek} onClick={e => e.stopPropagation()}
               className="w-full h-1 appearance-none rounded-full cursor-pointer focus:outline-none"
               style={{ background: `linear-gradient(to right, #E11D48 ${pct}%, rgba(255,255,255,0.2) ${pct}%)` }}
             />
           </div>
 
-          {/* Controls row */}
           <div className="flex items-center gap-2">
-            {/* Tempo */}
             <span className="text-white/60 text-xs font-mono tabular-nums min-w-[80px]">
               {fmt(currentTime)}&nbsp;/&nbsp;{fmt(duration)}
             </span>
-
             <div className="flex-1" />
-
-            {/* Skip -10 */}
-            <button onClick={() => skip(-10)} className="text-white/80 hover:text-white transition-colors p-1">
-              <RotateCcw size={20} />
-            </button>
-
-            {/* Play / Pause */}
+            <button onClick={() => skip(-10)} className="text-white/80 hover:text-white transition-colors p-1"><RotateCcw size={20} /></button>
             <button onClick={togglePlay} className="text-white p-1">
-              {isPlaying
-                ? <Pause size={30} fill="white" strokeWidth={0} />
-                : <Play size={30} fill="white" strokeWidth={0} />
-              }
+              {isPlaying ? <Pause size={30} fill="white" strokeWidth={0} /> : <Play size={30} fill="white" strokeWidth={0} />}
             </button>
-
-            {/* Skip +10 */}
-            <button onClick={() => skip(10)} className="text-white/80 hover:text-white transition-colors p-1">
-              <RotateCw size={20} />
-            </button>
-
+            <button onClick={() => skip(10)} className="text-white/80 hover:text-white transition-colors p-1"><RotateCw size={20} /></button>
             <div className="flex-1" />
-
-            {/* Mute */}
             <button onClick={toggleMute} className="text-white/80 hover:text-white transition-colors p-1">
               {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
             </button>
-
-            {/* Qualidade (só se HLS tiver níveis) */}
             {hasQuality && (
-              <button
-                onClick={() => setShowQuality(q => !q)}
-                className={`transition-colors p-1 ${showQuality ? 'text-rose-500' : 'text-white/80 hover:text-white'}`}
-              >
+              <button onClick={() => setShowQuality(q => !q)} className={`transition-colors p-1 ${showQuality ? 'text-rose-500' : 'text-white/80 hover:text-white'}`}>
                 <Settings size={20} />
               </button>
             )}
-
-            {/* Fullscreen */}
-            <button onClick={toggleFullscreen} className="text-white/80 hover:text-white transition-colors p-1">
-              <Maximize size={20} />
-            </button>
+            <button onClick={toggleFullscreen} className="text-white/80 hover:text-white transition-colors p-1"><Maximize size={20} /></button>
           </div>
         </div>
       </div>

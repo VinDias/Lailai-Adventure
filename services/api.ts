@@ -399,7 +399,7 @@ class ApiService {
     return response.json();
   }
 
-  async updateEpisodeAudio(episodeId: string, payload: { audioTrack1Url?: string; audioTrack1Lang?: string; audioTrack2Url?: string; audioTrack2Lang?: string }) {
+  async updateEpisodeAudio(episodeId: string, payload: { audioTrack1Url?: string; audioTrack1Lang?: string; audioTrack2Url?: string; audioTrack2Lang?: string; audioTrack3Url?: string; audioTrack3Lang?: string; audioTrack4Url?: string; audioTrack4Lang?: string }) {
     return this.request<any>(`/admin/management/episodes/${episodeId}/audio`, {
       method: 'PATCH',
       body: JSON.stringify(payload)

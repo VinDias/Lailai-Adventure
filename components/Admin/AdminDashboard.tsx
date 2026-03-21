@@ -118,10 +118,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   // Modal de canais de áudio
   const [audioModalEp, setAudioModalEp] = useState<any>(null);
-  const [audioForm, setAudioForm] = useState<{ audioTrack1Url: string; audioTrack1Lang: string; audioTrack2Url: string; audioTrack2Lang: string }>({ audioTrack1Url: '', audioTrack1Lang: '', audioTrack2Url: '', audioTrack2Lang: '' });
-  const [uploadingAudio, setUploadingAudio] = useState<{ track1: boolean; track2: boolean }>({ track1: false, track2: false });
+  const [audioForm, setAudioForm] = useState<{ audioTrack1Url: string; audioTrack1Lang: string; audioTrack2Url: string; audioTrack2Lang: string; audioTrack3Url: string; audioTrack3Lang: string; audioTrack4Url: string; audioTrack4Lang: string }>({ audioTrack1Url: '', audioTrack1Lang: '', audioTrack2Url: '', audioTrack2Lang: '', audioTrack3Url: '', audioTrack3Lang: '', audioTrack4Url: '', audioTrack4Lang: '' });
+  const [uploadingAudio, setUploadingAudio] = useState<{ track1: boolean; track2: boolean; track3: boolean; track4: boolean }>({ track1: false, track2: false, track3: false, track4: false });
   const audioTrack1Ref = useRef<HTMLInputElement>(null);
   const audioTrack2Ref = useRef<HTMLInputElement>(null);
+  const audioTrack3Ref = useRef<HTMLInputElement>(null);
+  const audioTrack4Ref = useRef<HTMLInputElement>(null);
 
   // Batch upload de painéis
   const [batchFiles, setBatchFiles] = useState<Array<{ file: File; preview: string; status: 'pending' | 'uploading' | 'done' | 'error'; url?: string; error?: string }>>([]);
@@ -359,15 +361,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 const handleOpenAudioModal = (ep: any) => {
     setAudioModalEp(ep);
     setAudioForm({
-      audioTrack1Url: ep.audioTrack1Url || '',
-      audioTrack1Lang: ep.audioTrack1Lang || '',
-      audioTrack2Url: ep.audioTrack2Url || '',
-      audioTrack2Lang: ep.audioTrack2Lang || '',
+      audioTrack1Url: ep.audioTrack1Url || '', audioTrack1Lang: ep.audioTrack1Lang || '',
+      audioTrack2Url: ep.audioTrack2Url || '', audioTrack2Lang: ep.audioTrack2Lang || '',
+      audioTrack3Url: ep.audioTrack3Url || '', audioTrack3Lang: ep.audioTrack3Lang || '',
+      audioTrack4Url: ep.audioTrack4Url || '', audioTrack4Lang: ep.audioTrack4Lang || '',
     });
   };
 
-  const handleLangChange = async (track: 'track1' | 'track2', lang: string) => {
-    const field = track === 'track1' ? 'audioTrack1Lang' : 'audioTrack2Lang';
+  const handleLangChange = async (track: 'track1' | 'track2' | 'track3' | 'track4', lang: string) => {
+    const field = `audioTrack${track.slice(-1)}Lang` as any;
     const updated = { ...audioForm, [field]: lang };
     setAudioForm(updated);
     if (!audioModalEp) return;
@@ -379,14 +381,14 @@ const handleOpenAudioModal = (ep: any) => {
     } catch { /* silently ignore */ }
   };
 
-  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>, track: 'track1' | 'track2') => {
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>, track: 'track1' | 'track2' | 'track3' | 'track4') => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file || !audioModalEp) return;
     setUploadingAudio(prev => ({ ...prev, [track]: true }));
     try {
       const { url } = await api.uploadAudioToBunny(file);
-      const field = track === 'track1' ? 'audioTrack1Url' : 'audioTrack2Url';
+      const field = `audioTrack${track.slice(-1)}Url` as any;
       const updated = { ...audioForm, [field]: url };
       setAudioForm(updated);
       await api.updateEpisodeAudio(audioModalEp._id || audioModalEp.id, { [field]: url });
@@ -399,10 +401,10 @@ const handleOpenAudioModal = (ep: any) => {
     }
   };
 
-  const handleRemoveAudio = async (track: 'track1' | 'track2') => {
+  const handleRemoveAudio = async (track: 'track1' | 'track2' | 'track3' | 'track4') => {
     if (!audioModalEp) return;
-    const urlField = track === 'track1' ? 'audioTrack1Url' : 'audioTrack2Url';
-    const langField = track === 'track1' ? 'audioTrack1Lang' : 'audioTrack2Lang';
+    const urlField = `audioTrack${track.slice(-1)}Url` as any;
+    const langField = `audioTrack${track.slice(-1)}Lang` as any;
     const epId = audioModalEp._id || audioModalEp.id;
     try {
       await api.updateEpisodeAudio(epId, { [urlField]: '', [langField]: '' });
@@ -1595,6 +1597,8 @@ const handleOpenAudioModal = (ep: any) => {
       {/* Inputs ocultos para upload de áudio */}
       <input ref={audioTrack1Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track1')} />
       <input ref={audioTrack2Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track2')} />
+      <input ref={audioTrack3Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track3')} />
+      <input ref={audioTrack4Ref} type="file" accept="audio/mpeg,audio/mp3,audio/aac,audio/mp4,audio/x-m4a,audio/ogg,audio/wav" className="hidden" onChange={e => handleAudioUpload(e, 'track4')} />
 
       {/* Modal — Thumbnail do Episódio */}
       {epThumbModal && (
@@ -1651,30 +1655,25 @@ const handleOpenAudioModal = (ep: any) => {
             </div>
             <p className="text-xs text-zinc-600 font-bold mb-8 truncate">Ep.{audioModalEp.episode_number} — {audioModalEp.title}</p>
 
-            <div className="space-y-5">
-              {/* Canal 1 */}
-              <AudioChannelRow
-                label="Canal 1"
-                icon={<Mic size={16} />}
-                url={audioForm.audioTrack1Url}
-                lang={audioForm.audioTrack1Lang}
-                uploading={uploadingAudio.track1}
-                onUpload={() => audioTrack1Ref.current?.click()}
-                onRemove={() => handleRemoveAudio('track1')}
-                onLangChange={lang => handleLangChange('track1', lang)}
-              />
-
-              {/* Canal 2 */}
-              <AudioChannelRow
-                label="Canal 2"
-                icon={<Music2 size={16} />}
-                url={audioForm.audioTrack2Url}
-                lang={audioForm.audioTrack2Lang}
-                uploading={uploadingAudio.track2}
-                onUpload={() => audioTrack2Ref.current?.click()}
-                onRemove={() => handleRemoveAudio('track2')}
-                onLangChange={lang => handleLangChange('track2', lang)}
-              />
+            <div className="space-y-4">
+              {([
+                { track: 'track1' as const, icon: <Mic size={16} />, url: audioForm.audioTrack1Url, lang: audioForm.audioTrack1Lang, ref: audioTrack1Ref, uploading: uploadingAudio.track1 },
+                { track: 'track2' as const, icon: <Music2 size={16} />, url: audioForm.audioTrack2Url, lang: audioForm.audioTrack2Lang, ref: audioTrack2Ref, uploading: uploadingAudio.track2 },
+                { track: 'track3' as const, icon: <Mic size={16} />, url: audioForm.audioTrack3Url, lang: audioForm.audioTrack3Lang, ref: audioTrack3Ref, uploading: uploadingAudio.track3 },
+                { track: 'track4' as const, icon: <Music2 size={16} />, url: audioForm.audioTrack4Url, lang: audioForm.audioTrack4Lang, ref: audioTrack4Ref, uploading: uploadingAudio.track4 },
+              ]).map((ch, i) => (
+                <AudioChannelRow
+                  key={ch.track}
+                  label={`Canal ${i + 1}`}
+                  icon={ch.icon}
+                  url={ch.url}
+                  lang={ch.lang}
+                  uploading={ch.uploading}
+                  onUpload={() => ch.ref.current?.click()}
+                  onRemove={() => handleRemoveAudio(ch.track)}
+                  onLangChange={lang => handleLangChange(ch.track, lang)}
+                />
+              ))}
             </div>
 
             <p className="text-[10px] text-zinc-700 font-bold mt-8">MP3 · AAC · M4A · OGG · WAV — máx. 200 MB por arquivo</p>
