@@ -157,6 +157,39 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     };
   }, [showAd]);
 
+  // Sync contínuo via playbackRate — sem flush de buffer, sem stutter
+  // Ajusta a velocidade do áudio para eliminar drift gradualmente
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const tick = setInterval(() => {
+      const active = audioRefForMode(audioModeRef.current);
+      // Só corrige quando ambos estão tocando e o vídeo tem dados
+      if (!active || active.paused || v.paused || v.readyState < 3) {
+        if (active && active.playbackRate !== 1) active.playbackRate = 1;
+        return;
+      }
+      const drift = active.currentTime - v.currentTime; // positivo = áudio adiantado
+      if (Math.abs(drift) > 2.5) {
+        // Drift grande demais — hard seek com pausa breve
+        active.pause();
+        active.currentTime = v.currentTime;
+        active.playbackRate = 1;
+        active.play().catch(() => {});
+      } else if (drift > 0.15) {
+        // Áudio adiantado — desacelera proporcionalmente (máx 10%)
+        active.playbackRate = Math.max(0.90, 1 - Math.min(drift, 1) * 0.10);
+      } else if (drift < -0.15) {
+        // Áudio atrasado — acelera proporcionalmente (máx 10%)
+        active.playbackRate = Math.min(1.10, 1 + Math.min(-drift, 1) * 0.10);
+      } else {
+        // Em sincronia — normaliza
+        if (active.playbackRate !== 1) active.playbackRate = 1;
+      }
+    }, 250);
+    return () => clearInterval(tick);
+  }, [showAd]);
+
   // Audio mode effect: configura volume/muted (sem .play())
   useEffect(() => {
     const v = videoRef.current;
@@ -263,11 +296,13 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         if (!r.current) return;
         if (mode === `audio${i + 1}`) {
           r.current.volume = 1;
+          r.current.playbackRate = 1;
           r.current.currentTime = v.currentTime;
           if (!v.paused) r.current.play().catch(() => {});
         } else {
           r.current.pause();
           r.current.volume = 0;
+          r.current.playbackRate = 1;
         }
       });
     }
