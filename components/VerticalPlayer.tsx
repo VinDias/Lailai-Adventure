@@ -123,30 +123,22 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     return () => v.removeEventListener('timeupdate', sync);
   }, [showAd]);
 
-  // Audio mode switching — inicia/para o áudio mesmo com o vídeo já em reprodução
+  // Audio mode — configura apenas volume/muted; .play() fica no changeAudioMode (gesture context)
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     if (audioMode === 'original') {
       v.muted = false;
-      if (audio1Ref.current) { audio1Ref.current.pause(); audio1Ref.current.volume = 0; }
-      if (audio2Ref.current) { audio2Ref.current.pause(); audio2Ref.current.volume = 0; }
+      if (audio1Ref.current) audio1Ref.current.volume = 0;
+      if (audio2Ref.current) audio2Ref.current.volume = 0;
     } else if (audioMode === 'audio1') {
       v.muted = true;
-      if (audio2Ref.current) { audio2Ref.current.pause(); audio2Ref.current.volume = 0; }
-      if (audio1Ref.current) {
-        audio1Ref.current.volume = 1;
-        audio1Ref.current.currentTime = v.currentTime;
-        if (!v.paused) audio1Ref.current.play().catch(() => {});
-      }
+      if (audio1Ref.current) audio1Ref.current.volume = 1;
+      if (audio2Ref.current) audio2Ref.current.volume = 0;
     } else {
       v.muted = true;
-      if (audio1Ref.current) { audio1Ref.current.pause(); audio1Ref.current.volume = 0; }
-      if (audio2Ref.current) {
-        audio2Ref.current.volume = 1;
-        audio2Ref.current.currentTime = v.currentTime;
-        if (!v.paused) audio2Ref.current.play().catch(() => {});
-      }
+      if (audio1Ref.current) audio1Ref.current.volume = 0;
+      if (audio2Ref.current) audio2Ref.current.volume = 1;
     }
   }, [audioMode]);
 
@@ -218,8 +210,28 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   };
 
   const changeAudioMode = (mode: 'original' | 'audio1' | 'audio2') => {
+    const v = videoRef.current;
     setAudioMode(mode);
     localStorage.setItem('lorflux_audio_preference', mode);
+    if (!v) return;
+    // .play() aqui: dentro do onClick → gesture context → não é bloqueado pelo autoplay policy
+    if (mode === 'original') {
+      v.muted = false;
+      if (audio1Ref.current) { audio1Ref.current.pause(); audio1Ref.current.volume = 0; }
+      if (audio2Ref.current) { audio2Ref.current.pause(); audio2Ref.current.volume = 0; }
+    } else if (mode === 'audio1' && audio1Ref.current) {
+      v.muted = true;
+      if (audio2Ref.current) { audio2Ref.current.pause(); audio2Ref.current.volume = 0; }
+      audio1Ref.current.volume = 1;
+      audio1Ref.current.currentTime = v.currentTime;
+      if (!v.paused) audio1Ref.current.play().catch(() => {});
+    } else if (mode === 'audio2' && audio2Ref.current) {
+      v.muted = true;
+      if (audio1Ref.current) { audio1Ref.current.pause(); audio1Ref.current.volume = 0; }
+      audio2Ref.current.volume = 1;
+      audio2Ref.current.currentTime = v.currentTime;
+      if (!v.paused) audio2Ref.current.play().catch(() => {});
+    }
   };
 
   const handleVote = async (type: 'like' | 'dislike') => {
