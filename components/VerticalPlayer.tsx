@@ -107,7 +107,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     const v = videoRef.current;
     const src = signedSrc;
     if (!v || !src) return;
-    if (src.endsWith('.m3u8') && Hls.isSupported()) {
+    if (src.includes('.m3u8') && Hls.isSupported()) {
       const hls = new Hls({ autoStartLoad: true, enableWorker: true, maxBufferLength: 30, maxMaxBufferLength: 60 });
       hls.loadSource(src);
       hls.attachMedia(v);
@@ -117,12 +117,13 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       });
       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_, data) => {
         setAudioTracks(data.audioTracks || []);
+        setCurrentAudioTrack(hls.audioTrack >= 0 ? hls.audioTrack : 0);
       });
       hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_, data) => {
         setCurrentAudioTrack(data.id);
       });
       hlsRef.current = hls;
-    } else if (src.endsWith('.m3u8') && v.canPlayType('application/vnd.apple.mpegurl')) {
+    } else if (src.includes('.m3u8') && v.canPlayType('application/vnd.apple.mpegurl')) {
       v.src = src;
       v.play().catch(() => {});
     } else {
@@ -131,10 +132,17 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     }
   };
 
+  useEffect(() => {
+    if (isPlaying) {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      hideTimer.current = setTimeout(() => setShowControls(false), 1500);
+    }
+  }, [isPlaying]);
+
   const revealControls = () => {
     setShowControls(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setShowControls(false), 4000);
+    hideTimer.current = setTimeout(() => setShowControls(false), 2000);
   };
 
   const togglePlay = () => {

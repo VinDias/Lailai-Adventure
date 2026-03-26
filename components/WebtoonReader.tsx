@@ -41,6 +41,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     return (localStorage.getItem('lorflux_language') as Language) || 'pt';
   });
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
+  const [showHeader, setShowHeader] = useState(true);
 
   useEffect(() => {
     const episodeId = webtoon.episodeId || webtoon.id;
@@ -104,7 +105,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
   return (
     <div className="fixed inset-0 z-[2000] bg-[#0A0A0B] overflow-y-auto scroll-smooth animate-apple">
 
-      <header className="fixed top-0 inset-x-0 h-20 bg-black/90 backdrop-blur-2xl border-b border-white/5 flex items-center justify-between px-6 z-[2100]">
+      <header className={`fixed top-0 inset-x-0 h-20 bg-black/90 backdrop-blur-2xl border-b border-white/5 flex items-center justify-between px-6 z-[2100] transition-transform duration-300 ${showHeader ? 'translate-y-0' : '-translate-y-full'}`}>
         <div className="flex items-center gap-2">
           <button onClick={onClose} className="p-3 text-white/50 hover:text-white transition-all">
             <svg className="w-6 h-6 rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -157,7 +158,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
         </div>
       </header>
 
-      <div className="flex flex-col items-center pt-20 gap-0">
+      <div className={`flex flex-col items-center gap-0 transition-[padding] duration-300 ${showHeader ? 'pt-20' : 'pt-0'}`} onClick={() => setShowHeader(h => !h)}>
         {loading ? (
           <div className="h-screen flex items-center justify-center">
             <div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" />

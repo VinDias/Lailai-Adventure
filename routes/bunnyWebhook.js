@@ -30,7 +30,7 @@ const videoUpload = multer({
   }),
   limits: { fileSize: 800 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['video/mp4', 'video/quicktime', 'video/x-matroska'];
+    const allowed = ['video/mp4', 'video/quicktime', 'video/x-matroska', 'video/mkv', 'video/matroska'];
     allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error('Apenas MP4, MOV e MKV são permitidos.'));
   }
 });
