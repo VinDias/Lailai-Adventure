@@ -373,16 +373,19 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         if (!r) return { ...f, status: 'error', error: 'Sem resposta do servidor.' };
         return r.success ? { ...f, status: 'done', url: r.url } : { ...f, status: 'error', error: r.error };
       }));
-      const successUrls = result.results.filter(r => r.success && r.url).map(r => r.url!);
+      const successItems = result.results
+        .map((r, i) => ({ url: r.url, success: r.success, panelIndex: i }))
+        .filter(item => item.success && item.url);
+      const successUrls = successItems.map(item => item.url!);
       const epId = selectedEpisode._id || selectedEpisode.id;
-      if (successUrls.length > 0) {
+      if (successItems.length > 0) {
         if (batchLanguage === 'original') {
           const panels = successUrls.map((url, i) => ({ image_url: url, order: panelsList.length + i + 1 }));
           const updated = await api.addPanels(epId, panels);
           setPanelsList(updated.episode?.panels ?? [...panelsList, ...panels]);
         } else {
-          // Sobrescreve translation layers dos painéis existentes por índice
-          await Promise.all(successUrls.map((url, i) => api.updatePanelTranslation(epId, i, batchLanguage, url)));
+          // Sobrescreve translation layers dos painéis existentes preservando índice original
+          await Promise.all(successItems.map(item => api.updatePanelTranslation(epId, item.panelIndex, batchLanguage, item.url!)));
           const full = await api.getEpisode(epId);
           setPanelsList(full.panels ?? panelsList);
         }

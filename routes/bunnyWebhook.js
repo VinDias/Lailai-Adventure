@@ -457,9 +457,13 @@ router.get('/signed-url', (req, res) => {
     const tokenKey = process.env.BUNNY_TOKEN_KEY;
     const cdnHostname = process.env.BUNNY_CDN_HOSTNAME;
 
-    // Se BUNNY_TOKEN_KEY não estiver configurado, retorna URL direta (modo sem autenticação)
-    if (!tokenKey || !cdnHostname) {
-      return res.json({ signedUrl: `https://${cdnHostname || 'vz-CONFIGURE-CDN_HOSTNAME.b-cdn.net'}/${videoId}/playlist.m3u8` });
+    // Se BUNNY_CDN_HOSTNAME não estiver configurado, não há como montar a URL
+    if (!cdnHostname) {
+      return res.status(500).json({ error: 'BUNNY_CDN_HOSTNAME não configurado no servidor.' });
+    }
+    // Se BUNNY_TOKEN_KEY não estiver configurado, retorna URL direta (sem autenticação)
+    if (!tokenKey) {
+      return res.json({ signedUrl: `https://${cdnHostname}/${videoId}/playlist.m3u8` });
     }
 
     // Expira em 4 horas
