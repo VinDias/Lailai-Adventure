@@ -108,7 +108,31 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     const src = signedSrc;
     if (!v || !src) return;
     if (src.includes('.m3u8') && Hls.isSupported()) {
-      const hls = new Hls({ autoStartLoad: true, enableWorker: true, maxBufferLength: 30, maxMaxBufferLength: 60 });
+      let tokenParam = '';
+      let expiresParam = '';
+      try {
+        const urlObj = new URL(src);
+        tokenParam = urlObj.searchParams.get('token') || '';
+        expiresParam = urlObj.searchParams.get('expires') || '';
+      } catch {}
+
+      const hlsCfg: Record<string, any> = {
+        autoStartLoad: true,
+        enableWorker: true,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+      };
+
+      if (tokenParam && expiresParam) {
+        hlsCfg.xhrSetup = (xhr: XMLHttpRequest, url: string) => {
+          if (!url.includes('token=')) {
+            const sep = url.includes('?') ? '&' : '?';
+            xhr.open('GET', `${url}${sep}token=${tokenParam}&expires=${expiresParam}`, true);
+          }
+        };
+      }
+
+      const hls = new Hls(hlsCfg);
       hls.loadSource(src);
       hls.attachMedia(v);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -122,9 +146,26 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_, data) => {
         setCurrentAudioTrack(data.id);
       });
+      hls.on(Hls.Events.ERROR, (_, data) => {
+        if (data.fatal) {
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+          else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+        }
+      });
       hlsRef.current = hls;
     } else if (src.includes('.m3u8') && v.canPlayType('application/vnd.apple.mpegurl')) {
       v.src = src;
+      v.addEventListener('loadedmetadata', () => {
+        const at = (v as any).audioTracks;
+        if (at && at.length > 1) {
+          const tracks: any[] = [];
+          for (let i = 0; i < at.length; i++) {
+            tracks.push({ id: i, name: at[i].label || at[i].language, lang: at[i].language });
+          }
+          setAudioTracks(tracks);
+          setCurrentAudioTrack(0);
+        }
+      }, { once: true });
       v.play().catch(() => {});
     } else {
       v.src = src;
@@ -133,16 +174,20 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   };
 
   useEffect(() => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
     if (isPlaying) {
-      if (hideTimer.current) clearTimeout(hideTimer.current);
-      hideTimer.current = setTimeout(() => setShowControls(false), 1500);
+      hideTimer.current = setTimeout(() => setShowControls(false), 3000);
+    } else {
+      setShowControls(true);
     }
   }, [isPlaying]);
 
   const revealControls = () => {
     setShowControls(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setShowControls(false), 2000);
+    if (videoRef.current && !videoRef.current.paused) {
+      hideTimer.current = setTimeout(() => setShowControls(false), 3000);
+    }
   };
 
   const togglePlay = () => {
@@ -185,9 +230,16 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   };
 
   const changeAudioTrack = (id: number) => {
-    if (!hlsRef.current) return;
-    hlsRef.current.audioTrack = id;
-    setCurrentAudioTrack(id);
+    if (hlsRef.current) {
+      hlsRef.current.audioTrack = id;
+      setCurrentAudioTrack(id);
+    } else if (videoRef.current) {
+      const at = (videoRef.current as any).audioTracks;
+      if (at) {
+        for (let i = 0; i < at.length; i++) at[i].enabled = (i === id);
+        setCurrentAudioTrack(id);
+      }
+    }
   };
 
   const handleVote = async (type: 'like' | 'dislike') => {
@@ -239,7 +291,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         className={`absolute top-0 left-0 right-0 flex items-start justify-between px-4 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 48px)' }}
       >
-        <button onClick={onClose} className="p-3 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 text-white">
+        <button onClick={onClose} aria-label="Fechar" className="p-3 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 text-white">
           <X size={22} />
         </button>
 
@@ -262,12 +314,14 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
             <>
               <button
                 onClick={() => handleVote('like')}
+                aria-label="Curtir"
                 className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-black/50 border-white/10 text-white/70'}`}
               >
                 <ThumbsUp size={18} fill={myVote === 'like' ? 'currentColor' : 'none'} />
               </button>
               <button
                 onClick={() => handleVote('dislike')}
+                aria-label="Não curtir"
                 className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-black/50 border-white/10 text-white/70'}`}
               >
                 <ThumbsDown size={18} fill={myVote === 'dislike' ? 'currentColor' : 'none'} />

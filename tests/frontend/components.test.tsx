@@ -266,9 +266,9 @@ describe('VFilm — usuário anônimo', () => {
     vi.mocked(api.getSeriesContent).mockResolvedValue({ seasons: [], episodes: vEpisodes } as any);
   });
 
-  it('exibe header V-FILM', async () => {
+  it('exibe header VCINE', async () => {
     render(<VFilm user={null} onOpen={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('V-FILM')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('VCINE')).toBeInTheDocument());
   });
 
   it('exibe séries VFilm', async () => {

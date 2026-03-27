@@ -25,7 +25,8 @@ const { MockHls, mockHlsInstance } = vi.hoisted(() => {
   // eslint-disable-next-line prefer-arrow-callback
   const Ctor = vi.fn(function HlsMock() { return instance; }) as any;
   Ctor.isSupported = vi.fn(() => true);
-  Ctor.Events = { MANIFEST_PARSED: 'hlsManifestParsed' };
+  Ctor.Events = { MANIFEST_PARSED: 'hlsManifestParsed', AUDIO_TRACKS_UPDATED: 'hlsAudioTracksUpdated', AUDIO_TRACK_SWITCHED: 'hlsAudioTrackSwitched', ERROR: 'hlsError' };
+  Ctor.ErrorTypes = { NETWORK_ERROR: 'networkError', MEDIA_ERROR: 'mediaError' };
   return { MockHls: Ctor, mockHlsInstance: instance };
 });
 
@@ -43,6 +44,7 @@ vi.mock('../../services/api', () => ({
     getMyVote: vi.fn().mockResolvedValue(null),
     vote: vi.fn().mockResolvedValue({ type: 'like' }),
     removeVote: vi.fn().mockResolvedValue({}),
+    getSignedVideoUrl: vi.fn().mockRejectedValue(new Error('no token')),
   },
 }));
 
@@ -90,6 +92,7 @@ beforeEach(() => {
   vi.mocked(api.vote).mockClear();
   vi.mocked(api.removeVote).mockClear();
   vi.mocked(api.getMyVote).mockResolvedValue(null);
+  vi.mocked(api.getSignedVideoUrl).mockRejectedValue(new Error('no token'));
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -191,7 +194,8 @@ describe('VerticalPlayer — Renderização', () => {
     const user = makeUser({ isPremium: true });
     render(<VerticalPlayer video={makeVideo()} user={user} onClose={onClose} />);
     await waitFor(() => document.querySelector('video'));
-    fireEvent.click(document.querySelector('button[aria-label]') || screen.getByRole('button', { hidden: true, name: /fechar/i }) as Element);
+    fireEvent.click(screen.getByLabelText('Fechar'));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('não exibe seletor de áudio quando o HLS não tem faixas alternativas', async () => {

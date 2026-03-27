@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Webtoon, User } from '../types';
 import API_URL from '../config/api';
 import { ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft } from 'lucide-react';
@@ -42,6 +42,17 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
   });
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
   const [showHeader, setShowHeader] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastScrollY = useRef(0);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const y = el.scrollTop;
+    if (y > lastScrollY.current + 20 && y > 80) setShowHeader(false);
+    else if (y < lastScrollY.current - 20) setShowHeader(true);
+    lastScrollY.current = y;
+  };
 
   useEffect(() => {
     const episodeId = webtoon.episodeId || webtoon.id;
@@ -103,7 +114,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
   };
 
   return (
-    <div className="fixed inset-0 z-[2000] bg-[#0A0A0B] overflow-y-auto scroll-smooth animate-apple">
+    <div ref={scrollRef} onScroll={handleScroll} className="fixed inset-0 z-[2000] bg-[#0A0A0B] overflow-y-auto scroll-smooth animate-apple">
 
       <header className={`fixed top-0 inset-x-0 h-20 bg-black/90 backdrop-blur-2xl border-b border-white/5 flex items-center justify-between px-6 z-[2100] transition-transform duration-300 ${showHeader ? 'translate-y-0' : '-translate-y-full'}`}>
         <div className="flex items-center gap-2">
