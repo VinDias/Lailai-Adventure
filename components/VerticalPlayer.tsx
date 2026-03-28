@@ -304,11 +304,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
                   onClick={() => changeAudioTrack(t.id ?? i)}
                   className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${currentAudioTrack === (t.id ?? i) ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
                 >
-                  {(() => {
-                    const allSameLang = audioTracks.length > 1 && audioTracks.every(a => a.lang?.toLowerCase() === audioTracks[0]?.lang?.toLowerCase());
-                    if (!allSameLang && t.lang) return LANG_LABELS[t.lang.toLowerCase()] || t.name || `Faixa ${i + 1}`;
-                    return t.name || `Faixa ${i + 1}`;
-                  })()}
+                  {video.hlsAudioLabels?.[i] || LANG_LABELS[t.lang?.toLowerCase()] || t.name || `Faixa ${i + 1}`}
                 </button>
               ))}
             </div>

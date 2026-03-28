@@ -124,7 +124,8 @@ const App: React.FC = () => {
                 thumbnailUrl: ep.thumbnail,
                 isPremium: series.isPremium,
                 criadoEm: new Date().toISOString(),
-                type: 'hqcine'
+                type: 'hqcine',
+                hlsAudioLabels: ep.hlsAudioLabels
               });
               setView(ViewMode.PLAYER);
             }}
@@ -146,7 +147,8 @@ const App: React.FC = () => {
                 thumbnailUrl: ep.thumbnail,
                 isPremium: series.isPremium,
                 criadoEm: new Date().toISOString(),
-                type: 'vcine'
+                type: 'vcine',
+                hlsAudioLabels: ep.hlsAudioLabels
               });
               setView(ViewMode.PLAYER);
             }}

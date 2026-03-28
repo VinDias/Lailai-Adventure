@@ -25,6 +25,7 @@ export interface Video {
   criadoEm: string;
   type: 'hqcine' | 'vcine';
   order_index?: number;
+  hlsAudioLabels?: string[];
 }
 
 export interface Webtoon {
@@ -93,6 +94,7 @@ export interface Episode {
   comments?: number;
   series_title?: string;
   status?: string;
+  hlsAudioLabels?: string[];
 }
 
 // Fix: Export missing Ad type

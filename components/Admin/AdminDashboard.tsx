@@ -7,7 +7,7 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle, Settings
+  CheckCircle2, AlertCircle, Settings, Music
 } from 'lucide-react';
 import API_URL from '../../config/api';
 import ImageWithFallback from '../ImageWithFallback';
@@ -128,6 +128,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [selectedPanels, setSelectedPanels] = useState<Set<number>>(new Set());
   const [deletingPanels, setDeletingPanels] = useState(false);
 
+  // Editor de labels de faixas de áudio HLS
+  const [audioLabelModal, setAudioLabelModal] = useState<{ ep: any } | null>(null);
+  const [audioLabelsForm, setAudioLabelsForm] = useState<string[]>([]);
+  const [savingAudioLabels, setSavingAudioLabels] = useState(false);
+
   // Modal de traduções de painel
   const [translationModal, setTranslationModal] = useState<{ panelIdx: number; panel: any } | null>(null);
   const [translationLang, setTranslationLang] = useState<'pt' | 'en' | 'es' | 'zh'>('en');
@@ -227,6 +232,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       await api.deleteEpisode(id);
       setEpisodes(prev => prev.filter(e => (e._id || e.id) !== id));
     } catch (e) { alert('Erro ao excluir episódio.'); }
+  };
+
+  const handleSaveAudioLabels = async () => {
+    if (!audioLabelModal) return;
+    const epId = audioLabelModal.ep._id || audioLabelModal.ep.id;
+    setSavingAudioLabels(true);
+    try {
+      await api.updateEpisodeAudio(epId, { hlsAudioLabels: audioLabelsForm.map(l => l.trim()) });
+      setEpisodes(prev => prev.map(e => (e._id || e.id) === epId ? { ...e, hlsAudioLabels: audioLabelsForm } : e));
+      setAudioLabelModal(null);
+    } catch { alert('Erro ao salvar labels de áudio.'); }
+    finally { setSavingAudioLabels(false); }
   };
 
   const handleOpenPanels = async (ep: any) => {
@@ -945,6 +962,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                                 }
                               </button>
                             )}
+                            {ep.bunnyVideoId && (
+                              <button
+                                onClick={() => { setAudioLabelModal({ ep }); setAudioLabelsForm(ep.hlsAudioLabels?.length ? [...ep.hlsAudioLabels] : ['', '', '', '']); }}
+                                className={`p-2 rounded-lg transition-all ${ep.hlsAudioLabels?.some((l: string) => l) ? 'bg-violet-600/20 text-violet-400 hover:bg-violet-600/30' : 'bg-white/5 text-zinc-400 hover:text-violet-400 hover:bg-violet-600/20'}`}
+                                title="Renomear faixas de áudio"
+                              >
+                                <Music size={15} />
+                              </button>
+                            )}
                             {selectedSeries?.content_type === 'hiqua' && (
                               <button onClick={() => handleOpenPanels(ep)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Gerenciar painéis"><BookOpen size={15} /></button>
                             )}
@@ -1558,6 +1584,42 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         onChange={handleVideoFileChange}
       />
 
+
+      {/* Modal — Labels de Áudio HLS */}
+      {audioLabelModal && (
+        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-md">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xl font-black tracking-tighter">Faixas de Áudio</h3>
+              <button onClick={() => setAudioLabelModal(null)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
+            </div>
+            <p className="text-zinc-500 text-xs mb-6">Renomeie as faixas que aparecem no player (ex: PT-BR, English, Español, 中文). Deixe em branco para usar o nome padrão.</p>
+            <div className="space-y-3">
+              {audioLabelsForm.map((label, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="text-zinc-500 text-xs font-black w-16 shrink-0">Faixa {i + 1}</span>
+                  <input
+                    value={label}
+                    onChange={e => { const copy = [...audioLabelsForm]; copy[i] = e.target.value; setAudioLabelsForm(copy); }}
+                    placeholder={`Ex: ${['PT-BR', 'English', 'Español', '中文'][i] || `Faixa ${i + 1}`}`}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none transition-all"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 mt-8">
+              <button onClick={() => setAudioLabelModal(null)} className="flex-1 py-3 rounded-2xl bg-white/5 text-zinc-400 font-bold text-sm hover:bg-white/10 transition-all">Cancelar</button>
+              <button
+                onClick={handleSaveAudioLabels}
+                disabled={savingAudioLabels}
+                className="flex-1 py-3 rounded-2xl bg-violet-600 text-white font-bold text-sm hover:bg-violet-500 transition-all disabled:opacity-50"
+              >
+                {savingAudioLabels ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal — Thumbnail do Episódio */}
       {epThumbModal && (

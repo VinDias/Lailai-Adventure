@@ -21,6 +21,7 @@ const EpisodeSchema = new mongoose.Schema({
   audioTrack2Url: { type: String }, audioTrack2Lang: { type: String, default: '' },
   audioTrack3Url: { type: String }, audioTrack3Lang: { type: String, default: '' },
   audioTrack4Url: { type: String }, audioTrack4Lang: { type: String, default: '' },
+  hlsAudioLabels: { type: [String], default: [] },
   isPremium: { type: Boolean, default: false },
   status: { type: String, enum: ['processing', 'published', 'draft'], default: 'draft' },
   views: { type: Number, default: 0 },
