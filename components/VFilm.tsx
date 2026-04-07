@@ -6,6 +6,7 @@ import ImageWithFallback from './ImageWithFallback';
 
 const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => void }> = ({ user, onOpen }) => {
   const [series, setSeries] = useState<Series[]>([]);
+  const [filter, setFilter] = useState('');
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
   const [content, setContent] = useState<{seasons: any[], episodes: Episode[]} | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,6 +39,16 @@ const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
         <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Original Vertical Cinema</p>
       </header>
 
+      <div className="px-8 mb-6">
+        <input
+          type="text"
+          placeholder="Buscar por título ou gênero..."
+          className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white text-sm focus:border-rose-500/50 transition-all outline-none"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+        />
+      </div>
+
       <section className="px-8">
         {series.length === 0 ? (
           <div className="py-20 text-center">
@@ -45,7 +56,7 @@ const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-            {series.map(s => (
+            {series.filter(s => s.title.toLowerCase().includes(filter.toLowerCase()) || s.genre.toLowerCase().includes(filter.toLowerCase())).map(s => (
               <div key={s._id} onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
                 <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[0.98] group-hover:ring-rose-500/50">
                   <ImageWithFallback src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-all duration-700" alt={s.title} />

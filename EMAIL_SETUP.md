@@ -59,7 +59,23 @@ Acesse o **Cloudflare Dashboard** → selecione o domínio → aba **DNS** → *
 | Proxy | DNS only |
 | TTL | `Auto` |
 
-> Comece com `p=none` (só monitoramento). Após confirmar que SPF e DKIM estão passando, mude para `p=quarantine` e depois `p=reject`.
+> **Estrategia de hardening progressivo:**
+> 1. Semana 1-2: `p=none` (monitoramento — recebe relatorios em `rua`)
+> 2. Semana 3-4: `p=quarantine; pct=50` (50% dos e-mails falhando vao pra spam)
+> 3. Semana 5+: `p=reject` (rejeita 100% dos e-mails sem SPF/DKIM valido)
+>
+> Verifique os relatorios DMARC enviados para `dmarc@lorflux.com` antes de escalar.
+
+### 2.5 Registro BIMI (opcional — logo no e-mail)
+| Campo | Valor |
+|-------|-------|
+| Tipo | `TXT` |
+| Nome | `default._bimi` |
+| Conteudo | `v=BIMI1; l=https://www.lorflux.com/icons/icon-512.png` |
+| Proxy | DNS only |
+| TTL | `Auto` |
+
+> BIMI so funciona com `p=quarantine` ou `p=reject` no DMARC. E opcional mas melhora branding.
 
 ---
 
@@ -155,3 +171,22 @@ try {
 | `Error: Invalid login` | `SMTP_USER` / `SMTP_PASS` errado | Recriar senha no cPanel → Email Accounts |
 | DKIM `fail` mesmo com registro criado | Registro com Proxy ativo no Cloudflare | Desligar proxy (nuvem cinza) nos registros de e-mail |
 | Dois registros SPF no mesmo domínio | Conflito de SPF | Mesclar em um único registro TXT |
+
+---
+
+## Verificacao automatizada
+
+Execute o script de verificacao para checar todos os registros DNS de uma vez:
+
+```bash
+node scripts/verifyEmailDns.js
+```
+
+Saida esperada:
+```
+[MX]    PASS  mail.hostgator.com (prioridade 10)
+[SPF]   PASS  v=spf1 include:hostgator.com ~all
+[DKIM]  PASS  v=DKIM1; k=rsa; p=MIGf...
+[DMARC] PASS  v=DMARC1; p=none; rua=mailto:dmarc@lorflux.com
+Score:  4/4
+```

@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { api } from '../services/api';
+import { getLocalizedPrice } from '../utils/localizedPrice';
 
 const SubscriptionTab: React.FC<{ user: User, onUpgrade: () => void }> = ({ user, onUpgrade }) => {
   const [loading, setLoading] = useState(false);
@@ -29,7 +30,7 @@ const SubscriptionTab: React.FC<{ user: User, onUpgrade: () => void }> = ({ user
           <p className="text-zinc-500 text-lg mb-12">Cinema vertical em 60 FPS, sem anúncios e com acesso antecipado.</p>
           
           <div className="bg-[#1C1C1E] border border-white/5 rounded-[2.5rem] p-10 mb-12 text-left shadow-2xl">
-             <div className="text-3xl font-black text-white mb-8">R$ 3,99 <span className="text-sm text-zinc-600 font-bold tracking-widest uppercase">/mês</span></div>
+             <div className="text-3xl font-black text-white mb-8">{getLocalizedPrice()} <span className="text-sm text-zinc-600 font-bold tracking-widest uppercase">/mês</span></div>
              <ul className="space-y-4 mb-10">
                 <li className="flex items-center gap-3 text-sm font-bold text-zinc-400"><div className="w-2 h-2 rounded-full bg-rose-500" /> Experiência 100% livre de Ads</li>
                 <li className="flex items-center gap-3 text-sm font-bold text-zinc-400"><div className="w-2 h-2 rounded-full bg-rose-500" /> Resolução 1080p nativa</li>
@@ -43,7 +44,7 @@ const SubscriptionTab: React.FC<{ user: User, onUpgrade: () => void }> = ({ user
                 {loading ? <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : 'ASSINAR COM STRIPE'}
              </button>
           </div>
-          <p className="text-[10px] text-zinc-700 font-black uppercase tracking-[0.2em]">Pagamento Seguro via Stripe Brasil</p>
+          <p className="text-[10px] text-zinc-700 font-black uppercase tracking-[0.2em]">Pagamento Seguro via Stripe</p>
        </div>
     </div>
   );

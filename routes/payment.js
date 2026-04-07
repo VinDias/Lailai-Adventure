@@ -5,7 +5,27 @@ const verifyToken = require('../middlewares/verifyToken');
 const User = require('../models/User');
 const logger = require('../utils/logger');
 
-// Criar sessão de checkout
+// Mapeamento locale → moeda → priceId
+const LOCALE_CURRENCY = {
+  'pt-br': 'brl', 'pt': 'brl',
+  'en-us': 'usd', 'en-gb': 'usd', 'en': 'usd',
+  'es': 'usd', 'es-mx': 'usd', 'es-ar': 'usd',
+  'fr': 'eur', 'de': 'eur', 'it': 'eur', 'nl': 'eur',
+  'ja': 'usd', 'ko': 'usd', 'zh': 'usd',
+};
+
+function getPriceIdForLocale(locale) {
+  const lang = (locale || '').toLowerCase();
+  const currency = LOCALE_CURRENCY[lang] || LOCALE_CURRENCY[lang.split('-')[0]] || 'brl';
+  const map = {
+    brl: process.env.STRIPE_PRICE_ID_BRL || process.env.STRIPE_PRICE_ID,
+    usd: process.env.STRIPE_PRICE_ID_USD || process.env.STRIPE_PRICE_ID,
+    eur: process.env.STRIPE_PRICE_ID_EUR || process.env.STRIPE_PRICE_ID,
+  };
+  return { priceId: map[currency] || process.env.STRIPE_PRICE_ID, currency };
+}
+
+// Criar sessão de checkout (aceita locale para multi-currency)
 router.post('/create-checkout', verifyToken, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -24,14 +44,25 @@ router.post('/create-checkout', verifyToken, async (req, res) => {
       await user.save();
     }
 
-    const session = await stripe.checkout.sessions.create({
+    const { locale } = req.body || {};
+    const { priceId } = getPriceIdForLocale(locale);
+
+    const sessionParams = {
       customer: customerId,
       payment_method_types: ['card'],
-      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: 1 }],
       mode: 'subscription',
       success_url: `${process.env.FRONTEND_URL}/?payment=success`,
       cancel_url: `${process.env.FRONTEND_URL}/?payment=cancelled`,
-    });
+    };
+
+    // Stripe locale para traduzir a página de checkout
+    const stripeLocale = (locale || '').split('-')[0];
+    if (stripeLocale && stripeLocale !== 'pt') {
+      sessionParams.locale = stripeLocale;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     res.json({ url: session.url });
   } catch (err) {

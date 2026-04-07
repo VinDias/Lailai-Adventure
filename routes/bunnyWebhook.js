@@ -8,6 +8,12 @@ const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 
+function toSlug(str) {
+  return (str || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
 const imageUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 },
@@ -177,7 +183,8 @@ router.post('/upload-image', (req, res) => {
         try {
           const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
           const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-          const remotePath = `lorflux/${filename}`;
+          const slug = toSlug(req.body?.seriesSlug);
+          const remotePath = slug ? `lorflux/series/${slug}/covers/${filename}` : `lorflux/${filename}`;
 
           const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
             method: 'PUT',
@@ -237,7 +244,8 @@ router.post('/upload-image-batch', (req, res) => {
           try {
             const ext = (file.originalname.split('.').pop() || 'jpg').toLowerCase();
             const filename = `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.${ext}`;
-            const remotePath = `lorflux/panels/${filename}`;
+            const slug = toSlug(req.body?.seriesSlug);
+            const remotePath = slug ? `lorflux/series/${slug}/panels/${filename}` : `lorflux/panels/${filename}`;
 
             const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
               method: 'PUT',
@@ -302,7 +310,8 @@ router.post('/upload-audio', (req, res) => {
         try {
           const ext = (req.file.originalname.split('.').pop() || 'mp3').toLowerCase();
           const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-          const remotePath = `lorflux/audio/${filename}`;
+          const slug = toSlug(req.body?.seriesSlug);
+          const remotePath = slug ? `lorflux/series/${slug}/audio/${filename}` : `lorflux/audio/${filename}`;
 
           const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
             method: 'PUT',

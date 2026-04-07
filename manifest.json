@@ -4,10 +4,14 @@
   "short_name": "Lorflux",
   "description": "O futuro é aqui. Plataforma de cinematic storytelling.",
   "start_url": "/",
+  "scope": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000",
   "orientation": "portrait",
+  "categories": ["entertainment", "books"],
+  "lang": "pt-BR",
   "icons": [
     {
       "src": "/icons/icon-192.png",

@@ -2,10 +2,15 @@
 import React, { useState } from 'react';
 import { Heart } from 'lucide-react';
 import API_URL from '../config/api';
+import { getLocalizedCurrency } from '../utils/localizedPrice';
+
+const CURRENCY_SYMBOL: Record<string, string> = { brl: 'R$', usd: '$', eur: '€' };
 
 const DonateButton: React.FC = () => {
   const [amount, setAmount] = useState<number>(10);
   const [loading, setLoading] = useState(false);
+  const currency = getLocalizedCurrency();
+  const symbol = CURRENCY_SYMBOL[currency] || 'R$';
 
   const handleDonate = async () => {
     setLoading(true);
@@ -16,7 +21,7 @@ const DonateButton: React.FC = () => {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ amount })
+        body: JSON.stringify({ amount, currency: getLocalizedCurrency() })
       });
 
       const data = await response.json();
@@ -52,7 +57,7 @@ const DonateButton: React.FC = () => {
             onClick={() => setAmount(val)}
             className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${amount === val ? 'bg-white text-black' : 'bg-white/5 text-zinc-400 border border-white/5 hover:bg-white/10'}`}
           >
-            R$ {val}
+            {symbol} {val}
           </button>
         ))}
       </div>

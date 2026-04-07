@@ -22,6 +22,7 @@ const EpisodeSchema = new mongoose.Schema({
   audioTrack3Url: { type: String }, audioTrack3Lang: { type: String, default: '' },
   audioTrack4Url: { type: String }, audioTrack4Lang: { type: String, default: '' },
   hlsAudioLabels: { type: [String], default: [] },
+  webtoonLanguageLabels: { type: Map, of: String, default: new Map() },
   isPremium: { type: Boolean, default: false },
   status: { type: String, enum: ['processing', 'published', 'draft'], default: 'draft' },
   views: { type: Number, default: 0 },

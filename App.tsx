@@ -12,6 +12,7 @@ import HiQua from './components/HiQua';
 import Ads from './components/Ads';
 import ThemeToggle from './components/ThemeToggle';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles } from 'lucide-react';
+import { getLocalizedPrice } from './utils/localizedPrice';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewMode>(ViewMode.AUTH);
@@ -176,7 +177,7 @@ const App: React.FC = () => {
             <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mb-12">{user?.email}</p>
             <div className="space-y-4">
               {!user?.isPremium && (
-                <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">ASSINAR PREMIUM (R$ 3,99)</button>
+                <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">ASSINAR PREMIUM ({getLocalizedPrice()})</button>
               )}
               <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">SAIR DA CONTA</button>
             </div>

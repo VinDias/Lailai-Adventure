@@ -382,7 +382,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setBatchUploading(true);
     setBatchFiles(prev => prev.map(f => f.status === 'pending' ? { ...f, status: 'uploading' } : f));
     try {
-      const result = await api.uploadImagesBatchToBunny(pending.map(f => f.file));
+      const slug = selectedSeries?.title?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const result = await api.uploadImagesBatchToBunny(pending.map(f => f.file), slug);
       let idx = 0;
       setBatchFiles(prev => prev.map(f => {
         if (f.status !== 'uploading') return f;
@@ -613,7 +614,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setSavingEpThumb(true);
     try {
       const epId = epThumbModal.ep._id || epThumbModal.ep.id;
-      const url = await api.uploadImageToBunny(file);
+      const epSlug = selectedSeries?.title?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const url = await api.uploadImageToBunny(file, epSlug);
       const updated = await api.updateEpisode(epId, { thumbnail: url });
       setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === epId ? { ...ep, thumbnail: updated.thumbnail } : ep));
       setEpThumbModal(null);
@@ -642,7 +644,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     if (!file || !uploadTargetId) return;
     setUploadingId(uploadTargetId);
     try {
-      const url = await api.uploadSeriesThumbnail(uploadTargetId, file);
+      const targetSeries = contentList.find(s => (s._id || s.id) === uploadTargetId);
+      const slug = targetSeries?.title?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const url = await api.uploadSeriesThumbnail(uploadTargetId, file, slug);
       setContentList(prev => prev.map(s => (s._id || s.id) === uploadTargetId ? { ...s, cover_image: url } : s));
     } catch {
       alert('Erro ao fazer upload da imagem.');
@@ -665,7 +669,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       if (coverFile) {
         const id = created._id || created.id;
         try {
-          const url = await api.uploadSeriesThumbnail(id, coverFile);
+          const createSlug = newSeries.title?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          const url = await api.uploadSeriesThumbnail(id, coverFile, createSlug);
           created.cover_image = url;
         } catch { /* não crítico */ }
       }

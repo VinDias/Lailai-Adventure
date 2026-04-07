@@ -26,20 +26,19 @@ interface PanelItem {
   translationLayers?: TranslationLayer[];
 }
 
-type Language = 'pt' | 'en' | 'es' | 'zh';
-const LANGUAGES: { code: Language; label: string }[] = [
-  { code: 'pt', label: 'PT' },
-  { code: 'en', label: 'EN' },
-  { code: 'es', label: 'ES' },
-  { code: 'zh', label: 'ZH' },
-];
+const DEFAULT_LANG_LABELS: Record<string, string> = {
+  pt: 'PT', en: 'EN', es: 'ES', zh: 'ZH',
+  ja: 'JA', ko: 'KO', fr: 'FR', de: 'DE', it: 'IT',
+};
 
 const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate }) => {
   const [paineis, setPaineis] = useState<PanelItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [language, setLanguage] = useState<Language>(() => {
-    return (localStorage.getItem('lorflux_language') as Language) || 'pt';
+  const [language, setLanguage] = useState<string>(() => {
+    return localStorage.getItem('lorflux_language') || 'pt';
   });
+  const [availableLanguages, setAvailableLanguages] = useState<{ code: string; label: string }[]>([{ code: 'pt', label: 'PT' }]);
+  const [customLabels, setCustomLabels] = useState<Record<string, string>>({});
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
   const [showHeader, setShowHeader] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -81,6 +80,19 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
               translationLayers: p.translationLayers || []
             }));
           setPaineis(mapped);
+
+          // Derive available languages from translation layers
+          const langSet = new Set<string>(['pt']);
+          mapped.forEach(p => p.translationLayers?.forEach((tl: TranslationLayer) => langSet.add(tl.language)));
+          const labels: Record<string, string> = episode.webtoonLanguageLabels || {};
+          setCustomLabels(labels);
+          setAvailableLanguages(
+            Array.from(langSet).map(code => ({
+              code,
+              label: labels[code] || DEFAULT_LANG_LABELS[code] || code.toUpperCase()
+            }))
+          );
+
           setLoading(false);
           return;
         }
@@ -92,7 +104,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     setLoading(false);
   };
 
-  const changeLanguage = (lang: Language) => {
+  const changeLanguage = (lang: string) => {
     setLanguage(lang);
     localStorage.setItem('lorflux_language', lang);
   };
@@ -136,17 +148,19 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
         </div>
         <div className="flex items-center gap-2">
           {/* Seletor de idioma */}
-          <div className="flex gap-1">
-            {LANGUAGES.map(lang => (
-              <button
-                key={lang.code}
-                onClick={() => changeLanguage(lang.code)}
-                className={`px-2 py-1 text-[10px] font-black rounded-lg transition-all ${language === lang.code ? 'bg-rose-600 text-white' : 'bg-white/10 text-zinc-400 hover:text-white'}`}
-              >
-                {lang.label}
-              </button>
-            ))}
-          </div>
+          {availableLanguages.length > 1 && (
+            <div className="flex gap-1">
+              {availableLanguages.map(lang => (
+                <button
+                  key={lang.code}
+                  onClick={() => changeLanguage(lang.code)}
+                  className={`px-2 py-1 text-[10px] font-black rounded-lg transition-all ${language === lang.code ? 'bg-rose-600 text-white' : 'bg-white/10 text-zinc-400 hover:text-white'}`}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Like/Dislike */}
           {user && (
             <div className="flex gap-1 ml-2">

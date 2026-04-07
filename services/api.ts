@@ -92,7 +92,11 @@ class ApiService {
   }
 
   async createCheckoutSession() {
-    return this.request<{ url: string }>('/payment/create-checkout', { method: 'POST' });
+    const locale = typeof navigator !== 'undefined' ? navigator.language : 'pt-BR';
+    return this.request<{ url: string }>('/payment/create-checkout', {
+      method: 'POST',
+      body: JSON.stringify({ locale })
+    });
   }
 
   async login(credentials: any) {
@@ -250,9 +254,9 @@ class ApiService {
     });
   }
 
-  async uploadSeriesThumbnail(seriesId: string, file: File): Promise<string> {
+  async uploadSeriesThumbnail(seriesId: string, file: File, seriesSlug?: string): Promise<string> {
     // Upload para Bunny Storage e atualiza cover_image da série
-    const url = await this.uploadImageToBunny(file);
+    const url = await this.uploadImageToBunny(file, seriesSlug);
     await this.request(`/content/series/${seriesId}`, {
       method: 'PUT',
       body: JSON.stringify({ cover_image: url })
@@ -354,9 +358,10 @@ class ApiService {
     return this.request<any>(`/admin/users/toggle-status/${id}`, { method: 'PUT', body: JSON.stringify({ isActive }) });
   }
 
-  async uploadImageToBunny(file: File): Promise<string> {
+  async uploadImageToBunny(file: File, seriesSlug?: string): Promise<string> {
     const formData = new FormData();
     formData.append('image', file);
+    if (seriesSlug) formData.append('seriesSlug', seriesSlug);
     const fullUrl = `${API_URL}/bunny/upload-image`;
     const response = await fetch(fullUrl, {
       method: 'POST',
@@ -372,9 +377,10 @@ class ApiService {
     return data.url;
   }
 
-  async uploadImagesBatchToBunny(files: File[]): Promise<{ results: Array<{ success: boolean; filename: string; index: number; url?: string; error?: string }>; successCount: number; failCount: number; total: number }> {
+  async uploadImagesBatchToBunny(files: File[], seriesSlug?: string): Promise<{ results: Array<{ success: boolean; filename: string; index: number; url?: string; error?: string }>; successCount: number; failCount: number; total: number }> {
     const formData = new FormData();
     files.forEach(f => formData.append('images', f));
+    if (seriesSlug) formData.append('seriesSlug', seriesSlug);
     const fullUrl = `${API_URL}/bunny/upload-image-batch`;
     const response = await fetch(fullUrl, {
       method: 'POST',

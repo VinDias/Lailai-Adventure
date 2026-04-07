@@ -119,8 +119,8 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       const hlsCfg: Record<string, any> = {
         autoStartLoad: true,
         enableWorker: true,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
       };
 
       if (tokenParam && expiresParam) {

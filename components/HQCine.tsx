@@ -7,6 +7,7 @@ import ImageWithFallback from './ImageWithFallback';
 
 const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => void }> = ({ user, onOpen }) => {
   const [series, setSeries] = useState<Series[]>([]);
+  const [filter, setFilter] = useState('');
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
 
@@ -27,8 +28,18 @@ const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => 
         <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.5em] ml-1">Original Vertical Series</p>
       </header>
 
+      <div className="px-8 mb-6">
+        <input
+          type="text"
+          placeholder="Buscar por título ou gênero..."
+          className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white text-sm focus:border-rose-500/50 transition-all outline-none"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+        />
+      </div>
+
       <section className="px-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-        {series.map(s => (
+        {series.filter(s => s.title.toLowerCase().includes(filter.toLowerCase()) || s.genre.toLowerCase().includes(filter.toLowerCase())).map(s => (
           <div key={s._id} onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
             <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[1.02] shadow-2xl">
               <ImageWithFallback src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
