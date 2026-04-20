@@ -419,6 +419,23 @@ class ApiService {
     });
   }
 
+  async updateEpisodeWebtoonLabels(episodeId: string, webtoonLanguageLabels: { pt?: string; en?: string; es?: string; zh?: string }) {
+    return this.request<any>(`/admin/management/episodes/${episodeId}/webtoon-labels`, {
+      method: 'PATCH',
+      body: JSON.stringify({ webtoonLanguageLabels })
+    });
+  }
+
+  async searchContent(q: string) {
+    const trimmed = q.trim();
+    if (trimmed.length < 2) return { series: [], episodes: [] };
+    try {
+      return await this.request<{ series: any[]; episodes: any[] }>(`/content/search?q=${encodeURIComponent(trimmed)}`);
+    } catch {
+      return { series: [], episodes: [] };
+    }
+  }
+
   async uploadVideoToBunny(file: File, episodeId: string, title: string): Promise<{ bunnyVideoId: string; videoUrl?: string }> {
     const formData = new FormData();
     formData.append('video', file);

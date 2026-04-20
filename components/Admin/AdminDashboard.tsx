@@ -7,7 +7,7 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle, Settings, Music
+  CheckCircle2, AlertCircle, Settings, Music, Languages
 } from 'lucide-react';
 import API_URL from '../../config/api';
 import ImageWithFallback from '../ImageWithFallback';
@@ -133,6 +133,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [audioLabelsForm, setAudioLabelsForm] = useState<string[]>([]);
   const [savingAudioLabels, setSavingAudioLabels] = useState(false);
 
+  // Editor de labels de idioma do webtoon (HI-QUA)
+  const [webtoonLabelModal, setWebtoonLabelModal] = useState<{ ep: any } | null>(null);
+  const [webtoonLabelsForm, setWebtoonLabelsForm] = useState<{ pt: string; en: string; es: string; zh: string }>({ pt: '', en: '', es: '', zh: '' });
+  const [savingWebtoonLabels, setSavingWebtoonLabels] = useState(false);
+
   // Modal de traduções de painel
   const [translationModal, setTranslationModal] = useState<{ panelIdx: number; panel: any } | null>(null);
   const [translationLang, setTranslationLang] = useState<'pt' | 'en' | 'es' | 'zh'>('en');
@@ -244,6 +249,35 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       setAudioLabelModal(null);
     } catch { alert('Erro ao salvar labels de áudio.'); }
     finally { setSavingAudioLabels(false); }
+  };
+
+  const openWebtoonLabelModal = (ep: any) => {
+    const existing = ep.webtoonLanguageLabels || {};
+    setWebtoonLabelsForm({
+      pt: existing.pt || '',
+      en: existing.en || '',
+      es: existing.es || '',
+      zh: existing.zh || ''
+    });
+    setWebtoonLabelModal({ ep });
+  };
+
+  const handleSaveWebtoonLabels = async () => {
+    if (!webtoonLabelModal) return;
+    const epId = webtoonLabelModal.ep._id || webtoonLabelModal.ep.id;
+    setSavingWebtoonLabels(true);
+    try {
+      const trimmed = {
+        pt: webtoonLabelsForm.pt.trim(),
+        en: webtoonLabelsForm.en.trim(),
+        es: webtoonLabelsForm.es.trim(),
+        zh: webtoonLabelsForm.zh.trim()
+      };
+      await api.updateEpisodeWebtoonLabels(epId, trimmed);
+      setEpisodes(prev => prev.map(e => (e._id || e.id) === epId ? { ...e, webtoonLanguageLabels: trimmed } : e));
+      setWebtoonLabelModal(null);
+    } catch { alert('Erro ao salvar labels de idioma.'); }
+    finally { setSavingWebtoonLabels(false); }
   };
 
   const handleOpenPanels = async (ep: any) => {
@@ -977,7 +1011,16 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                               </button>
                             )}
                             {selectedSeries?.content_type === 'hiqua' && (
-                              <button onClick={() => handleOpenPanels(ep)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Gerenciar painéis"><BookOpen size={15} /></button>
+                              <>
+                                <button onClick={() => handleOpenPanels(ep)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Gerenciar painéis"><BookOpen size={15} /></button>
+                                <button
+                                  onClick={() => openWebtoonLabelModal(ep)}
+                                  className={`p-2 rounded-lg transition-all ${Object.values(ep.webtoonLanguageLabels || {}).some((l: any) => typeof l === 'string' && l.trim()) ? 'bg-amber-600/20 text-amber-400 hover:bg-amber-600/30' : 'bg-white/5 text-zinc-400 hover:text-amber-400 hover:bg-amber-600/20'}`}
+                                  title="Renomear botões de idioma do leitor"
+                                >
+                                  <Languages size={15} />
+                                </button>
+                              </>
                             )}
                             <button onClick={() => handleDeleteEpisode(epId)} className="p-2 bg-rose-600/10 rounded-lg text-rose-500 hover:bg-rose-600 hover:text-white transition-all"><Trash2 size={16} /></button>
                           </div>
@@ -1620,6 +1663,42 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 className="flex-1 py-3 rounded-2xl bg-violet-600 text-white font-bold text-sm hover:bg-violet-500 transition-all disabled:opacity-50"
               >
                 {savingAudioLabels ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal — Labels de Idioma HI-QUA (Webtoon) */}
+      {webtoonLabelModal && (
+        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-md">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xl font-black tracking-tighter">Botões de Idioma</h3>
+              <button onClick={() => setWebtoonLabelModal(null)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
+            </div>
+            <p className="text-zinc-500 text-xs mb-6">Nomes que aparecem nos botões do leitor HI-QUA. Preencher um idioma faz o botão aparecer mesmo sem tradução carregada. Deixe em branco para ocultar.</p>
+            <div className="space-y-3">
+              {(['pt', 'en', 'es', 'zh'] as const).map((code, i) => (
+                <div key={code} className="flex items-center gap-3">
+                  <span className="text-zinc-500 text-xs font-black w-10 shrink-0 uppercase">{code}</span>
+                  <input
+                    value={webtoonLabelsForm[code]}
+                    onChange={e => setWebtoonLabelsForm(prev => ({ ...prev, [code]: e.target.value }))}
+                    placeholder={['PT-BR', 'English', 'Español', '中文'][i]}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition-all"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 mt-8">
+              <button onClick={() => setWebtoonLabelModal(null)} className="flex-1 py-3 rounded-2xl bg-white/5 text-zinc-400 font-bold text-sm hover:bg-white/10 transition-all">Cancelar</button>
+              <button
+                onClick={handleSaveWebtoonLabels}
+                disabled={savingWebtoonLabels}
+                className="flex-1 py-3 rounded-2xl bg-amber-600 text-white font-bold text-sm hover:bg-amber-500 transition-all disabled:opacity-50"
+              >
+                {savingWebtoonLabels ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
           </div>

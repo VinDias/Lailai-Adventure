@@ -5,7 +5,14 @@ import { api } from '../services/api';
 import { Play } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 
-const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => void }> = ({ user, onOpen }) => {
+interface HQCineProps {
+  user: User | null;
+  onOpen: (ep: Episode, s: Series) => void;
+  focusSeriesId?: string | null;
+  onFocusConsumed?: () => void;
+}
+
+const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed }) => {
   const [series, setSeries] = useState<Series[]>([]);
   const [filter, setFilter] = useState('');
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
@@ -20,6 +27,15 @@ const HQCine: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => 
     const data = await api.getEpisodesBySeries(s._id);
     setEpisodes(data);
   };
+
+  useEffect(() => {
+    if (!focusSeriesId || series.length === 0) return;
+    const target = series.find(s => s._id === focusSeriesId);
+    if (target) {
+      handleOpenSeries(target);
+      onFocusConsumed?.();
+    }
+  }, [focusSeriesId, series]);
 
   return (
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">

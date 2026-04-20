@@ -81,10 +81,21 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
             }));
           setPaineis(mapped);
 
-          // Derive available languages from translation layers
+          // Idiomas disponíveis = PT (original) + idiomas com translation layer + idiomas com label customizado
           const langSet = new Set<string>(['pt']);
-          mapped.forEach(p => p.translationLayers?.forEach((tl: TranslationLayer) => langSet.add(tl.language)));
-          const labels: Record<string, string> = episode.webtoonLanguageLabels || {};
+          mapped.forEach(p => p.translationLayers?.forEach((tl: TranslationLayer) => {
+            if (tl.language) langSet.add(tl.language);
+          }));
+
+          const rawLabels = episode.webtoonLanguageLabels || {};
+          const labels: Record<string, string> = {};
+          Object.entries(rawLabels).forEach(([code, value]) => {
+            const v = typeof value === 'string' ? value.trim() : '';
+            if (v) {
+              labels[code] = v;
+              langSet.add(code);
+            }
+          });
           setCustomLabels(labels);
           setAvailableLanguages(
             Array.from(langSet).map(code => ({

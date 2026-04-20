@@ -179,4 +179,35 @@ router.patch("/episodes/:id/audio", verifyToken, requireAdmin, async (req, res) 
   }
 });
 
+// ATUALIZAR LABELS DE IDIOMA DO WEBTOON (HI-QUA)
+router.patch("/episodes/:id/webtoon-labels", verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const { webtoonLanguageLabels } = req.body;
+    if (!webtoonLanguageLabels || typeof webtoonLanguageLabels !== 'object') {
+      return res.status(400).json({ error: 'webtoonLanguageLabels deve ser um objeto.' });
+    }
+
+    const allowed = ['pt', 'en', 'es', 'zh'];
+    const labels = {};
+    for (const code of allowed) {
+      if (typeof webtoonLanguageLabels[code] === 'string') {
+        labels[`webtoonLanguageLabels.${code}`] = webtoonLanguageLabels[code].trim();
+      }
+    }
+
+    const episode = await Episode.findByIdAndUpdate(
+      req.params.id,
+      { $set: labels },
+      { new: true }
+    );
+    if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+
+    logger.info(`[Admin] Labels HI-QUA do episódio "${episode.title}" atualizados.`);
+    res.json({ success: true, webtoonLanguageLabels: episode.webtoonLanguageLabels });
+  } catch (err) {
+    logger.error('[Admin Webtoon Labels Update Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

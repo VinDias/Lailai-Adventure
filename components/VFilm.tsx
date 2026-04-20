@@ -4,7 +4,14 @@ import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
 import ImageWithFallback from './ImageWithFallback';
 
-const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => void }> = ({ user, onOpen }) => {
+interface VFilmProps {
+  user: User | null;
+  onOpen: (ep: Episode, s: Series) => void;
+  focusSeriesId?: string | null;
+  onFocusConsumed?: () => void;
+}
+
+const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed }) => {
   const [series, setSeries] = useState<Series[]>([]);
   const [filter, setFilter] = useState('');
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
@@ -29,6 +36,15 @@ const VFilm: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series) => v
       console.error("Error loading vfilm content", e);
     }
   };
+
+  useEffect(() => {
+    if (!focusSeriesId || series.length === 0) return;
+    const target = series.find(s => s._id === focusSeriesId);
+    if (target) {
+      handleOpenSeries(target);
+      onFocusConsumed?.();
+    }
+  }, [focusSeriesId, series]);
 
   if (loading) return <div className="h-full w-full flex items-center justify-center bg-[var(--bg-color)]"><div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>;
 

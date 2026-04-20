@@ -6,7 +6,14 @@ import Ads from './Ads';
 import ImageWithFallback from './ImageWithFallback';
 import { useSettings } from '../contexts/SettingsContext';
 
-const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series, episodes: any[]) => void }> = ({ user, onOpen }) => {
+interface HiQuaProps {
+  user: User | null;
+  onOpen: (ep: Episode, s: Series, episodes: any[]) => void;
+  focusSeriesId?: string | null;
+  onFocusConsumed?: () => void;
+}
+
+const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed }) => {
   const { ad_frequency_feed } = useSettings();
   const [series, setSeries] = useState<Series[]>([]);
   const [filter, setFilter] = useState('');
@@ -32,6 +39,15 @@ const HiQua: React.FC<{ user: User | null, onOpen: (ep: Episode, s: Series, epis
       console.error("Error loading series content", e);
     }
   };
+
+  useEffect(() => {
+    if (!focusSeriesId || series.length === 0) return;
+    const target = series.find(s => s._id === focusSeriesId);
+    if (target) {
+      handleOpenSeries(target);
+      onFocusConsumed?.();
+    }
+  }, [focusSeriesId, series]);
 
   if (loading) return <div className="h-full w-full flex items-center justify-center bg-[var(--bg-color)]"><div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>;
 

@@ -11,7 +11,8 @@ import VFilm from './components/VFilm';
 import HiQua from './components/HiQua';
 import Ads from './components/Ads';
 import ThemeToggle from './components/ThemeToggle';
-import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles } from 'lucide-react';
+import SearchOverlay from './components/SearchOverlay';
+import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search } from 'lucide-react';
 import { getLocalizedPrice } from './utils/localizedPrice';
 
 const App: React.FC = () => {
@@ -22,6 +23,8 @@ const App: React.FC = () => {
   const [activeSeries, setActiveSeries] = useState<any>(null);
   const [seriesEpisodes, setSeriesEpisodes] = useState<any[]>([]);
   const [isOffline, setIsOffline] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pendingSeriesFocus, setPendingSeriesFocus] = useState<string | null>(null);
 
   useEffect(() => {
     api.setStatusCallback(setIsOffline);
@@ -95,6 +98,14 @@ const App: React.FC = () => {
     </div>
   );
 
+  const handleSearchSelect = (seriesId: string, contentType?: string) => {
+    if (contentType === 'hiqua') setView(ViewMode.HIQUA);
+    else if (contentType === 'vcine') setView(ViewMode.VCINE);
+    else if (contentType === 'hqcine') setView(ViewMode.HQCINE);
+    setPendingSeriesFocus(seriesId);
+    setSearchOpen(false);
+  };
+
   return (
     <div className="h-screen w-full flex flex-col bg-[var(--bg-color)] text-[var(--text-color)] overflow-hidden font-inter select-none transition-colors duration-300">
       {isOffline && (
@@ -102,6 +113,17 @@ const App: React.FC = () => {
           MODO OFFLINE ATIVO
         </div>
       )}
+
+      <button
+        onClick={() => setSearchOpen(true)}
+        aria-label="Buscar"
+        className="fixed top-4 right-4 z-[800] p-3 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-black/70 transition-all"
+        style={{ top: 'max(env(safe-area-inset-top, 0px), 16px)' }}
+      >
+        <Search size={18} />
+      </button>
+
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onSelectSeries={handleSearchSelect} />
 
       <main className="flex-1 overflow-hidden relative">
         {!user?.isPremium && (
@@ -113,6 +135,8 @@ const App: React.FC = () => {
         {view === ViewMode.HQCINE && (
           <HQCine
             user={user}
+            focusSeriesId={pendingSeriesFocus}
+            onFocusConsumed={() => setPendingSeriesFocus(null)}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -136,6 +160,8 @@ const App: React.FC = () => {
         {view === ViewMode.VCINE && (
           <VFilm
             user={user}
+            focusSeriesId={pendingSeriesFocus}
+            onFocusConsumed={() => setPendingSeriesFocus(null)}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -159,6 +185,8 @@ const App: React.FC = () => {
         {view === ViewMode.HIQUA && (
           <HiQua
             user={user}
+            focusSeriesId={pendingSeriesFocus}
+            onFocusConsumed={() => setPendingSeriesFocus(null)}
             onOpen={(ep, series, episodes) => {
               setActiveSeries(series);
               setSeriesEpisodes(episodes);

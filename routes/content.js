@@ -8,6 +8,56 @@ const requireAdmin = require('../middlewares/requireAdmin');
 const optionalAuth = require('../middlewares/optionalAuth');
 const logger = require('../utils/logger');
 
+// ─── SEARCH GLOBAL ──────────────────────────────────────────────────────────
+
+// GET /api/content/search?q=... — busca séries e episódios
+router.get('/search', optionalAuth, async (req, res) => {
+  try {
+    const raw = String(req.query.q || '').trim();
+    if (raw.length < 2) return res.json({ series: [], episodes: [] });
+
+    const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'i');
+
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
+    const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());
+
+    const seriesFilter = {
+      isPublished: true,
+      $or: [{ title: regex }, { genre: regex }, { description: regex }]
+    };
+
+    const episodeFilter = { title: regex };
+    if (!isAdmin && !isPremiumUser) episodeFilter.isPremium = { $ne: true };
+
+    const [series, episodes] = await Promise.all([
+      Series.find(seriesFilter).limit(20).lean(),
+      Episode.find(episodeFilter)
+        .limit(20)
+        .populate('seriesId', 'title content_type cover_image isPublished')
+        .lean()
+    ]);
+
+    const visibleEpisodes = episodes
+      .filter(ep => ep.seriesId && ep.seriesId.isPublished !== false)
+      .map(ep => ({
+        _id: ep._id,
+        title: ep.title,
+        episode_number: ep.episode_number,
+        thumbnail: ep.thumbnail,
+        isPremium: ep.isPremium,
+        seriesId: ep.seriesId?._id,
+        seriesTitle: ep.seriesId?.title,
+        content_type: ep.seriesId?.content_type
+      }));
+
+    res.json({ series, episodes: visibleEpisodes });
+  } catch (err) {
+    logger.error('[Content] GET /search', err);
+    res.status(500).json({ error: 'Erro ao buscar conteúdo.' });
+  }
+});
+
 // ─── SERIES ────────────────────────────────────────────────────────────────
 
 // GET /api/content/series — listar séries publicadas
