@@ -6,7 +6,10 @@ const resolveMx = promisify(dns.resolveMx);
 const resolveTxt = promisify(dns.resolveTxt);
 
 const DOMAIN = process.argv[2] || 'lorflux.com';
-const DKIM_SELECTOR = process.argv[3] || 'default';
+// Hostinger Business Email usa "hostingermail1" como seletor padrão.
+// Para outros provedores (Hostgator, Google Workspace, Zoho...) passe via CLI:
+//   node scripts/verifyEmailDns.js lorflux.com default
+const DKIM_SELECTOR = process.argv[3] || 'hostingermail1';
 
 let score = 0;
 const total = 4;
