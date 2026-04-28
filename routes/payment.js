@@ -45,7 +45,19 @@ router.post('/create-checkout', verifyToken, async (req, res) => {
     }
 
     const { locale } = req.body || {};
-    const { priceId } = getPriceIdForLocale(locale);
+    const { priceId, currency } = getPriceIdForLocale(locale);
+
+    // [DIAG] remover depois de validar multi-currency
+    console.log('[CHECKOUT DIAG]', {
+      rawLocale: locale,
+      bodyKeys: Object.keys(req.body || {}),
+      computedCurrency: currency,
+      computedPriceId: priceId,
+      envBRL: process.env.STRIPE_PRICE_ID,
+      envUSD: process.env.STRIPE_PRICE_ID_USD,
+      envEUR: process.env.STRIPE_PRICE_ID_EUR,
+      mode: process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_') ? 'LIVE' : 'TEST',
+    });
 
     const sessionParams = {
       customer: customerId,
@@ -63,6 +75,14 @@ router.post('/create-checkout', verifyToken, async (req, res) => {
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams);
+
+    // [DIAG] remover depois de validar multi-currency
+    console.log('[STRIPE SESSION DIAG]', {
+      id: session.id,
+      currency: session.currency,
+      amountTotal: session.amount_total,
+      lineItemPrice: sessionParams.line_items[0].price,
+    });
 
     res.json({ url: session.url });
   } catch (err) {
