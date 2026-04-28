@@ -95,10 +95,10 @@ app.use(cors({
 }));
 
 // 5. PROTEÇÃO EXTRA STRIPE WEBHOOK (DEVE VIR ANTES DO express.json)
-const paymentRoutes = require("./routes/payment");
-// O webhook dentro de paymentRoutes já usa express.raw, 
-// mas garantimos que nada o consumiu antes.
-app.use("/api/payment", paymentRoutes);
+// Só o /webhook precisa do body raw para validar a assinatura do Stripe.
+// As demais rotas de /api/payment (create-checkout, status...) precisam do JSON parser
+// e por isso são montadas depois dele em "10. DEMAIS ROTAS".
+app.use("/api/payment/webhook", express.raw({ type: 'application/json' }));
 
 // 6. SEGURANÇA E PERFORMANCE GLOBAL
 app.disable("x-powered-by");
@@ -166,6 +166,7 @@ app.use(async (req, res, next) => {
 });
 
 // 10. DEMAIS ROTAS E ENDPOINTS
+app.use("/api/payment", require("./routes/payment"));
 app.use("/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 app.use("/api/admin/management", require("./routes/admin"));
