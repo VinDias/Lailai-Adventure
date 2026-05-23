@@ -53,7 +53,9 @@ const BUNNY_STATUS_MAP = {
   6: 'draft'
 };
 
-router.post('/webhook', express.json(), async (req, res) => {
+const verifyBunnyWebhook = require('../middlewares/verifyBunnyWebhook');
+
+router.post('/webhook', express.json(), verifyBunnyWebhook, async (req, res) => {
   const { VideoGuid, Status, VideoLibraryId } = req.body;
 
   logger.info(`[Bunny Webhook] Video ${VideoGuid} status: ${Status}`);
@@ -404,7 +406,7 @@ router.post('/upload-video', (req, res) => {
         } catch (err) {
           fs.unlink(req.file.path, () => {});
           logger.error('[Bunny Video Upload Error]', err);
-          res.status(500).json({ error: err.message || 'Erro ao enviar vídeo.' });
+          res.status(500).json({ error: 'Erro ao enviar vídeo.' });
         }
       });
     });

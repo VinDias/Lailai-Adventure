@@ -57,6 +57,9 @@ const { createContentSchema } = require("./validators/contentValidator");
 const RefreshToken = require("./models/RefreshToken");
 const AdminLog = require("./models/AdminLog");
 const verifyMediaToken = require("./middlewares/verifyMediaToken");
+const sanitizeMongo = require("./middlewares/sanitizeMongo");
+const { setAuthCookies, clearAuthCookies } = require("./utils/authCookies");
+const { isValidEmail, isNonEmptyString, validatePassword } = require("./validators/authValidator");
 const User = require("./models/User");
 
 // 2. MONITORAMENTO DE ERROS (SENTRY PROFISSIONAL)
@@ -80,15 +83,20 @@ app.get("/health", async (req, res) => {
 });
 
 // 4. CONFIGURAÇÃO SEGURA DE CORS
+// Em produção apenas origens explícitas são aceitas; localhost só fora de produção.
 const allowedOrigins = [
-  process.env.FRONTEND_URL || "http://localhost:5173",
-  "http://localhost:5173",
+  process.env.FRONTEND_URL,
   "https://lorflux.com",
   "https://www.lorflux.com",
 ];
+if (!isProduction) {
+  allowedOrigins.push("http://localhost:5173", "http://localhost:3000");
+}
+const allowedOriginSet = new Set(allowedOrigins.filter(Boolean));
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    // Requisições sem Origin (apps nativos, curl, health checks) são permitidas.
+    if (!origin || allowedOriginSet.has(origin)) return callback(null, true);
     callback(new Error('CORS: origem não permitida'));
   },
   credentials: true
@@ -102,9 +110,39 @@ app.use("/api/payment/webhook", express.raw({ type: 'application/json' }));
 
 // 6. SEGURANÇA E PERFORMANCE GLOBAL
 app.disable("x-powered-by");
-app.use(helmet({ 
-  contentSecurityPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+
+// Content-Security-Policy: defesa em profundidade contra XSS/clickjacking.
+// Permite explicitamente Google AdSense, Google Fonts e mídia via CDN (Bunny).
+const GOOGLE_ADS = [
+  "https://pagead2.googlesyndication.com",
+  "https://*.googlesyndication.com",
+  "https://*.google.com",
+  "https://*.doubleclick.net",
+  "https://*.googleadservices.com",
+  "https://adservice.google.com",
+];
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      defaultSrc: ["'self'"],
+      baseUri: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'self'"],
+      scriptSrc: ["'self'", ...GOOGLE_ADS],
+      scriptSrcAttr: ["'none'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      mediaSrc: ["'self'", "blob:", "https:"],
+      connectSrc: ["'self'", "https:"],
+      frameSrc: ["'self'", "https://*.google.com", "https://*.doubleclick.net", "https://googleads.g.doubleclick.net"],
+      workerSrc: ["'self'", "blob:"],
+      ...(isProduction ? { upgradeInsecureRequests: [] } : {}),
+    },
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  hsts: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
 }));
 app.use(compression());
 
@@ -123,12 +161,25 @@ const loginLimiter = process.env.NODE_ENV === 'test'
       message: { error: "Muitas tentativas de login. Tente novamente em 10 minutos." }
     });
 
+// Limita rotas sensíveis de conta (cadastro, recuperação e redefinição de senha)
+// para mitigar brute-force de tokens, criação de contas em massa e email-bombing.
+const accountLimiter = process.env.NODE_ENV === 'test'
+  ? (req, res, next) => next()
+  : rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 10,
+      message: { error: "Muitas solicitações. Tente novamente mais tarde." }
+    });
+
 app.use("/api", globalLimiter);
 
 // 8. CONFIGURAÇÕES EXPRESS E PARSERS
 app.use(cookieParser());
-app.use(express.json({ limit: process.env.MAX_UPLOAD_SIZE || '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// Sanitização anti-NoSQL injection em body/query/params (após o parsing do JSON).
+app.use(sanitizeMongo);
 
 // 9. PROTEÇÃO ANTI-HOTLINK E ARQUIVOS ESTÁTICOS
 app.use("/uploads/videos", verifyMediaToken, express.static(path.join(__dirname, "uploads/videos"), {
@@ -152,16 +203,21 @@ app.use("/api", (req, res, next) => {
   next();
 });
 
-// Middleware Global de Verificação de Conta Ativa
-app.use(async (req, res, next) => {
-  if (req.user && req.user.id) {
-    try {
-      const u = await User.findById(req.user.id);
-      if (u && !u.isActive) {
-        return res.status(403).json({ message: "Your account has been disabled." });
+// Middleware Global de Verificação de Conta Ativa (apenas em /api)
+// Decodifica o token (cookie ou Bearer) e bloqueia contas desativadas mesmo
+// que ainda possuam um access token válido (revogação efetiva em até 15 min).
+app.use("/api", async (req, res, next) => {
+  const token = req.cookies?.accessToken || (req.headers.authorization && req.headers.authorization.split(' ')[1]);
+  if (!token || !process.env.JWT_SECRET) return next();
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded?.id) {
+      const u = await User.findById(decoded.id).select('isActive').lean();
+      if (u && u.isActive === false) {
+        return res.status(403).json({ error: "Sua conta foi desativada." });
       }
-    } catch (e) { /* silent fail for mock compat */ }
-  }
+    }
+  } catch (e) { /* token inválido/expirado: deixa a rota tratar */ }
   next();
 });
 
@@ -176,6 +232,7 @@ app.use("/api/settings", require("./routes/settings"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
 app.use("/api/content", require("./routes/content"));
 app.use("/api/channels", require("./routes/channels"));
+app.use("/api/account", require("./routes/account"));
 
 // ADMIN METRICS — likes/dislikes por episódio
 app.get('/api/admin/episodes/:id/metrics', verifyToken, requireAdmin, async (req, res) => {
@@ -196,11 +253,38 @@ app.get('/api/admin/episodes/:id/metrics', verifyToken, requireAdmin, async (req
 app.post('/api/auth/logout', verifyToken, async (req, res) => {
   try {
     await RefreshToken.deleteMany({ userId: req.user.id });
-    res.clearCookie('accessToken');
+    clearAuthCookies(res);
     res.json({ message: "Sessão encerrada com segurança em todos os dispositivos." });
   } catch (err) {
     logger.error("[Logout Error]", err);
     res.status(500).json({ error: "Erro ao processar logout." });
+  }
+});
+
+// SESSÃO ATUAL — usado pelo frontend para restaurar a sessão sem guardar tokens
+// no localStorage (os dados vêm do banco, refletindo role/premium atualizados).
+app.get('/api/auth/me', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .select('email nome role isPremium premiumExpiresAt avatar isActive provider consent')
+      .lean();
+    if (!user || user.isActive === false) return res.status(401).json({ error: "Sessão inválida." });
+    res.json({
+      user: {
+        id: user._id,
+        email: user.email,
+        nome: user.nome,
+        role: user.role,
+        isPremium: user.isPremium,
+        premiumExpiresAt: user.premiumExpiresAt,
+        avatar: user.avatar,
+        provider: user.provider,
+        consent: { marketing: !!(user.consent && user.consent.marketing) },
+      },
+    });
+  } catch (err) {
+    logger.error("[Auth/me Error]", err);
+    res.status(500).json({ error: "Erro ao carregar sessão." });
   }
 });
 
@@ -232,7 +316,7 @@ app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
         details: { section, type }
       });
 
-      logger.info(`[Admin] ${req.user.email} enviou vídeo: ${title}`);
+      logger.info(`[Admin] userId ${req.user.id} enviou vídeo: ${title}`);
     }
 
     res.json({ 
@@ -247,14 +331,23 @@ app.post('/api/admin/upload-content', verifyToken, requireAdmin, upload.fields([
 });
 
 // REGISTRO DE NOVO USUÁRIO
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', accountLimiter, async (req, res) => {
   try {
-    const { email, password, nome } = req.body;
-    if (!email || !password || !nome) {
+    const { email, password, nome, acceptedTerms } = req.body;
+    if (!isValidEmail(email) || !isNonEmptyString(password) || !isNonEmptyString(nome)) {
       return res.status(400).json({ error: "Email, senha e nome são obrigatórios." });
     }
+    const pwd = validatePassword(password);
+    if (!pwd.valid) return res.status(400).json({ error: pwd.message });
 
-    const existing = await User.findOne({ email: email.toLowerCase() });
+    // LGPD: consentimento explícito aos Termos e à Política de Privacidade é
+    // pré-requisito do tratamento de dados na criação da conta.
+    if (acceptedTerms !== true) {
+      return res.status(400).json({ error: "É necessário aceitar os Termos de Uso e a Política de Privacidade." });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
       return res.status(409).json({ error: "Este email já está cadastrado." });
     }
@@ -263,13 +356,18 @@ app.post('/api/auth/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 12);
 
     const user = await User.create({
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       passwordHash,
-      nome,
+      nome: String(nome).trim().slice(0, 120),
       role: 'user',
       isPremium: false,
       isActive: true,
-      provider: 'local'
+      provider: 'local',
+      consent: {
+        termsAcceptedAt: new Date(),
+        privacyAcceptedAt: new Date(),
+        ip: req.ip,
+      },
     });
 
     const payload = { id: user._id, email: user.email, role: user.role, isPremium: false, premiumExpiresAt: null };
@@ -277,8 +375,9 @@ app.post('/api/auth/register', async (req, res) => {
     const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: '7d' });
 
     await RefreshToken.create({ userId: user._id, token: refreshToken });
+    setAuthCookies(res, { accessToken, refreshToken });
 
-    logger.info(`Novo usuário registrado: ${email}`);
+    logger.info(`Novo usuário registrado: ${require('./utils/pii').maskEmail(normalizedEmail)}`);
 
     // Envia e-mail de boas-vindas de forma assíncrona (não bloqueia a resposta)
     const { sendWelcome } = require('./services/emailService');
@@ -306,16 +405,18 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
+    if (!isNonEmptyString(email) || !isNonEmptyString(password)) {
       return res.status(400).json({ error: "Email e senha são obrigatórios." });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
-    if (!user) {
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    // Mesmo sem usuário, executa um compare "dummy" para mitigar timing/user enumeration.
+    const bcrypt = require('bcrypt');
+    if (!user || !user.passwordHash) {
+      await bcrypt.compare(password, "$2b$12$invalidinvalidinvalidinvalidinvalidinvalidinvalidinv");
       return res.status(401).json({ error: "Credenciais inválidas." });
     }
 
-    const bcrypt = require('bcrypt');
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) {
       return res.status(401).json({ error: "Credenciais inválidas." });
@@ -330,8 +431,9 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     const refreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: '7d' });
 
     await RefreshToken.create({ userId: user._id, token: refreshToken });
+    setAuthCookies(res, { accessToken, refreshToken });
 
-    logger.info(`Login realizado: ${email}`);
+    logger.info(`Login realizado: ${require('./utils/pii').maskEmail(user.email)}`);
     res.json({
       success: true,
       user: {
@@ -352,15 +454,36 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 });
 
 app.post('/api/auth/refresh-token', async (req, res) => {
-  const { refreshToken } = req.body;
-  if (!refreshToken) return res.sendStatus(401);
+  // Aceita o token via cookie httpOnly (preferencial) ou body (compat. legado/mobile).
+  const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+  // Defesa contra NoSQL injection: o token DEVE ser uma string.
+  if (typeof refreshToken !== 'string' || refreshToken.length === 0) {
+    return res.status(401).json({ error: "Refresh token ausente." });
+  }
 
   const stored = await RefreshToken.findOne({ token: refreshToken });
   if (!stored) return res.status(403).json({ error: "Token revogado ou inexistente." });
 
   try {
     const verified = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
-    const newAccessToken = jwt.sign({ id: verified.id, email: verified.email, role: verified.role, isPremium: verified.isPremium, premiumExpiresAt: verified.premiumExpiresAt }, process.env.JWT_SECRET, { expiresIn: '15m' });
+
+    // Revalida o estado atual do usuário (conta ativa, role e premium do banco).
+    const user = await User.findById(verified.id).select('email role isPremium premiumExpiresAt isActive').lean();
+    if (!user || user.isActive === false) {
+      await RefreshToken.deleteOne({ _id: stored._id });
+      clearAuthCookies(res);
+      return res.status(403).json({ error: "Sessão inválida." });
+    }
+
+    // Rotação de refresh token: invalida o antigo e emite um novo.
+    const payload = { id: verified.id, email: user.email, role: user.role, isPremium: user.isPremium, premiumExpiresAt: user.premiumExpiresAt };
+    const newAccessToken = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const newRefreshToken = jwt.sign(payload, process.env.REFRESH_SECRET, { expiresIn: '7d' });
+
+    await RefreshToken.deleteOne({ _id: stored._id });
+    await RefreshToken.create({ userId: verified.id, token: newRefreshToken });
+    setAuthCookies(res, { accessToken: newAccessToken, refreshToken: newRefreshToken });
+
     res.json({ accessToken: newAccessToken });
   } catch (err) {
     res.status(403).json({ error: "Refresh token expirado." });
@@ -368,12 +491,12 @@ app.post('/api/auth/refresh-token', async (req, res) => {
 });
 
 // ESQUECI MINHA SENHA — gera token e envia e-mail
-app.post('/api/auth/forgot-password', async (req, res) => {
+app.post('/api/auth/forgot-password', accountLimiter, async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'E-mail obrigatório.' });
+    if (!isNonEmptyString(email)) return res.status(400).json({ error: 'E-mail obrigatório.' });
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
     // Sempre responde 200 para não revelar se o e-mail existe
     if (!user) return res.json({ message: 'Se o e-mail estiver cadastrado, você receberá um link em breve.' });
 
@@ -396,11 +519,15 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 });
 
 // REDEFINIR SENHA — valida token e salva nova senha
-app.post('/api/auth/reset-password', async (req, res) => {
+app.post('/api/auth/reset-password', accountLimiter, async (req, res) => {
   try {
     const { token, password } = req.body;
-    if (!token || !password) return res.status(400).json({ error: 'Token e nova senha são obrigatórios.' });
-    if (password.length < 6) return res.status(400).json({ error: 'A senha deve ter no mínimo 6 caracteres.' });
+    // Defesa contra NoSQL injection: token e senha DEVEM ser strings.
+    if (typeof token !== 'string' || token.length === 0 || !isNonEmptyString(password)) {
+      return res.status(400).json({ error: 'Token e nova senha são obrigatórios.' });
+    }
+    const pwd = validatePassword(password);
+    if (!pwd.valid) return res.status(400).json({ error: pwd.message });
 
     const PasswordResetToken = require('./models/PasswordResetToken');
     const stored = await PasswordResetToken.findOne({ token });
@@ -439,6 +566,22 @@ app.get('*', (req, res, next) => {
   
   // Fallback para pasta dist original
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
+// 12. HANDLER GLOBAL DE ERROS (JSON) — evita vazar stack/HTML de erro
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err && /CORS/.test(err.message || "")) {
+    return res.status(403).json({ error: "Origem não permitida." });
+  }
+  if (err && err.type === "entity.too.large") {
+    return res.status(413).json({ error: "Payload muito grande." });
+  }
+  if (err && err.name === "MulterError") {
+    return res.status(400).json({ error: "Falha no upload do arquivo." });
+  }
+  logger.error("[Unhandled Route Error]", err);
+  res.status(err?.status || 500).json({ error: "Erro interno do servidor." });
 });
 
 if (require.main === module) {
