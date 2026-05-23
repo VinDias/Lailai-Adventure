@@ -6,13 +6,14 @@ import { useSettings } from '../contexts/SettingsContext';
 
 interface AuthProps {
   onLogin: (user: User) => void;
+  onOpenPolicy?: (tab?: 'privacy' | 'terms') => void;
 }
 
 type Mode = 'login' | 'register' | 'forgot' | 'reset';
 
 const inputClass = "w-full bg-[rgba(128,128,128,0.1)] border border-[rgba(128,128,128,0.1)] rounded-2xl px-5 py-4 focus:outline-none focus:border-rose-500 transition-all text-[var(--text-color)] placeholder-zinc-600";
 
-const Auth: React.FC<AuthProps> = ({ onLogin }) => {
+const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy }) => {
   const { platform_tagline } = useSettings();
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
@@ -20,6 +21,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [nome, setNome] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [resetToken, setResetToken] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -39,18 +41,22 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
   const switchMode = (next: Mode) => {
     reset();
-    setEmail(''); setPassword(''); setNome(''); setNewPassword('');
+    setEmail(''); setPassword(''); setNome(''); setNewPassword(''); setAcceptedTerms(false);
     setMode(next);
   };
 
   const handleLoginRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     reset();
+    if (mode === 'register' && !acceptedTerms) {
+      setError('É necessário aceitar os Termos de Uso e a Política de Privacidade.');
+      return;
+    }
     setLoading(true);
     try {
       const user = mode === 'login'
         ? await api.login({ email, password })
-        : await api.register({ email, password, nome });
+        : await api.register({ email, password, nome, acceptedTerms });
       onLogin(user);
     } catch (err: any) {
       const msg = err.message || '';
@@ -79,7 +85,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     reset();
-    if (newPassword.length < 6) { setError('A senha deve ter no mínimo 6 caracteres.'); return; }
+    if (newPassword.length < 8) { setError('A senha deve ter no mínimo 8 caracteres.'); return; }
     setLoading(true);
     try {
       await api.resetPassword(resetToken, newPassword);
@@ -116,7 +122,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         {header}
         <form onSubmit={handleReset} className="space-y-3">
           <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
-            required minLength={6} placeholder="Nova senha" className={inputClass} />
+            required minLength={8} placeholder="Nova senha (mín. 8, com letra e número)" className={inputClass} />
           {feedback}
           <button type="submit" disabled={loading}
             className="w-full bg-rose-600 text-white font-extrabold py-4 rounded-2xl transition-all hover:bg-rose-500 disabled:bg-zinc-800 disabled:text-zinc-500 flex items-center justify-center mt-2">
@@ -169,7 +175,20 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           <input type="email" value={email} onChange={e => setEmail(e.target.value)}
             required placeholder="E-mail" className={inputClass} />
           <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-            required minLength={6} placeholder="Senha" className={inputClass} />
+            required minLength={8} placeholder="Senha (mín. 8, com letra e número)" className={inputClass} />
+
+          {mode === 'register' && (
+            <label className="flex items-start gap-3 px-1 py-1 text-xs text-zinc-400 leading-relaxed cursor-pointer">
+              <input type="checkbox" checked={acceptedTerms} onChange={e => setAcceptedTerms(e.target.checked)}
+                className="mt-0.5 accent-rose-600 w-4 h-4 shrink-0" />
+              <span>
+                Li e aceito os{' '}
+                <button type="button" onClick={() => onOpenPolicy?.('terms')} className="text-rose-400 underline font-bold">Termos de Uso</button>
+                {' '}e a{' '}
+                <button type="button" onClick={() => onOpenPolicy?.('privacy')} className="text-rose-400 underline font-bold">Política de Privacidade</button>.
+              </span>
+            </label>
+          )}
 
           {feedback}
 
@@ -189,6 +208,11 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             className="text-zinc-500 hover:text-rose-500 font-bold transition-colors text-sm">
             {mode === 'login' ? 'Não tem conta? Criar agora' : 'Já tenho uma conta'}
           </button>
+          <div className="text-[10px] text-zinc-600 mt-2 flex gap-3">
+            <button type="button" onClick={() => onOpenPolicy?.('privacy')} className="hover:text-rose-500 transition-colors">Privacidade</button>
+            <span>·</span>
+            <button type="button" onClick={() => onOpenPolicy?.('terms')} className="hover:text-rose-500 transition-colors">Termos</button>
+          </div>
         </div>
       </div>
     </div>

@@ -9,7 +9,6 @@ import {
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
   CheckCircle2, AlertCircle, Settings, Music, Languages
 } from 'lucide-react';
-import API_URL from '../../config/api';
 import ImageWithFallback from '../ImageWithFallback';
 
 function isValidUrl(str: string) {
@@ -214,12 +213,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setContentList(updated);
 
     try {
-      await fetch(`${API_URL}/admin/management/reorder`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('lorflux_token')}` },
-        body: JSON.stringify({ items: updated.map(i => ({ id: i._id || i.id, order_index: i.order_index })) }),
-        credentials: 'include'
-      });
+      await api.reorderContent(updated.map(i => ({ id: i._id || i.id, order_index: i.order_index })));
     } catch (e) { alert('Erro ao salvar nova ordem.'); }
   };
 

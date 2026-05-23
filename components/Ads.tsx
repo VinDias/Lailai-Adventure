@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { hasAdConsent, loadAdSense, CONSENT_EVENT } from '../utils/consent';
 
 const DEFAULT_CLIENT = 'ca-pub-5972610130504852';
 
@@ -9,6 +10,7 @@ const Ads: React.FC = () => {
   const [adSlot, setAdSlot] = useState('');
   const [ready, setReady] = useState(false);
   const [ownAd, setOwnAd] = useState<any>(null);
+  const [consented, setConsented] = useState<boolean>(hasAdConsent());
 
   useEffect(() => {
     Promise.all([
@@ -21,20 +23,29 @@ const Ads: React.FC = () => {
     }).finally(() => setReady(true));
   }, []);
 
+  // Reage ao consentimento do usuário (banner de cookies).
   useEffect(() => {
-    if (!ready || !adSlot) return;
+    const onChange = () => setConsented(hasAdConsent());
+    window.addEventListener(CONSENT_EVENT, onChange);
+    return () => window.removeEventListener(CONSENT_EVENT, onChange);
+  }, []);
+
+  useEffect(() => {
+    // Só inicializa o AdSense com consentimento explícito (LGPD).
+    if (!ready || !adSlot || !consented) return;
+    loadAdSense(adClient);
     try {
       // @ts-ignore
       (window.adsbygoogle = window.adsbygoogle || []).push({});
     } catch (e) {
       console.warn('AdSense error:', e);
     }
-  }, [ready, adSlot]);
+  }, [ready, adSlot, consented, adClient]);
 
   if (!ready) return null;
 
-  // Mostra AdSense se o slot estiver configurado
-  if (adSlot) {
+  // Mostra AdSense apenas com consentimento E slot configurado.
+  if (adSlot && consented) {
     return (
       <div className="w-full my-4 bg-white/5 border border-white/5 rounded-2xl overflow-hidden p-2 flex flex-col items-center">
         <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-2">Publicidade</span>

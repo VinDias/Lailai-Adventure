@@ -23,24 +23,85 @@ class ApiService {
   }
 
   private async tryRefresh(): Promise<boolean> {
-    if (!this.refreshTokenValue) return false;
     try {
       const fullUrl = `${API_URL}/auth/refresh-token`;
+      // O refresh token vem do cookie httpOnly (credentials: 'include').
+      // Para compatibilidade legada, envia no body se ainda estiver em memória.
       const response = await fetch(fullUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: this.refreshTokenValue }),
+        body: JSON.stringify(this.refreshTokenValue ? { refreshToken: this.refreshTokenValue } : {}),
         credentials: 'include'
       });
       if (!response.ok) return false;
       const data = await response.json();
       if (!data.accessToken) return false;
+      // Token mantido apenas em memória (não persistido em localStorage → imune a roubo via XSS).
       this.accessToken = data.accessToken;
-      localStorage.setItem('lorflux_token', data.accessToken);
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Restaura a sessão no carregamento do app usando o cookie httpOnly de refresh,
+   * sem depender de tokens no localStorage. Retorna o usuário atual ou null.
+   */
+  async bootstrapSession(): Promise<any | null> {
+    const refreshed = await this.tryRefresh();
+    if (!refreshed) return null;
+    try {
+      const data = await this.request<{ user: any }>('/auth/me');
+      return data.user;
+    } catch {
+      return null;
+    }
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.request('/auth/logout', { method: 'POST' });
+    } catch { /* ignora erros de rede no logout */ }
+    this.accessToken = null;
+    this.refreshTokenValue = null;
+  }
+
+  // ─── LGPD: direitos do titular ──────────────────────────────────────────────
+  async getMe() {
+    const data = await this.request<{ user: any }>('/auth/me');
+    return data.user;
+  }
+
+  async updateMarketingConsent(marketing: boolean) {
+    return this.request<{ success: boolean; marketing: boolean }>('/account/me/consent', {
+      method: 'PUT',
+      body: JSON.stringify({ marketing })
+    });
+  }
+
+  async deleteMyAccount(password?: string) {
+    return this.request<{ success: boolean; message: string }>('/account/me', {
+      method: 'DELETE',
+      body: JSON.stringify(password ? { password } : {})
+    });
+  }
+
+  async exportMyData(): Promise<void> {
+    const response = await fetch(`${API_URL}/account/me/export`, {
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      credentials: 'include'
+    });
+    if (!response.ok) throw new Error('Não foi possível exportar seus dados.');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'meus-dados-lorflux.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   private async request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
@@ -109,7 +170,7 @@ class ApiService {
     return { ...data.user, accessToken: data.accessToken, refreshToken: data.refreshToken };
   }
 
-  async register(credentials: { email: string; password: string; nome: string }) {
+  async register(credentials: { email: string; password: string; nome: string; acceptedTerms: boolean }) {
     const data = await this.request<{ user: any; accessToken: string; refreshToken?: string }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(credentials)
@@ -216,6 +277,13 @@ class ApiService {
 
   async getAdminContent(page = 1) {
     return this.request<any>(`/admin/management/content?page=${page}`);
+  }
+
+  async reorderContent(items: { id: string; order_index: number }[]) {
+    return this.request<any>('/admin/management/reorder', {
+      method: 'PUT',
+      body: JSON.stringify({ items })
+    });
   }
 
   async createSeries(data: any) {

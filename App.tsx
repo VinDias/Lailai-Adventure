@@ -12,8 +12,12 @@ import HiQua from './components/HiQua';
 import Ads from './components/Ads';
 import ThemeToggle from './components/ThemeToggle';
 import SearchOverlay from './components/SearchOverlay';
+import ConsentBanner from './components/ConsentBanner';
+import LegalPolicy from './components/LegalPolicy';
+import PrivacyCenter from './components/PrivacyCenter';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search } from 'lucide-react';
 import { getLocalizedPrice } from './utils/localizedPrice';
+import { initConsent } from './utils/consent';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewMode>(ViewMode.AUTH);
@@ -25,43 +29,47 @@ const App: React.FC = () => {
   const [isOffline, setIsOffline] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [pendingSeriesFocus, setPendingSeriesFocus] = useState<string | null>(null);
+  const [booting, setBooting] = useState(true);
+  const [legalOpen, setLegalOpen] = useState(false);
+  const [legalTab, setLegalTab] = useState<'privacy' | 'terms'>('privacy');
+
+  const openPolicy = (tab: 'privacy' | 'terms' = 'privacy') => { setLegalTab(tab); setLegalOpen(true); };
+
+  // Limpeza de tokens legados que ficavam no localStorage (agora usamos cookies httpOnly).
+  const purgeLegacyTokens = () => {
+    localStorage.removeItem('lorflux_session');
+    localStorage.removeItem('lorflux_token');
+    localStorage.removeItem('lorflux_refresh_token');
+  };
 
   useEffect(() => {
+    initConsent();
+    purgeLegacyTokens();
     api.setStatusCallback(setIsOffline);
     api.setAuthExpiredCallback(() => {
       setUser(null);
-      localStorage.removeItem('lorflux_session');
-      localStorage.removeItem('lorflux_token');
-      localStorage.removeItem('lorflux_refresh_token');
       setView(ViewMode.AUTH);
     });
-    const saved = localStorage.getItem('lorflux_session');
-    if (saved) {
+
+    // Restaura a sessão usando o cookie httpOnly de refresh — sem tokens no localStorage.
+    (async () => {
       try {
-        const u = JSON.parse(saved);
-        setUser(u);
-        const token = localStorage.getItem('lorflux_token');
-        if (token) api.setToken(token);
-        const refreshToken = localStorage.getItem('lorflux_refresh_token');
-        if (refreshToken) api.setRefreshToken(refreshToken);
-        setView(ViewMode.HQCINE);
-      } catch (e) { localStorage.removeItem('lorflux_session'); }
-    }
+        const restored = await api.bootstrapSession();
+        if (restored) {
+          setUser(restored);
+          setView(ViewMode.HQCINE);
+        }
+      } catch { /* segue para tela de login */ }
+      finally { setBooting(false); }
+    })();
   }, []);
 
   const handleLogin = (u: User) => {
     setUser(u);
     const tok = (u as any).accessToken;
-    if (tok) {
-      localStorage.setItem('lorflux_token', tok);
-      api.setToken(tok);
-    }
+    if (tok) api.setToken(tok);
     const rtok = (u as any).refreshToken;
-    if (rtok) {
-      localStorage.setItem('lorflux_refresh_token', rtok);
-      api.setRefreshToken(rtok);
-    }
-    localStorage.setItem('lorflux_session', JSON.stringify(u));
+    if (rtok) api.setRefreshToken(rtok);
     setView(ViewMode.HQCINE);
   };
 
@@ -82,19 +90,34 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    api.logout();
+    purgeLegacyTokens();
     setUser(null);
-    localStorage.removeItem('lorflux_session');
-    localStorage.removeItem('lorflux_token');
-    localStorage.removeItem('lorflux_refresh_token');
     setView(ViewMode.AUTH);
   };
+
+  const handleAccountDeleted = () => {
+    api.setToken('');
+    purgeLegacyTokens();
+    setUser(null);
+    setView(ViewMode.AUTH);
+  };
+
+  // Evita "flash" da tela de login enquanto a sessão é restaurada via cookie.
+  if (booting) return (
+    <div className="min-h-screen w-full flex items-center justify-center bg-[var(--bg-color)]">
+      <div className="w-8 h-8 border-2 border-zinc-700 border-t-rose-500 rounded-full animate-spin" />
+    </div>
+  );
 
   if (view === ViewMode.AUTH) return (
     <div className="relative">
       <div className="absolute top-4 right-4 z-50">
         <ThemeToggle />
       </div>
-      <Auth onLogin={handleLogin} />
+      <Auth onLogin={handleLogin} onOpenPolicy={openPolicy} />
+      <ConsentBanner onOpenPolicy={() => openPolicy('privacy')} />
+      <LegalPolicy open={legalOpen} onClose={() => setLegalOpen(false)} initialTab={legalTab} />
     </div>
   );
 
@@ -209,6 +232,8 @@ const App: React.FC = () => {
               )}
               <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">SAIR DA CONTA</button>
             </div>
+
+            <PrivacyCenter user={user} onOpenPolicy={openPolicy} onDeleted={handleAccountDeleted} />
           </div>
         )}
 
@@ -247,6 +272,9 @@ const App: React.FC = () => {
           <NavBtn active={view === ViewMode.ADMIN_DASHBOARD} onClick={() => setView(ViewMode.ADMIN_DASHBOARD)} icon={<ShieldAlert />} label="Admin" />
         )}
       </nav>
+
+      <ConsentBanner onOpenPolicy={() => openPolicy('privacy')} />
+      <LegalPolicy open={legalOpen} onClose={() => setLegalOpen(false)} initialTab={legalTab} />
     </div>
   );
 };

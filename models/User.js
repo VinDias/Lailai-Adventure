@@ -14,7 +14,14 @@ const userSchema = new mongoose.Schema({
   stripeCustomerId: { type: String },
   stripeSubscriptionId: { type: String },
   isActive: { type: Boolean, default: true },
-  followingChannelIds: [{ type: Number }]
+  followingChannelIds: [{ type: Number }],
+  // LGPD: registro de consentimento (Art. 8º) e marketing opcional.
+  consent: {
+    termsAcceptedAt: { type: Date },
+    privacyAcceptedAt: { type: Date },
+    marketing: { type: Boolean, default: false },
+    ip: { type: String }
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model("User", userSchema);
