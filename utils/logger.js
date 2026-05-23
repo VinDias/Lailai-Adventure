@@ -4,9 +4,8 @@ const path = require("path");
 const fs = require("fs");
 
 const logDir = "logs";
-if (!fs.existsSync(logDir)) {
-  fs.mkdirSync(logDir);
-}
+// recursive: true é idempotente — não lança EEXIST em corrida entre processos/testes.
+fs.mkdirSync(logDir, { recursive: true });
 
 const errorTransport = new transports.DailyRotateFile({
   filename: path.join(logDir, "error-%DATE%.log"),
