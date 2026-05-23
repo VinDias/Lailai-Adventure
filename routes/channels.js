@@ -36,7 +36,7 @@ router.post('/', verifyToken, async (req, res) => {
     if (!name) return res.status(400).json({ error: 'name é obrigatório.' });
 
     const channel = await Channel.create({ ownerId: req.user.id, name, description, avatar, banner });
-    logger.info(`[Channel] Criado: ${name} por ${req.user.email}`);
+    logger.info(`[Channel] Criado: ${name} por userId ${req.user.id}`);
     res.status(201).json(channel);
   } catch (err) {
     logger.error('[Channels] POST /', err);

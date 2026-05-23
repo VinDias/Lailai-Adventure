@@ -122,7 +122,7 @@ router.put("/reorder", verifyToken, requireAdmin, async (req, res) => {
     res.json({ success: true, message: "Ordem atualizada com sucesso." });
   } catch (err) {
     logger.error("[Admin Reorder Error]", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -137,7 +137,8 @@ router.put("/update-thumbnail/:id", verifyToken, requireAdmin, upload.single("th
 
     res.json({ success: true, url: thumbnailPath });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error("[Admin Update Thumbnail Error]", err);
+    res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -175,7 +176,7 @@ router.patch("/episodes/:id/audio", verifyToken, requireAdmin, async (req, res) 
     });
   } catch (err) {
     logger.error('[Admin Audio Update Error]', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -206,7 +207,7 @@ router.patch("/episodes/:id/webtoon-labels", verifyToken, requireAdmin, async (r
     res.json({ success: true, webtoonLanguageLabels: episode.webtoonLanguageLabels });
   } catch (err) {
     logger.error('[Admin Webtoon Labels Update Error]', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 

@@ -7,6 +7,11 @@ const verifyToken = require('../middlewares/verifyToken');
 const requireAdmin = require('../middlewares/requireAdmin');
 const optionalAuth = require('../middlewares/optionalAuth');
 const logger = require('../utils/logger');
+const pick = require('../utils/pick');
+
+const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished'];
+const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
+  'audioTrack1Url', 'audioTrack1Lang', 'audioTrack2Url', 'audioTrack2Lang', 'audioTrack3Url', 'audioTrack3Lang', 'audioTrack4Url', 'audioTrack4Lang'];
 
 // ─── SEARCH GLOBAL ──────────────────────────────────────────────────────────
 
@@ -110,7 +115,7 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
 // PUT /api/content/series/:id — editar série (admin)
 router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const series = await Series.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true, runValidators: true });
+    const series = await Series.findByIdAndUpdate(req.params.id, { $set: pick(req.body, SERIES_FIELDS) }, { new: true, runValidators: true });
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
     res.json(series);
   } catch (err) {
@@ -158,10 +163,22 @@ router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
 });
 
 // GET /api/content/episodes/:id — detalhes de um episódio
-router.get('/episodes/:id', async (req, res) => {
+router.get('/episodes/:id', optionalAuth, async (req, res) => {
   try {
     const episode = await Episode.findById(req.params.id).populate('seriesId', 'title content_type').lean();
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+
+    // Controle de acesso: usuários sem direito não recebem a mídia de conteúdo premium.
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
+    const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());
+    if (episode.isPremium && !isAdmin && !isPremiumUser) {
+      episode.video_url = null;
+      episode.bunnyVideoId = null;
+      episode.panels = [];
+      episode.audioTrack1Url = null; episode.audioTrack2Url = null;
+      episode.audioTrack3Url = null; episode.audioTrack4Url = null;
+      episode.locked = true;
+    }
 
     // Incrementa views de forma não bloqueante
     Episode.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
@@ -195,7 +212,7 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
 // PUT /api/content/episodes/:id — editar episódio (admin)
 router.put('/episodes/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const episode = await Episode.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true, runValidators: true });
+    const episode = await Episode.findByIdAndUpdate(req.params.id, { $set: pick(req.body, EPISODE_FIELDS) }, { new: true, runValidators: true });
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
     res.json(episode);
   } catch (err) {

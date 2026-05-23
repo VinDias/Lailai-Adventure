@@ -7,6 +7,7 @@ const verifyToken = require("../middlewares/verifyToken");
 const requireRole = require("../middlewares/requireRole");
 const bcrypt = require("bcrypt");
 const logger = require("../utils/logger");
+const { isValidEmail, isNonEmptyString, validatePassword } = require("../validators/authValidator");
 
 // Listar usuários com paginação e filtros (admin)
 router.get("/", verifyToken, requireRole("superadmin"), async (req, res) => {
@@ -26,7 +27,7 @@ router.get("/", verifyToken, requireRole("superadmin"), async (req, res) => {
     res.json({ users, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     logger.error("[Admin Users] GET /", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -49,7 +50,8 @@ router.put("/:id/toggle-premium", verifyToken, requireRole("superadmin"), async 
 
     res.json({ id: user.id, isPremium: user.isPremium });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error("[Admin Users Error]", err);
+    res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 
@@ -61,6 +63,11 @@ router.post("/create-admin", verifyToken, requireRole("superadmin"), async (req,
     if (!["admin", "superadmin"].includes(role)) {
       return res.status(400).json({ message: "Invalid role specified." });
     }
+    if (!isValidEmail(email) || !isNonEmptyString(nome)) {
+      return res.status(400).json({ message: "Email e nome válidos são obrigatórios." });
+    }
+    const pwd = validatePassword(password);
+    if (!pwd.valid) return res.status(400).json({ message: pwd.message });
 
     // Validação de limite de administradores
     const adminCount = await User.countDocuments({ role: { $in: ["admin", "superadmin"] } });
@@ -70,7 +77,8 @@ router.post("/create-admin", verifyToken, requireRole("superadmin"), async (req,
       return res.status(400).json({ message: `Admin limit reached (${maxAdmins}).` });
     }
 
-    const existing = await User.findOne({ email });
+    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
       return res.status(400).json({ message: "Email already in use." });
     }
@@ -79,9 +87,9 @@ router.post("/create-admin", verifyToken, requireRole("superadmin"), async (req,
     const hashedPassword = await bcrypt.hash(password, salt);
 
     const newAdmin = await User.create({
-      email,
+      email: normalizedEmail,
       passwordHash: hashedPassword,
-      nome,
+      nome: String(nome).trim().slice(0, 120),
       role,
       isActive: true
     });
@@ -94,7 +102,7 @@ router.post("/create-admin", verifyToken, requireRole("superadmin"), async (req,
       details: { role, email }
     });
 
-    logger.info(`[SuperAdmin] ${req.user.email} criou novo ${role}: ${email}`);
+    logger.info(`[SuperAdmin] userId ${req.user.id} criou novo ${role}: ${require('../utils/pii').maskEmail(normalizedEmail)}`);
     
     res.status(201).json({ 
       message: "Administrator created successfully",
@@ -128,7 +136,8 @@ router.put("/toggle-status/:id", verifyToken, requireRole("superadmin"), async (
 
     res.json({ message: `Account ${isActive ? 'activated' : 'deactivated'} successfully.` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error("[Admin Users Error]", err);
+    res.status(500).json({ error: "Erro interno do servidor." });
   }
 });
 

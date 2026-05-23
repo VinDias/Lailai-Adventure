@@ -3,31 +3,29 @@ const express = require("express");
 const router = express.Router();
 const { verifyGooglePurchase, verifyAppleReceipt } = require("../services/mobilePaymentService");
 const verifyToken = require("../middlewares/verifyToken");
+const User = require("../models/User");
+const logger = require("../utils/logger");
 
-// IMPORTANTE: Como o projeto usa USERS_DB mockado em server.js, 
-// em um cenário real importaríamos o model User. 
-// Para este contexto, assume-se a lógica de persistência solicitada.
+async function grantPremium(userId, expiresAt) {
+  await User.findByIdAndUpdate(userId, {
+    isPremium: true,
+    premiumExpiresAt: expiresAt,
+  });
+}
 
 router.post("/verify-google", verifyToken, async (req, res) => {
   const { purchaseToken, productId } = req.body;
-  
-  if (!purchaseToken || !productId) {
+
+  if (typeof purchaseToken !== "string" || typeof productId !== "string" || !purchaseToken || !productId) {
     return res.status(400).json({ error: "Dados da compra incompletos." });
   }
 
-  const isValid = await verifyGooglePurchase(purchaseToken, productId);
+  const result = await verifyGooglePurchase(purchaseToken, productId);
 
-  if (isValid) {
-    // Atualização do usuário (Lógica padrão solicitada)
-    // Em produção real: const user = await User.findById(req.user.id);
-    const user = req.user; 
-    user.isPremium = true;
-    user.premiumExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    
-    // Simulação de persistência conforme solicitado
-    // await user.save();
-    
-    return res.json({ success: true, message: "Assinatura Google Play ativada." });
+  if (result.valid) {
+    await grantPremium(req.user.id, result.expiresAt);
+    logger.info(`[Mobile] Premium (Google) ativado para userId ${req.user.id}`);
+    return res.json({ success: true, message: "Assinatura Google Play ativada.", premiumExpiresAt: result.expiresAt });
   }
 
   res.status(402).json({ error: "Falha na validação da compra Google." });
@@ -36,20 +34,16 @@ router.post("/verify-google", verifyToken, async (req, res) => {
 router.post("/verify-apple", verifyToken, async (req, res) => {
   const { receiptData } = req.body;
 
-  if (!receiptData) {
+  if (typeof receiptData !== "string" || !receiptData) {
     return res.status(400).json({ error: "Recibo Apple não fornecido." });
   }
 
-  const isValid = await verifyAppleReceipt(receiptData);
+  const result = await verifyAppleReceipt(receiptData);
 
-  if (isValid) {
-    const user = req.user;
-    user.isPremium = true;
-    user.premiumExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-    
-    // await user.save();
-
-    return res.json({ success: true, message: "Assinatura Apple IAP ativada." });
+  if (result.valid) {
+    await grantPremium(req.user.id, result.expiresAt);
+    logger.info(`[Mobile] Premium (Apple) ativado para userId ${req.user.id}`);
+    return res.json({ success: true, message: "Assinatura Apple IAP ativada.", premiumExpiresAt: result.expiresAt });
   }
 
   res.status(402).json({ error: "Falha na validação do recibo Apple." });

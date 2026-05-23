@@ -4,6 +4,9 @@ const Ad = require('../models/Ad');
 const verifyToken = require('../middlewares/verifyToken');
 const requireAdmin = require('../middlewares/requireAdmin');
 const logger = require('../utils/logger');
+const pick = require('../utils/pick');
+
+const AD_FIELDS = ['title', 'image_url', 'link_url', 'advertiser', 'isActive', 'startsAt', 'endsAt'];
 
 // GET /api/admin/ads — listar todos os anúncios (admin)
 router.get('/', verifyToken, requireAdmin, async (req, res) => {
@@ -36,7 +39,7 @@ router.post('/', verifyToken, requireAdmin, async (req, res) => {
 // PUT /api/admin/ads/:id — editar anúncio (admin)
 router.put('/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const ad = await Ad.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true, runValidators: true });
+    const ad = await Ad.findByIdAndUpdate(req.params.id, { $set: pick(req.body, AD_FIELDS) }, { new: true, runValidators: true });
     if (!ad) return res.status(404).json({ error: 'Anúncio não encontrado.' });
     res.json(ad);
   } catch (err) {

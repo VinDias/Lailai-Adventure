@@ -4,6 +4,7 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const verifyToken = require('../middlewares/verifyToken');
 const User = require('../models/User');
 const logger = require('../utils/logger');
+const { maskEmail } = require('../utils/pii');
 
 // Mapeamento locale → moeda → priceId
 const LOCALE_CURRENCY = {
@@ -99,7 +100,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         user.stripeSubscriptionId = session.subscription;
         user.premiumExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
         await user.save();
-        logger.info(`Premium ativado para: ${user.email}`);
+        logger.info(`Premium ativado para: ${maskEmail(user.email)}`);
       } else {
         logger.warn(`[Webhook] Nenhum usuário encontrado para stripeCustomerId: ${customerId}`);
       }
@@ -112,7 +113,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         user.isPremium = false;
         user.stripeSubscriptionId = null;
         await user.save();
-        logger.info(`Premium cancelado para: ${user.email}`);
+        logger.info(`Premium cancelado para: ${maskEmail(user.email)}`);
       } else {
         logger.warn(`[Webhook] Nenhum usuário encontrado para stripeSubscriptionId: ${subscription.id}`);
       }
