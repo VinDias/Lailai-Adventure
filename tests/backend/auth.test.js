@@ -20,7 +20,7 @@ afterEach(() => db.clearDatabase());
 // ─── REGISTRO ─────────────────────────────────────────────────────────────────
 
 describe('POST /api/auth/register', () => {
-  const valid = { email: 'novo@test.com', password: 'Senha@123', nome: 'Novo User' };
+  const valid = { email: 'novo@test.com', password: 'Senha@123', nome: 'Novo User', acceptedTerms: true };
 
   it('registra usuário com dados válidos', async () => {
     const res = await request(app).post('/api/auth/register').send(valid);
@@ -57,7 +57,7 @@ describe('POST /api/auth/register', () => {
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 
 describe('POST /api/auth/login', () => {
-  const creds = { email: 'login@test.com', password: 'Senha@123', nome: 'Login User' };
+  const creds = { email: 'login@test.com', password: 'Senha@123', nome: 'Login User', acceptedTerms: true };
 
   beforeEach(async () => {
     await request(app).post('/api/auth/register').send(creds);
@@ -98,7 +98,7 @@ describe('POST /api/auth/refresh-token', () => {
   let refreshToken;
 
   beforeEach(async () => {
-    await request(app).post('/api/auth/register').send({ email: 'r@test.com', password: 'Senha@123', nome: 'R' });
+    await request(app).post('/api/auth/register').send({ email: 'r@test.com', password: 'Senha@123', nome: 'R', acceptedTerms: true });
     const login = await request(app).post('/api/auth/login').send({ email: 'r@test.com', password: 'Senha@123' });
     refreshToken = login.body.refreshToken;
   });
@@ -126,7 +126,7 @@ describe('POST /api/auth/logout', () => {
   let accessToken;
 
   beforeEach(async () => {
-    await request(app).post('/api/auth/register').send({ email: 'lo@test.com', password: 'Senha@123', nome: 'Lo' });
+    await request(app).post('/api/auth/register').send({ email: 'lo@test.com', password: 'Senha@123', nome: 'Lo', acceptedTerms: true });
     const login = await request(app).post('/api/auth/login').send({ email: 'lo@test.com', password: 'Senha@123' });
     accessToken = login.body.accessToken;
   });
