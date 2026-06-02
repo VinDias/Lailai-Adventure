@@ -7,3 +7,14 @@ dist
 uploads/*
 !uploads/.gitkeep
 guide.md
+
+# Android signing — keystore JAMAIS pode entrar no repo
+*.keystore
+*.jks
+keystore.properties
+twa-manifest.json
+android.keystore
+lorflux-twa/
+
+# Memória local do assistente (não compartilhar)
+memory/

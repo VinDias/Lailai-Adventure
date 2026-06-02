@@ -44,9 +44,12 @@ vi.mock('../../services/api', () => ({
     getMyVote: vi.fn().mockResolvedValue(null),
     vote: vi.fn().mockResolvedValue({ type: 'like' }),
     removeVote: vi.fn().mockResolvedValue({}),
-    getSignedVideoUrl: vi.fn().mockRejectedValue(new Error('no token')),
+    getSignedVideoUrl: vi.fn(),
   },
 }));
+
+const signedUrlFor = (id: string) =>
+  `https://vz-fbaa1d24-d2c.b-cdn.net/${id}/playlist.m3u8?token=tok&expires=9999999999`;
 
 import { api } from '../../services/api';
 import VerticalPlayer from '../../components/VerticalPlayer';
@@ -92,7 +95,7 @@ beforeEach(() => {
   vi.mocked(api.vote).mockClear();
   vi.mocked(api.removeVote).mockClear();
   vi.mocked(api.getMyVote).mockResolvedValue(null);
-  vi.mocked(api.getSignedVideoUrl).mockRejectedValue(new Error('no token'));
+  vi.mocked(api.getSignedVideoUrl).mockImplementation((id: string) => Promise.resolve(signedUrlFor(id)));
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -212,15 +215,22 @@ describe('VerticalPlayer — Renderização', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('VerticalPlayer — Reprodução de vídeo', () => {
-  it('inicializa HLS com URL correta quando bunnyVideoId está presente', async () => {
+  it('inicializa HLS com a URL assinada quando bunnyVideoId está presente', async () => {
     const user = makeUser({ isPremium: true });
     const video = makeVideo({ bunnyVideoId: 'abc123xyz' });
     render(<VerticalPlayer video={video} user={user} onClose={vi.fn()} />);
     await waitFor(() => expect(MockHls).toHaveBeenCalled());
-    expect(mockHlsInstance.loadSource).toHaveBeenCalledWith(
-      'https://vz-fbaa1d24-d2c.b-cdn.net/abc123xyz/playlist.m3u8'
-    );
+    expect(mockHlsInstance.loadSource).toHaveBeenCalledWith(signedUrlFor('abc123xyz'));
     expect(mockHlsInstance.attachMedia).toHaveBeenCalled();
+  });
+
+  it('exibe erro e não inicializa HLS quando a URL assinada falha (fail-closed)', async () => {
+    vi.mocked(api.getSignedVideoUrl).mockRejectedValue(new Error('no token'));
+    const user = makeUser({ isPremium: true });
+    const video = makeVideo({ bunnyVideoId: 'no-token' });
+    render(<VerticalPlayer video={video} user={user} onClose={vi.fn()} />);
+    await waitFor(() => screen.getByText(/Vídeo indisponível/i));
+    expect(MockHls).not.toHaveBeenCalled();
   });
 
   it('usa URL direta (mp4) quando não há bunnyVideoId', async () => {

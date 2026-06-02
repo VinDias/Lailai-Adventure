@@ -5,7 +5,6 @@ import { Video, User } from '../types';
 import { X, ThumbsUp, ThumbsDown, Play, Pause, Volume2, VolumeX, Maximize, Settings, RotateCcw, RotateCw } from 'lucide-react';
 import AdComponent from './AdComponent';
 import { api } from '../services/api';
-import { useSettings } from '../contexts/SettingsContext';
 
 interface PlayerProps {
   video: Video;
@@ -27,7 +26,6 @@ const LANG_LABELS: Record<string, string> = {
 };
 
 const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
-  const { bunny_cdn_base } = useSettings();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -36,6 +34,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const [showAd, setShowAd] = useState(!user?.isPremium);
   const [accessDenied] = useState(video.isPremium && !user?.isPremium);
   const [signedSrc, setSignedSrc] = useState<string | null>(null);
+  const [playbackError, setPlaybackError] = useState(false);
 
   const [qualityLevels, setQualityLevels] = useState<any[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
@@ -59,9 +58,10 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   useEffect(() => {
     if (accessDenied || showAd) return;
     if (video.bunnyVideoId) {
+      setPlaybackError(false);
       api.getSignedVideoUrl(video.bunnyVideoId)
         .then(url => setSignedSrc(url))
-        .catch(() => setSignedSrc(`${bunny_cdn_base}/${video.bunnyVideoId}/playlist.m3u8`));
+        .catch(() => setPlaybackError(true));
     } else {
       setSignedSrc(video.arquivoUrl);
     }
@@ -257,6 +257,16 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       <div className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center p-10 text-center">
         <h2 className="text-3xl font-black text-white mb-4 italic">Conteúdo Premium</h2>
         <p className="text-zinc-500 mb-8">Esta obra é exclusiva para assinantes Lorflux Premium.</p>
+        <button onClick={onClose} className="px-12 py-4 bg-rose-600 text-white font-black rounded-2xl">VOLTAR</button>
+      </div>
+    );
+  }
+
+  if (playbackError) {
+    return (
+      <div className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center p-10 text-center">
+        <h2 className="text-3xl font-black text-white mb-4 italic">Vídeo indisponível</h2>
+        <p className="text-zinc-500 mb-8">Não foi possível carregar este vídeo agora. Tente novamente em instantes.</p>
         <button onClick={onClose} className="px-12 py-4 bg-rose-600 text-white font-black rounded-2xl">VOLTAR</button>
       </div>
     );

@@ -458,23 +458,39 @@ router.get('/video-status/:videoId', (req, res) => {
   });
 });
 
-// GET /api/bunny/signed-url?videoId=xxx — gera URL assinada para playback seguro
+// GET /api/bunny/signed-url?videoId=xxx — gera URL assinada para playback seguro.
+// optionalAuth: anônimo pode assinar conteúdo grátis; premium exige direito de acesso.
 router.get('/signed-url', (req, res) => {
-  const verifyToken = require('../middlewares/verifyToken');
-  verifyToken(req, res, () => {
+  const optionalAuth = require('../middlewares/optionalAuth');
+  optionalAuth(req, res, async () => {
     const { videoId } = req.query;
     if (!videoId) return res.status(400).json({ error: 'videoId é obrigatório.' });
 
     const tokenKey = process.env.BUNNY_TOKEN_KEY;
     const cdnHostname = process.env.BUNNY_CDN_HOSTNAME;
 
-    // Se BUNNY_CDN_HOSTNAME não estiver configurado, não há como montar a URL
     if (!cdnHostname) {
       return res.status(500).json({ error: 'BUNNY_CDN_HOSTNAME não configurado no servidor.' });
     }
-    // Se BUNNY_TOKEN_KEY não estiver configurado, retorna URL direta (sem autenticação)
+    // Fail-closed: sem BUNNY_TOKEN_KEY não servimos URL pública — a Token Auth do Bunny é obrigatória.
     if (!tokenKey) {
-      return res.json({ signedUrl: `https://${cdnHostname}/${videoId}/playlist.m3u8` });
+      logger.error('[Bunny] BUNNY_TOKEN_KEY ausente — recusando signed-url (fail-closed).');
+      return res.status(503).json({ error: 'Streaming indisponível: token de mídia não configurado.' });
+    }
+
+    // Controle de acesso premium: o episódio dono do vídeo decide quem pode assinar.
+    try {
+      const episode = await Episode.findOne({ bunnyVideoId: videoId }).select('isPremium').lean();
+      if (!episode) return res.status(404).json({ error: 'Vídeo não encontrado.' });
+
+      const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
+      const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());
+      if (episode.isPremium && !isAdmin && !isPremiumUser) {
+        return res.status(403).json({ error: 'Conteúdo premium. Acesso negado.' });
+      }
+    } catch (err) {
+      logger.error('[Bunny] Erro ao verificar acesso ao vídeo', err);
+      return res.status(500).json({ error: 'Erro ao verificar acesso.' });
     }
 
     // Expira em 4 horas
