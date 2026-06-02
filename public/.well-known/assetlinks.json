@@ -3,6 +3,6 @@
   "target": {
     "namespace": "android_app",
     "package_name": "com.lorflux.twa",
-    "sha256_cert_fingerprints": ["__SHA256_FINGERPRINT_HERE__"]
+    "sha256_cert_fingerprints": ["84:3C:6D:B5:F6:50:8E:B4:E3:4B:76:52:F1:C5:CB:9B:13:C8:D8:73:41:11:D1:51:A5:CA:A1:78:8D:2E:43:76"]
   }
 }]

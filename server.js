@@ -555,6 +555,15 @@ if (process.env.SENTRY_DSN) {
 app.use(express.static(path.join(__dirname, "frontend-dist")));
 app.use(express.static(path.join(__dirname, 'dist')));
 
+// Páginas públicas exigidas pela Google Play (URLs limpas, sem .html)
+const sendStaticPage = (file) => (req, res) => {
+  const fd = path.join(__dirname, "frontend-dist", file);
+  if (fs.existsSync(fd)) return res.sendFile(fd);
+  res.sendFile(path.join(__dirname, 'dist', file));
+};
+app.get('/privacidade', sendStaticPage('privacidade.html'));
+app.get('/termos', sendStaticPage('termos.html'));
+
 app.get('*', (req, res, next) => {
   if (req.path.startsWith("/api") || req.path.startsWith("/health")) return next();
   
