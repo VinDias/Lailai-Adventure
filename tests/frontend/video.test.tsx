@@ -49,7 +49,7 @@ vi.mock('../../services/api', () => ({
 }));
 
 const signedUrlFor = (id: string) =>
-  `https://vz-fbaa1d24-d2c.b-cdn.net/${id}/playlist.m3u8?token=tok&expires=9999999999`;
+  `https://vz-fbaa1d24-d2c.b-cdn.net/${id}/playlist.m3u8?token=tok&expires=9999999999&token_path=${encodeURIComponent(`/${id}/`)}`;
 
 import { api } from '../../services/api';
 import VerticalPlayer from '../../components/VerticalPlayer';

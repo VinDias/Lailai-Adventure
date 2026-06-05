@@ -496,13 +496,15 @@ router.get('/signed-url', (req, res) => {
     // Expira em 4 horas
     const expires = Math.floor(Date.now() / 1000) + 14400;
 
-    // Bunny CDN Basic Token Authentication: Base64URL(MD5(tokenKey + path + expires)).
-    // Path inclui o arquivo completo (.../playlist.m3u8) — formato esperado pelo Bunny.
-    const path = `/${videoId}/playlist.m3u8`;
-    const token = crypto.createHash('md5').update(tokenKey + path + expires).digest('base64')
+    // Bunny CDN Basic Token Authentication: Base64URL(MD5(tokenKey + tokenPath + expires)).
+    // Assina pro DIRETÓRIO do vídeo (token_path), pra que o mesmo token cubra o playlist
+    // master, as sub-playlists por resolução (/480p/video.m3u8 etc.) e os segmentos .ts —
+    // tudo que o hls.js requisita reusando o mesmo token via xhrSetup.
+    const tokenPath = `/${videoId}/`;
+    const token = crypto.createHash('md5').update(tokenKey + tokenPath + expires).digest('base64')
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 
-    const signedUrl = `https://${cdnHostname}${path}?token=${token}&expires=${expires}`;
+    const signedUrl = `https://${cdnHostname}${tokenPath}playlist.m3u8?token=${token}&expires=${expires}&token_path=${encodeURIComponent(tokenPath)}`;
     res.json({ signedUrl, expires });
   });
 });

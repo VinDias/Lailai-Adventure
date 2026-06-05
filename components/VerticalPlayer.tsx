@@ -110,10 +110,12 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     if (src.includes('.m3u8') && Hls.isSupported()) {
       let tokenParam = '';
       let expiresParam = '';
+      let tokenPathParam = '';
       try {
         const urlObj = new URL(src);
         tokenParam = urlObj.searchParams.get('token') || '';
         expiresParam = urlObj.searchParams.get('expires') || '';
+        tokenPathParam = urlObj.searchParams.get('token_path') || '';
       } catch {}
 
       const hlsCfg: Record<string, any> = {
@@ -124,10 +126,11 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       };
 
       if (tokenParam && expiresParam) {
+        const tpQuery = tokenPathParam ? `&token_path=${encodeURIComponent(tokenPathParam)}` : '';
         hlsCfg.xhrSetup = (xhr: XMLHttpRequest, url: string) => {
           if (!url.includes('token=')) {
             const sep = url.includes('?') ? '&' : '?';
-            xhr.open('GET', `${url}${sep}token=${tokenParam}&expires=${expiresParam}`, true);
+            xhr.open('GET', `${url}${sep}token=${tokenParam}&expires=${expiresParam}${tpQuery}`, true);
           }
         };
       }
