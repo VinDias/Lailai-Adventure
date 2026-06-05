@@ -496,14 +496,13 @@ router.get('/signed-url', (req, res) => {
     // Expira em 4 horas
     const expires = Math.floor(Date.now() / 1000) + 14400;
 
-    // Bunny CDN Token Authentication: SHA256(tokenKey + "/" + videoId + expires)
-    // O path "/" + videoId cobre todos os segmentos HLS do vídeo
-    const hashInput = tokenKey + '/' + videoId + expires;
-    const hash = crypto.createHash('sha256').update(hashInput).digest();
-    const token = Buffer.from(hash).toString('base64')
+    // Bunny CDN Basic Token Authentication: Base64URL(MD5(tokenKey + path + expires)).
+    // Path inclui o arquivo completo (.../playlist.m3u8) — formato esperado pelo Bunny.
+    const path = `/${videoId}/playlist.m3u8`;
+    const token = crypto.createHash('md5').update(tokenKey + path + expires).digest('base64')
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 
-    const signedUrl = `https://${cdnHostname}/${videoId}/playlist.m3u8?token=${token}&expires=${expires}`;
+    const signedUrl = `https://${cdnHostname}${path}?token=${token}&expires=${expires}`;
     res.json({ signedUrl, expires });
   });
 });
