@@ -142,6 +142,11 @@ app.use(helmet({
     },
   },
   crossOriginResourcePolicy: { policy: "cross-origin" },
+  // strict-origin-when-cross-origin: envia URL completa em same-origin,
+  // só a origin em cross-origin HTTPS→HTTPS (necessário pro Bunny aceitar
+  // o Referer e satisfazer Allowed domains + Block direct url file access),
+  // e nada em HTTPS→HTTP. É o default WhatWG moderno.
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   hsts: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
 }));
 app.use(compression());
