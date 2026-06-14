@@ -143,6 +143,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [translationUrl, setTranslationUrl] = useState('');
   const [savingTranslation, setSavingTranslation] = useState(false);
   const [translationMsg, setTranslationMsg] = useState('');
+  const [uploadingTranslation, setUploadingTranslation] = useState(false);
 
   useEffect(() => {
     setSelectedSeries(null);
@@ -355,6 +356,23 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       setTranslationUrl('');
     } catch { setTranslationMsg('Erro ao remover tradução.'); }
     setSavingTranslation(false);
+  };
+
+  const handleTranslationFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !selectedEpisode || !translationModal) return;
+    setUploadingTranslation(true);
+    setTranslationMsg('Enviando imagem...');
+    try {
+      const epSlug = (selectedEpisode.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const url = await api.uploadImageToBunny(file, epSlug);
+      setTranslationUrl(url);
+      setTranslationMsg('Imagem enviada — clique em Salvar para confirmar a tradução.');
+    } catch {
+      setTranslationMsg('Erro ao enviar a imagem.');
+    }
+    setUploadingTranslation(false);
   };
 
   const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1279,6 +1297,28 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                       })}
                     </div>
 
+                    <label className={`flex items-center justify-center gap-2 w-full py-3 mb-3 rounded-2xl border border-dashed border-white/15 bg-white/5 cursor-pointer text-xs font-black uppercase tracking-widest transition-all ${uploadingTranslation ? 'opacity-60 cursor-wait' : 'hover:bg-white/10 hover:border-rose-500/40'}`}>
+                      {uploadingTranslation ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span className="text-zinc-300">Enviando…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload size={14} />
+                          <span className="text-zinc-200">Selecionar imagem do painel</span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={uploadingTranslation}
+                        onChange={handleTranslationFileChange}
+                      />
+                    </label>
+
+                    <div className="text-[10px] uppercase tracking-widest text-zinc-600 mb-2">ou cole uma URL</div>
                     <input
                       type="text"
                       placeholder="URL da imagem traduzida"
