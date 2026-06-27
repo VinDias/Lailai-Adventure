@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Webtoon, User } from '../types';
-import API_URL from '../config/api';
 import { ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -34,6 +33,7 @@ const DEFAULT_LANG_LABELS: Record<string, string> = {
 const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate }) => {
   const [paineis, setPaineis] = useState<PanelItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [locked, setLocked] = useState(false);
   const [language, setLanguage] = useState<string>(() => {
     return localStorage.getItem('lorflux_language') || 'pt';
   });
@@ -66,10 +66,15 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
 
   const loadPanels = async (episodeId: string) => {
     setLoading(true);
+    setLocked(false);
     try {
-      const res = await fetch(`${API_URL}/content/episodes/${episodeId}`);
-      if (res.ok) {
-        const episode = await res.json();
+      // Usa o serviço autenticado (Bearer token + cookie httpOnly) em vez de um
+      // fetch cru. Sem credenciais, o backend trata a requisição como anônima e
+      // remove os painéis (panels: []) de qualquer episódio premium — era o que
+      // causava "0 painéis / Nenhum painel disponível" mesmo para admins/assinantes.
+      const episode: any = await api.getEpisode(episodeId);
+      if (episode) {
+        if (episode.locked) setLocked(true);
         if (episode.panels && episode.panels.length > 0) {
           const mapped = episode.panels
             .sort((a: any, b: any) => a.order - b.order)
@@ -201,7 +206,9 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
           </div>
         ) : paineis.length === 0 ? (
           <div className="h-screen flex items-center justify-center flex-col gap-4">
-            <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">Nenhum painel disponível</p>
+            <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">
+              {locked ? 'Conteúdo premium — assine para ler' : 'Nenhum painel disponível'}
+            </p>
           </div>
         ) : (
           paineis.map(panel => {

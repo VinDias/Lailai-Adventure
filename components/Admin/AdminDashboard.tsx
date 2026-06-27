@@ -769,7 +769,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   };
 
   return (
-    <div className="flex h-screen bg-[var(--bg-color)] text-[var(--text-color)] font-inter">
+    // h-full (e não h-screen): o admin é renderizado dentro de <main flex-1>, que já
+    // exclui a barra de navegação inferior (h-28). Com h-screen (100vh) os ~7rem de
+    // baixo ficavam escondidos atrás da barra, cortando os botões de idioma dos painéis.
+    <div className="flex h-full bg-[var(--bg-color)] text-[var(--text-color)] font-inter">
       {/* Sidebar */}
       <aside className="w-64 bg-[var(--card-bg)] border-r border-[var(--border-color)] flex flex-col p-6 shrink-0">
         <div className="flex items-center gap-3 mb-12 px-2">
