@@ -6,7 +6,7 @@ interface LegalPolicyProps {
   initialTab?: 'privacy' | 'terms';
 }
 
-const DPO_EMAIL = 'privacidade@lorflux.com';
+const DPO_EMAIL = 'contato@lorflux.com';
 const LAST_UPDATE = '23 de maio de 2026';
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (

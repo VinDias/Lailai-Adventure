@@ -13,7 +13,7 @@ Rascunhos prontos pra colar no [Play Console](https://play.google.com/console). 
 | Idioma padrão | Português (Brasil) |
 | Idiomas adicionais | English (United States) |
 | Site | `https://www.lorflux.com` |
-| E-mail de contato | `privacidade@lorflux.com` |
+| E-mail de contato | `contato@lorflux.com` |
 | Política de Privacidade (URL) | `https://www.lorflux.com/privacidade` |
 | Termos de Uso (URL) | `https://www.lorflux.com/termos` |
 
@@ -57,7 +57,7 @@ A Lorflux foi construída com a Lei Geral de Proteção de Dados (LGPD) em mente
 • Sessão em cookies httpOnly — nenhum token sensível no localStorage.
 • Anúncios só carregam após seu consentimento explícito.
 • Você pode exportar, corrigir ou apagar seus dados a qualquer momento na área Conta > Privacidade.
-• Encarregado de Dados (DPO): privacidade@lorflux.com.
+• Encarregado de Dados (DPO): contato@lorflux.com.
 
 REQUISITOS
 • Android 7.0 ou superior.
@@ -91,7 +91,7 @@ Lorflux is built with privacy regulations in mind (LGPD/Brazil):
 • Sessions in httpOnly cookies — no sensitive tokens in localStorage.
 • Ads only load after your explicit consent.
 • You can export, correct or delete your data anytime under Account > Privacy.
-• Data Protection Officer: privacidade@lorflux.com.
+• Data Protection Officer: contato@lorflux.com.
 
 REQUIREMENTS
 • Android 7.0+.

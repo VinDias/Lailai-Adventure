@@ -70,7 +70,7 @@ limite de body JSON reduzido (2 MB) e correção de race condition no logger.
    defina `BUNNY_TOKEN_KEY`.
 4. **HTTPS obrigatório** em produção (cookies `Secure` só trafegam via HTTPS).
 5. **Definir o e-mail do Encarregado (DPO)**: hoje é o placeholder
-   `privacidade@lorflux.com` em `components/LegalPolicy.tsx` — ajuste conforme o
+   `contato@lorflux.com` em `components/LegalPolicy.tsx` — ajuste conforme o
    canal real e revise os textos legais com apoio jurídico.
 6. **Seed do admin**: defina `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` antes de
    `npm run seed:admin` (a senha antiga hardcoded foi removida; troque qualquer
