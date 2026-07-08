@@ -9,15 +9,17 @@ import AdminDashboard from './components/Admin/AdminDashboard';
 import HQCine from './components/HQCine';
 import VFilm from './components/VFilm';
 import HiQua from './components/HiQua';
+import MyFavorites from './components/MyFavorites';
 import Ads from './components/Ads';
 import ThemeToggle from './components/ThemeToggle';
 import SearchOverlay from './components/SearchOverlay';
 import ConsentBanner from './components/ConsentBanner';
 import LegalPolicy from './components/LegalPolicy';
 import PrivacyCenter from './components/PrivacyCenter';
-import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search } from 'lucide-react';
+import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search, Heart } from 'lucide-react';
 import { getLocalizedPrice } from './utils/localizedPrice';
 import { initConsent } from './utils/consent';
+import { isPremiumActive } from './utils/premium';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewMode>(ViewMode.AUTH);
@@ -149,7 +151,7 @@ const App: React.FC = () => {
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onSelectSeries={handleSearchSelect} />
 
       <main className="flex-1 overflow-hidden relative">
-        {!user?.isPremium && (
+        {!isPremiumActive(user) && (
           <div className="absolute top-0 left-0 right-0 z-[100] px-4">
              <Ads />
           </div>
@@ -230,11 +232,16 @@ const App: React.FC = () => {
               {!user?.isPremium && (
                 <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">ASSINAR PREMIUM ({getLocalizedPrice()})</button>
               )}
+              <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> MEUS FAVORITOS</button>
               <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">SAIR DA CONTA</button>
             </div>
 
             <PrivacyCenter user={user} onOpenPolicy={openPolicy} onDeleted={handleAccountDeleted} />
           </div>
+        )}
+
+        {view === ViewMode.FAVORITES && (
+          <MyFavorites user={user} onOpenSeries={handleSearchSelect} />
         )}
 
         {view === ViewMode.PLAYER && activeVideo && (
@@ -266,7 +273,7 @@ const App: React.FC = () => {
         <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={<Play />} label="HQCine" />
         <NavBtn active={view === ViewMode.VCINE} onClick={() => setView(ViewMode.VCINE)} icon={<Film />} label="VCine" />
         <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={<BookOpen />} label="Hi-Qua" />
-        <NavBtn active={view === ViewMode.PROFILE} onClick={() => setView(ViewMode.PROFILE)} icon={<UserIcon />} label="Conta" />
+        <NavBtn active={view === ViewMode.PROFILE || view === ViewMode.FAVORITES} onClick={() => setView(ViewMode.PROFILE)} icon={<UserIcon />} label="Conta" />
         <ThemeToggle />
         {(user as any)?.role === 'superadmin' && (
           <NavBtn active={view === ViewMode.ADMIN_DASHBOARD} onClick={() => setView(ViewMode.ADMIN_DASHBOARD)} icon={<ShieldAlert />} label="Admin" />

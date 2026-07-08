@@ -1,7 +1,7 @@
 /**
  * Testes de vídeo — VerticalPlayer
- * Cobre: exibição de anúncio, parede premium, renderização do player,
- *        inicialização HLS, src direta, votos
+ * Cobre: exibição de anúncio (interstitial para free, nenhum para premium),
+ *        renderização do player, inicialização HLS, src direta, votos
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -132,40 +132,37 @@ describe('VerticalPlayer — Anúncio', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// PAREDE PREMIUM
+// ACESSO A CONTEÚDO PREMIUM (regra nova: free assiste tudo, mas vê anúncio antes)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describe('VerticalPlayer — Acesso premium', () => {
-  it('exibe parede de acesso quando conteúdo é premium e usuário não é', async () => {
+describe('VerticalPlayer — Acesso a conteúdo premium', () => {
+  it('usuário free vê anúncio e depois assiste conteúdo premium normalmente', async () => {
     const user = makeUser({ isPremium: false });
     const video = makeVideo({ isPremium: true });
     render(<VerticalPlayer video={video} user={user} onClose={vi.fn()} />);
     // Primeiro vê o anúncio
     expect(screen.getByTestId('ad-component')).toBeInTheDocument();
-    // Fecha anúncio
-    fireEvent.click(screen.getByText('Fechar Anúncio'));
-    // Agora vê a parede premium
-    await waitFor(() =>
-      expect(screen.getByText(/Conteúdo Premium/i)).toBeInTheDocument()
-    );
     expect(document.querySelector('video')).not.toBeInTheDocument();
-  });
-
-  it('botão VOLTAR na parede premium chama onClose', async () => {
-    const onClose = vi.fn();
-    const user = makeUser({ isPremium: false });
-    const video = makeVideo({ isPremium: true });
-    render(<VerticalPlayer video={video} user={user} onClose={onClose} />);
+    // Fecha anúncio → player carrega, sem parede premium
     fireEvent.click(screen.getByText('Fechar Anúncio'));
-    await waitFor(() => screen.getByText('VOLTAR'));
-    fireEvent.click(screen.getByText('VOLTAR'));
-    expect(onClose).toHaveBeenCalledOnce();
+    await waitFor(() => expect(document.querySelector('video')).toBeInTheDocument());
+    expect(screen.queryByText(/Conteúdo Premium/i)).not.toBeInTheDocument();
   });
 
-  it('usuário premium acessa conteúdo premium normalmente', async () => {
+  it('usuário anônimo vê anúncio e depois assiste conteúdo premium normalmente', async () => {
+    const video = makeVideo({ isPremium: true });
+    render(<VerticalPlayer video={video} user={null} onClose={vi.fn()} />);
+    expect(screen.getByTestId('ad-component')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Fechar Anúncio'));
+    await waitFor(() => expect(document.querySelector('video')).toBeInTheDocument());
+    expect(screen.queryByText(/Conteúdo Premium/i)).not.toBeInTheDocument();
+  });
+
+  it('usuário premium acessa conteúdo premium direto, sem anúncio', async () => {
     const user = makeUser({ isPremium: true });
     const video = makeVideo({ isPremium: true });
     render(<VerticalPlayer video={video} user={user} onClose={vi.fn()} />);
+    expect(screen.queryByTestId('ad-component')).not.toBeInTheDocument();
     await waitFor(() => expect(document.querySelector('video')).toBeInTheDocument());
     expect(screen.queryByText(/Conteúdo Premium/i)).not.toBeInTheDocument();
   });
@@ -246,13 +243,15 @@ describe('VerticalPlayer — Reprodução de vídeo', () => {
     expect(videoEl.src).toContain('direto.mp4');
   });
 
-  it('HLS não é inicializado quando accessDenied é true', async () => {
+  it('HLS é inicializado para usuário free em conteúdo premium após o anúncio', async () => {
     const user = makeUser({ isPremium: false });
-    const video = makeVideo({ isPremium: true, bunnyVideoId: 'blocked' });
+    const video = makeVideo({ isPremium: true, bunnyVideoId: 'premium-livre' });
     render(<VerticalPlayer video={video} user={user} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText('Fechar Anúncio'));
-    await waitFor(() => screen.getByText(/Conteúdo Premium/i));
+    // Enquanto o anúncio está na tela, o player não inicia
     expect(MockHls).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Fechar Anúncio'));
+    await waitFor(() => expect(MockHls).toHaveBeenCalled());
+    expect(mockHlsInstance.loadSource).toHaveBeenCalledWith(signedUrlFor('premium-livre'));
   });
 
   it('HLS é destruído ao desmontar o componente', async () => {

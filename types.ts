@@ -49,6 +49,7 @@ export enum ViewMode {
   PLAYER = 'PLAYER',
   READER = 'READER',
   PROFILE = 'PROFILE',
+  FAVORITES = 'FAVORITES',
   ADMIN_DASHBOARD = 'ADMIN_DASHBOARD',
   ADMIN_USERS = 'ADMIN_USERS',
   ADMIN_CONTENT = 'ADMIN_CONTENT',
@@ -90,6 +91,7 @@ export interface Episode {
   bunnyVideoId?: string;
   duration: number;
   thumbnail: string;
+  isPremium?: boolean;
   likes?: number;
   comments?: number;
   series_title?: string;

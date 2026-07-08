@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
+import { Check, ThumbsUp } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 
 interface VFilmProps {
@@ -17,6 +18,13 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
   const [content, setContent] = useState<{seasons: any[], episodes: Episode[]} | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [favBusy, setFavBusy] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
+  const [likes, setLikes] = useState(0);
+  // Guarda a série aberta para descartar respostas atrasadas de uma série anterior
+  const openSeriesIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     api.getSeries()
@@ -28,12 +36,67 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
   }, []);
 
   const handleOpenSeries = async (s: Series) => {
+    const sid = String(s._id);
+    openSeriesIdRef.current = sid;
     setSelectedSeries(s);
+    setContent(null);
+    setIsFavorited(false);
+    setMyVote(null);
+    setLikes(0);
     try {
       const data = await api.getSeriesContent(s._id);
-      setContent(data);
+      if (openSeriesIdRef.current === sid) setContent(data);
     } catch (e) {
       console.error("Error loading vfilm content", e);
+    }
+    // Carrega estado de favorito e curtidas da série (descarta respostas atrasadas)
+    if (user) {
+      api.getFavorites().then(favs => {
+        if (openSeriesIdRef.current !== sid) return;
+        setIsFavorited(favs.some(f => String(f.seriesId) === sid));
+      }).catch(() => {});
+    }
+    api.getSeriesVote(s._id).then(v => {
+      if (openSeriesIdRef.current !== sid) return;
+      setMyVote(v.myVote);
+      setLikes(v.likes);
+    }).catch(() => {});
+  };
+
+  const toggleFavorite = async () => {
+    if (!selectedSeries || !user || favBusy) return;
+    setFavBusy(true);
+    try {
+      if (isFavorited) {
+        await api.removeFavorite(selectedSeries._id);
+        setIsFavorited(false);
+      } else {
+        await api.addFavorite(selectedSeries._id);
+        setIsFavorited(true);
+      }
+    } catch (e) {
+      // mantém o estado anterior em caso de erro
+    } finally {
+      setFavBusy(false);
+    }
+  };
+
+  const toggleLike = async () => {
+    if (!selectedSeries || !user || likeBusy) return;
+    setLikeBusy(true);
+    const liked = myVote === 'like';
+    // Atualização otimista do contador
+    setMyVote(liked ? null : 'like');
+    setLikes(l => Math.max(0, l + (liked ? -1 : 1)));
+    try {
+      if (liked) await api.removeSeriesVote(selectedSeries._id);
+      else await api.voteSeries(selectedSeries._id, 'like');
+    } catch (e) {
+      // Reverte a atualização otimista em caso de erro
+      setMyVote(liked ? 'like' : null);
+      setLikes(l => Math.max(0, l + (liked ? 1 : -1)));
+    } finally {
+      setLikeBusy(false);
     }
   };
 
@@ -96,7 +159,25 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                  <div className="flex-1">
                     <h2 className="text-6xl font-black text-white mb-6 tracking-tighter">{selectedSeries.title}</h2>
                     <p className="text-zinc-400 text-lg leading-relaxed mb-8">{selectedSeries.description}</p>
-                    <button className="px-12 py-5 bg-rose-600 text-white font-black rounded-2xl shadow-xl hover:bg-rose-500 transition-all">ADICIONAR À LISTA</button>
+                    <div className="flex flex-wrap items-center gap-4">
+                      <button
+                        onClick={toggleFavorite}
+                        disabled={favBusy || !user}
+                        className={`px-12 py-5 font-black rounded-2xl shadow-xl transition-all disabled:opacity-50 flex items-center gap-3 ${isFavorited ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'bg-rose-600 text-white hover:bg-rose-500'}`}
+                      >
+                        {isFavorited && <Check size={18} strokeWidth={3} />}
+                        {isFavorited ? 'NA MINHA LISTA' : 'ADICIONAR À LISTA'}
+                      </button>
+                      <button
+                        onClick={toggleLike}
+                        disabled={!user || likeBusy}
+                        aria-label="Curtir série"
+                        className={`px-5 py-5 rounded-2xl border transition-all flex items-center gap-2 disabled:opacity-50 ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}
+                      >
+                        <ThumbsUp size={18} fill={myVote === 'like' ? 'currentColor' : 'none'} />
+                        <span className="font-black text-sm">{likes}</span>
+                      </button>
+                    </div>
                  </div>
               </div>
               <div className="space-y-4">
@@ -107,7 +188,10 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                          <ImageWithFallback src={ep.thumbnail} className="w-full h-full object-cover opacity-60" alt={ep.title} />
                       </div>
                       <div className="flex-1">
-                         <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Produção #{ep.episode_number}</span>
+                         <div className="flex items-center gap-2">
+                            <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Produção #{ep.episode_number}</span>
+                            {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">PREMIUM</span>}
+                         </div>
                          <h4 className="text-white font-bold text-lg">{ep.title}</h4>
                       </div>
                       <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">

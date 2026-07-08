@@ -237,6 +237,7 @@ app.use("/api/settings", require("./routes/settings"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
 app.use("/api/content", require("./routes/content"));
 app.use("/api/channels", require("./routes/channels"));
+app.use("/api/favorites", require("./routes/favorites"));
 app.use("/api/account", require("./routes/account"));
 
 // ADMIN METRICS — likes/dislikes por episódio

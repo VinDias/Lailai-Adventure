@@ -2,7 +2,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Webtoon, User } from '../types';
 import { ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft } from 'lucide-react';
+import AdComponent from './AdComponent';
 import { api } from '../services/api';
+import { isPremiumActive } from '../utils/premium';
 
 interface ReaderProps {
   webtoon: Webtoon;
@@ -33,7 +35,8 @@ const DEFAULT_LANG_LABELS: Record<string, string> = {
 const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate }) => {
   const [paineis, setPaineis] = useState<PanelItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [locked, setLocked] = useState(false);
+  // Usuário free vê um interstitial antes de cada capítulo (assinante não vê)
+  const [showAd, setShowAd] = useState(!isPremiumActive(user));
   const [language, setLanguage] = useState<string>(() => {
     return localStorage.getItem('lorflux_language') || 'pt';
   });
@@ -55,6 +58,9 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
 
   useEffect(() => {
     const episodeId = webtoon.episodeId || webtoon.id;
+    // Navegação entre capítulos (onNavigate) não desmonta o reader:
+    // reexibe o anúncio para usuário free a cada capítulo
+    setShowAd(!isPremiumActive(user));
     loadPanels(episodeId);
   }, [webtoon.id]);
 
@@ -66,7 +72,6 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
 
   const loadPanels = async (episodeId: string) => {
     setLoading(true);
-    setLocked(false);
     try {
       // Usa o serviço autenticado (Bearer token + cookie httpOnly) em vez de um
       // fetch cru. Sem credenciais, o backend trata a requisição como anônima e
@@ -74,7 +79,6 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
       // causava "0 painéis / Nenhum painel disponível" mesmo para admins/assinantes.
       const episode: any = await api.getEpisode(episodeId);
       if (episode) {
-        if (episode.locked) setLocked(true);
         if (episode.panels && episode.panels.length > 0) {
           const mapped = episode.panels
             .sort((a: any, b: any) => a.order - b.order)
@@ -140,6 +144,8 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
       // silently ignore
     }
   };
+
+  if (showAd) return <AdComponent onFinish={() => setShowAd(false)} />;
 
   return (
     <div ref={scrollRef} onScroll={handleScroll} className="fixed inset-0 z-[2000] bg-[#0A0A0B] overflow-y-auto scroll-smooth animate-apple">
@@ -207,7 +213,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
         ) : paineis.length === 0 ? (
           <div className="h-screen flex items-center justify-center flex-col gap-4">
             <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">
-              {locked ? 'Conteúdo premium — assine para ler' : 'Nenhum painel disponível'}
+              Nenhum painel disponível
             </p>
           </div>
         ) : (

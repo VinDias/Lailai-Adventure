@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
-import { Play } from 'lucide-react';
+import { Play, Check, ThumbsUp } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 
 interface HQCineProps {
@@ -17,15 +17,77 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
   const [filter, setFilter] = useState('');
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [favBusy, setFavBusy] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
+  const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
+  const [likes, setLikes] = useState(0);
+  // Guarda a série aberta para descartar respostas atrasadas de uma série anterior
+  const openSeriesIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     api.getSeries().then(data => setSeries(data.filter(s => s.content_type === 'hqcine')));
   }, []);
 
   const handleOpenSeries = async (s: Series) => {
+    const sid = String(s._id);
+    openSeriesIdRef.current = sid;
     setSelectedSeries(s);
+    setEpisodes([]);
+    setIsFavorited(false);
+    setMyVote(null);
+    setLikes(0);
     const data = await api.getEpisodesBySeries(s._id);
-    setEpisodes(data);
+    if (openSeriesIdRef.current === sid) setEpisodes(data);
+    // Carrega estado de favorito e curtidas da série (descarta respostas atrasadas)
+    if (user) {
+      api.getFavorites().then(favs => {
+        if (openSeriesIdRef.current !== sid) return;
+        setIsFavorited(favs.some(f => String(f.seriesId) === sid));
+      }).catch(() => {});
+    }
+    api.getSeriesVote(s._id).then(v => {
+      if (openSeriesIdRef.current !== sid) return;
+      setMyVote(v.myVote);
+      setLikes(v.likes);
+    }).catch(() => {});
+  };
+
+  const toggleFavorite = async () => {
+    if (!selectedSeries || !user || favBusy) return;
+    setFavBusy(true);
+    try {
+      if (isFavorited) {
+        await api.removeFavorite(selectedSeries._id);
+        setIsFavorited(false);
+      } else {
+        await api.addFavorite(selectedSeries._id);
+        setIsFavorited(true);
+      }
+    } catch (e) {
+      // mantém o estado anterior em caso de erro
+    } finally {
+      setFavBusy(false);
+    }
+  };
+
+  const toggleLike = async () => {
+    if (!selectedSeries || !user || likeBusy) return;
+    setLikeBusy(true);
+    const liked = myVote === 'like';
+    // Atualização otimista do contador
+    setMyVote(liked ? null : 'like');
+    setLikes(l => Math.max(0, l + (liked ? -1 : 1)));
+    try {
+      if (liked) await api.removeSeriesVote(selectedSeries._id);
+      else await api.voteSeries(selectedSeries._id, 'like');
+    } catch (e) {
+      // Reverte a atualização otimista em caso de erro
+      setMyVote(liked ? 'like' : null);
+      setLikes(l => Math.max(0, l + (liked ? 1 : -1)));
+    } finally {
+      setLikeBusy(false);
+    }
   };
 
   useEffect(() => {
@@ -81,7 +143,25 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
                 <h3 className="text-4xl font-black text-white mb-4">{selectedSeries.title}</h3>
                 <p className="text-zinc-400 text-lg leading-relaxed mb-8">{selectedSeries.description}</p>
                 {selectedSeries.isPremium && <div className="mb-4 inline-block bg-amber-500 text-black text-[10px] font-black px-4 py-1.5 rounded-full">PREMIUM</div>}
-                <button className="px-12 py-5 bg-white text-black font-black rounded-2xl hover:bg-zinc-200 transition-all">ADICIONAR À LISTA</button>
+                <div className="flex flex-wrap items-center gap-4">
+                  <button
+                    onClick={toggleFavorite}
+                    disabled={favBusy || !user}
+                    className={`px-12 py-5 font-black rounded-2xl transition-all disabled:opacity-50 flex items-center gap-3 ${isFavorited ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'bg-white text-black hover:bg-zinc-200'}`}
+                  >
+                    {isFavorited && <Check size={18} strokeWidth={3} />}
+                    {isFavorited ? 'NA MINHA LISTA' : 'ADICIONAR À LISTA'}
+                  </button>
+                  <button
+                    onClick={toggleLike}
+                    disabled={!user || likeBusy}
+                    aria-label="Curtir série"
+                    className={`px-5 py-5 rounded-2xl border transition-all flex items-center gap-2 disabled:opacity-50 ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}
+                  >
+                    <ThumbsUp size={18} fill={myVote === 'like' ? 'currentColor' : 'none'} />
+                    <span className="font-black text-sm">{likes}</span>
+                  </button>
+                </div>
               </div>
             </div>
             
@@ -93,7 +173,10 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
                     <Play size={16} className="absolute inset-0 m-auto text-white" />
                   </div>
                   <div>
-                    <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Capítulo {ep.episode_number}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Capítulo {ep.episode_number}</span>
+                      {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">PREMIUM</span>}
+                    </div>
                     <h4 className="text-white font-bold text-lg">{ep.title}</h4>
                   </div>
                 </div>

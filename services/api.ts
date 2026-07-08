@@ -368,6 +368,43 @@ class ApiService {
     return this.request<any>(`/content/episodes/${episodeId}/vote`, { method: 'DELETE' });
   }
 
+  // Votos por série (curtida na obra)
+  async getSeriesVote(seriesId: string | number) {
+    try {
+      return await this.request<{ myVote: 'like' | 'dislike' | null; likes: number }>(`/content/series/${seriesId}/vote`);
+    } catch (e) {
+      return { myVote: null, likes: 0 };
+    }
+  }
+
+  async voteSeries(seriesId: string | number, type: 'like' | 'dislike' = 'like') {
+    return this.request<any>(`/content/series/${seriesId}/vote`, {
+      method: 'POST',
+      body: JSON.stringify({ type })
+    });
+  }
+
+  async removeSeriesVote(seriesId: string | number) {
+    return this.request<any>(`/content/series/${seriesId}/vote`, { method: 'DELETE' });
+  }
+
+  // Favoritos (Minha Lista)
+  async getFavorites() {
+    try {
+      return await this.request<{ seriesId: string; series: any }[]>('/favorites');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async addFavorite(seriesId: string | number) {
+    return this.request<{ favorited: boolean }>(`/favorites/${seriesId}`, { method: 'POST' });
+  }
+
+  async removeFavorite(seriesId: string | number) {
+    return this.request<{ favorited: boolean }>(`/favorites/${seriesId}`, { method: 'DELETE' });
+  }
+
   async getEpisodeMetrics(episodeId: string | number) {
     return this.request<{ likes: number; dislikes: number; total: number }>(`/admin/episodes/${episodeId}/metrics`);
   }

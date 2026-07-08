@@ -3,6 +3,7 @@ const router = express.Router();
 const Series = require('../models/Series');
 const Episode = require('../models/Episode');
 const Vote = require('../models/Vote');
+const SeriesVote = require('../models/SeriesVote');
 const verifyToken = require('../middlewares/verifyToken');
 const requireAdmin = require('../middlewares/requireAdmin');
 const optionalAuth = require('../middlewares/optionalAuth');
@@ -24,16 +25,13 @@ router.get('/search', optionalAuth, async (req, res) => {
     const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(escaped, 'i');
 
-    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
-    const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());
-
     const seriesFilter = {
       isPublished: true,
       $or: [{ title: regex }, { genre: regex }, { description: regex }]
     };
 
+    // Conteúdo premium aparece para todos — free vê anúncio antes de consumir (gate no cliente).
     const episodeFilter = { title: regex };
-    if (!isAdmin && !isPremiumUser) episodeFilter.isPremium = { $ne: true };
 
     const [series, episodes] = await Promise.all([
       Series.find(seriesFilter).limit(20).lean(),
@@ -143,14 +141,9 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
 // GET /api/content/series/:id/episodes — episódios de uma série
 router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
   try {
+    // Todos os episódios aparecem para todos os usuários (isPremium vai no JSON
+    // para o cliente exibir badge e decidir o anúncio para usuários free).
     const filter = { seriesId: req.params.id };
-
-    // Admins e usuários premium veem todos os episódios
-    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
-    const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());
-    if (!isAdmin && !isPremiumUser) {
-      filter.isPremium = { $ne: true };
-    }
 
     const episodes = await Episode.find(filter)
       .sort({ order_index: 1, episode_number: 1 })
@@ -168,17 +161,8 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
     const episode = await Episode.findById(req.params.id).populate('seriesId', 'title content_type').lean();
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
 
-    // Controle de acesso: usuários sem direito não recebem a mídia de conteúdo premium.
-    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
-    const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());
-    if (episode.isPremium && !isAdmin && !isPremiumUser) {
-      episode.video_url = null;
-      episode.bunnyVideoId = null;
-      episode.panels = [];
-      episode.audioTrack1Url = null; episode.audioTrack2Url = null;
-      episode.audioTrack3Url = null; episode.audioTrack4Url = null;
-      episode.locked = true;
-    }
+    // Conteúdo premium é entregue completo para qualquer usuário — quem decide
+    // exibir anúncio antes é o cliente, com base em user.isPremium.
 
     // Incrementa views de forma não bloqueante
     Episode.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
@@ -326,6 +310,51 @@ router.delete('/episodes/:id/vote', verifyToken, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     logger.error('[Content] DELETE /episodes/:id/vote', err);
+    res.status(500).json({ error: 'Erro ao remover voto.' });
+  }
+});
+
+// GET /api/content/series/:id/vote — voto do usuário na série + total de likes
+router.get('/series/:id/vote', optionalAuth, async (req, res) => {
+  try {
+    const [vote, likes] = await Promise.all([
+      req.user ? SeriesVote.findOne({ userId: req.user.id, seriesId: req.params.id }).lean() : null,
+      SeriesVote.countDocuments({ seriesId: req.params.id, type: 'like' })
+    ]);
+    res.json({ myVote: vote ? vote.type : null, likes });
+  } catch (err) {
+    logger.error('[Content] GET /series/:id/vote', err);
+    res.status(500).json({ error: 'Erro ao buscar voto.' });
+  }
+});
+
+// POST /api/content/series/:id/vote — criar ou atualizar voto na série
+router.post('/series/:id/vote', verifyToken, async (req, res) => {
+  try {
+    const { type } = req.body;
+    if (!['like', 'dislike'].includes(type)) {
+      return res.status(400).json({ error: 'type deve ser "like" ou "dislike".' });
+    }
+
+    const vote = await SeriesVote.findOneAndUpdate(
+      { userId: req.user.id, seriesId: req.params.id },
+      { type },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    res.json({ success: true, type: vote.type });
+  } catch (err) {
+    logger.error('[Content] POST /series/:id/vote', err);
+    res.status(500).json({ error: 'Erro ao registrar voto.' });
+  }
+});
+
+// DELETE /api/content/series/:id/vote — remover voto da série
+router.delete('/series/:id/vote', verifyToken, async (req, res) => {
+  try {
+    await SeriesVote.findOneAndDelete({ userId: req.user.id, seriesId: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('[Content] DELETE /series/:id/vote', err);
     res.status(500).json({ error: 'Erro ao remover voto.' });
   }
 });

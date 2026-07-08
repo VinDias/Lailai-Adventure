@@ -279,6 +279,78 @@ describe('Métodos de votos', () => {
   });
 });
 
+// ─── Votos por série ──────────────────────────────────────────────────────────
+
+describe('Métodos de votos por série', () => {
+  it('getSeriesVote() chama GET /content/series/:id/vote', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ myVote: 'like', likes: 3 }) });
+    vi.stubGlobal('fetch', fetch);
+    const result = await api.getSeriesVote('s-1');
+    expect(fetch.mock.calls[0][0]).toContain('/content/series/s-1/vote');
+    expect(result).toEqual({ myVote: 'like', likes: 3 });
+  });
+
+  it('getSeriesVote() retorna { myVote: null, likes: 0 } em caso de erro', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('fail')));
+    const result = await api.getSeriesVote('s-1');
+    expect(result).toEqual({ myVote: null, likes: 0 });
+  });
+
+  it('voteSeries() chama POST com type "like" por padrão', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ success: true, type: 'like' }) });
+    vi.stubGlobal('fetch', fetch);
+    await api.voteSeries('s-1');
+    expect(fetch.mock.calls[0][0]).toContain('/content/series/s-1/vote');
+    expect(fetch.mock.calls[0][1].method).toBe('POST');
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ type: 'like' });
+  });
+
+  it('removeSeriesVote() chama DELETE', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ success: true }) });
+    vi.stubGlobal('fetch', fetch);
+    await api.removeSeriesVote('s-1');
+    expect(fetch.mock.calls[0][0]).toContain('/content/series/s-1/vote');
+    expect(fetch.mock.calls[0][1].method).toBe('DELETE');
+  });
+});
+
+// ─── Favoritos ────────────────────────────────────────────────────────────────
+
+describe('Métodos de favoritos', () => {
+  it('getFavorites() chama GET /favorites', async () => {
+    const data = [{ seriesId: 's-1', series: { _id: 's-1', title: 'A' } }];
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(data) });
+    vi.stubGlobal('fetch', fetch);
+    const result = await api.getFavorites();
+    expect(fetch.mock.calls[0][0]).toContain('/favorites');
+    expect(result).toEqual(data);
+  });
+
+  it('getFavorites() retorna [] em caso de erro', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('fail')));
+    const result = await api.getFavorites();
+    expect(result).toEqual([]);
+  });
+
+  it('addFavorite() chama POST /favorites/:seriesId', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ favorited: true }) });
+    vi.stubGlobal('fetch', fetch);
+    const result = await api.addFavorite('s-1');
+    expect(fetch.mock.calls[0][0]).toContain('/favorites/s-1');
+    expect(fetch.mock.calls[0][1].method).toBe('POST');
+    expect(result.favorited).toBe(true);
+  });
+
+  it('removeFavorite() chama DELETE /favorites/:seriesId', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ favorited: false }) });
+    vi.stubGlobal('fetch', fetch);
+    const result = await api.removeFavorite('s-1');
+    expect(fetch.mock.calls[0][0]).toContain('/favorites/s-1');
+    expect(fetch.mock.calls[0][1].method).toBe('DELETE');
+    expect(result.favorited).toBe(false);
+  });
+});
+
 // ─── Upload de vídeo ──────────────────────────────────────────────────────────
 
 describe('api.uploadVideoToBunny()', () => {

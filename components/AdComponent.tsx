@@ -11,6 +11,7 @@ const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
   const { ad_skip_seconds } = useSettings();
   const [timeLeft, setTimeLeft] = useState(ad_skip_seconds);
   const [ad, setAd] = useState<any>(undefined); // undefined = carregando, null = sem anúncios
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   useEffect(() => {
     api.getRandomAd().then(a => setAd(a ?? null));
@@ -21,7 +22,18 @@ const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
     if (ad === null) onFinish();
   }, [ad]);
 
+  // Failsafe: se a request da imagem ficar pendurada (nem load nem error),
+  // libera o countdown após 8s para o usuário nunca ficar preso no anúncio.
   useEffect(() => {
+    if (!ad || imageLoaded) return;
+    const failsafe = setTimeout(() => setImageLoaded(true), 8000);
+    return () => clearTimeout(failsafe);
+  }, [ad, imageLoaded]);
+
+  // O countdown só começa quando a imagem do anúncio termina de carregar,
+  // para o tempo de exibição não ser "comido" pelo carregamento.
+  useEffect(() => {
+    if (!imageLoaded) return;
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) { clearInterval(timer); return 0; }
@@ -29,7 +41,7 @@ const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [imageLoaded]);
 
   // Ainda carregando ou sem anúncios
   if (!ad) return null;
@@ -39,13 +51,19 @@ const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
   };
 
   return (
-    <div className="absolute inset-0 z-[5000] bg-black flex flex-col items-center justify-center p-8 text-center animate-apple">
+    <div className="fixed inset-0 z-[5000] bg-black flex flex-col items-center justify-center p-8 text-center animate-apple">
       <div
         className="w-full max-w-xs aspect-[9/16] bg-zinc-900 rounded-3xl overflow-hidden border border-white/10 mb-8 relative"
         style={{ cursor: ad.link_url ? 'pointer' : 'default' }}
         onClick={handleAdClick}
       >
-        <img src={ad.image_url} className="w-full h-full object-cover opacity-90" alt={ad.title || 'Anúncio'} />
+        <img
+          src={ad.image_url}
+          className="w-full h-full object-cover opacity-90"
+          alt={ad.title || 'Anúncio'}
+          onLoad={() => setImageLoaded(true)}
+          onError={() => setImageLoaded(true)} // se a imagem falhar, libera o countdown mesmo assim
+        />
         <div className="absolute top-6 left-6 px-3 py-1 bg-amber-500 text-black text-[9px] font-black rounded-sm tracking-widest">PATROCINADO</div>
         {ad.link_url && (
           <div className="absolute bottom-6 left-6 right-6 py-3 bg-white text-black text-xs font-black rounded-xl tracking-wide">

@@ -459,7 +459,7 @@ router.get('/video-status/:videoId', (req, res) => {
 });
 
 // GET /api/bunny/signed-url?videoId=xxx — gera URL assinada para playback seguro.
-// optionalAuth: anônimo pode assinar conteúdo grátis; premium exige direito de acesso.
+// optionalAuth: qualquer usuário pode assinar — free vê anúncio antes (gate no cliente).
 router.get('/signed-url', (req, res) => {
   const optionalAuth = require('../middlewares/optionalAuth');
   optionalAuth(req, res, async () => {
@@ -478,16 +478,10 @@ router.get('/signed-url', (req, res) => {
       return res.status(503).json({ error: 'Streaming indisponível: token de mídia não configurado.' });
     }
 
-    // Controle de acesso premium: o episódio dono do vídeo decide quem pode assinar.
+    // Só assinamos vídeos que pertencem a um episódio conhecido (evita assinar IDs arbitrários).
     try {
       const episode = await Episode.findOne({ bunnyVideoId: videoId }).select('isPremium').lean();
       if (!episode) return res.status(404).json({ error: 'Vídeo não encontrado.' });
-
-      const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin';
-      const isPremiumUser = req.user?.isPremium && (!req.user.premiumExpiresAt || new Date(req.user.premiumExpiresAt) > new Date());
-      if (episode.isPremium && !isAdmin && !isPremiumUser) {
-        return res.status(403).json({ error: 'Conteúdo premium. Acesso negado.' });
-      }
     } catch (err) {
       logger.error('[Bunny] Erro ao verificar acesso ao vídeo', err);
       return res.status(500).json({ error: 'Erro ao verificar acesso.' });

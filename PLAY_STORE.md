@@ -44,12 +44,11 @@ DESTAQUES
 • Séries originais episódicas, com novas obras adicionadas regularmente.
 • Reprodução fluida em HLS adaptativo, com áudio em múltiplos idiomas quando disponível.
 • Interface minimalista pensada para o celular — uma obra de cada vez, sem distrações.
-• Canais e curadoria: descubra criadores e siga os que combinam com você.
-• Sistema de curtidas para apoiar suas obras favoritas.
+• Sistema de curtidas e lista de favoritos para apoiar e guardar suas obras preferidas.
 • Modo escuro permanente, pensado para leitura/visualização noturna.
 
 GRÁTIS E PREMIUM
-A plataforma é gratuita com anúncios. Para uma experiência sem ads e acesso ao catálogo exclusivo Premium, assine direto no app via Google Play.
+A plataforma é gratuita com anúncios e todo o catálogo é acessível. Para uma experiência sem anúncios, assine o Premium direto no app via Google Play.
 
 PRIVACIDADE E LGPD
 A Lorflux foi construída com a Lei Geral de Proteção de Dados (LGPD) em mente:
@@ -62,7 +61,7 @@ A Lorflux foi construída com a Lei Geral de Proteção de Dados (LGPD) em mente
 REQUISITOS
 • Android 7.0 ou superior.
 • Conexão à internet para reprodução (streaming HLS).
-• Conta gratuita opcional para curtir, seguir canais e assinar Premium.
+• Conta gratuita opcional para curtir, montar sua lista de favoritos e assinar Premium.
 
 Aproveite o catálogo. Boas histórias.
 ```
@@ -78,12 +77,11 @@ HIGHLIGHTS
 • Original episodic series, with new releases added regularly.
 • Smooth adaptive HLS playback, with multi-language audio when available.
 • Minimalist mobile-first interface — one piece at a time, no clutter.
-• Channels and curation: discover creators and follow the ones you love.
-• Like system to support your favorite works.
+• Like system and favorites list to support and keep track of the works you love.
 • Permanent dark mode designed for nighttime viewing.
 
 FREE AND PREMIUM
-The platform is free with ads. For an ad-free experience and access to the exclusive Premium catalog, subscribe right in the app via Google Play.
+The platform is free with ads and the full catalog is accessible. For an ad-free experience, subscribe to Premium right in the app via Google Play.
 
 PRIVACY
 Lorflux is built with privacy regulations in mind (LGPD/Brazil):
@@ -96,7 +94,7 @@ Lorflux is built with privacy regulations in mind (LGPD/Brazil):
 REQUIREMENTS
 • Android 7.0+.
 • Internet connection for HLS streaming.
-• Optional free account for likes, channel follows and Premium.
+• Optional free account for likes, a favorites list and Premium.
 
 Enjoy the catalog. Good stories.
 ```
@@ -162,8 +160,8 @@ O questionário muda conforme o público-alvo declarado. Para conteúdo de cinem
 | Apostas / jogos de azar? | **Não** |
 | Compras dentro do app? | **Sim** (assinatura Premium via Google Play Billing) |
 | Compartilha localização do usuário? | **Não** |
-| Permite interação entre usuários? | **Sim** (curtidas, follows de canais) — sem chat direto entre usuários, então classifica como "interação limitada". |
-| Conteúdo gerado por usuários (UGC)? | **Sim** (canais e curadoria) — confirmar se há moderação ativa. |
+| Permite interação entre usuários? | **Sim, limitada** (curtidas) — sem chat direto entre usuários, então classifica como "interação limitada". |
+| Conteúdo gerado por usuários (UGC)? | **Não** — todo o conteúdo é publicado pela equipe (admin); usuários apenas curtem/favoritam. Reavaliar se foto de perfil for lançada. |
 | Compartilha info pessoal entre usuários? | **Não** |
 
 Classificação final esperada: provavelmente **Livre** ou **10+/12+** dependendo do tom das obras. Será definida pelo IARC ao submeter as respostas.

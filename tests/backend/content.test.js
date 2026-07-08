@@ -189,22 +189,24 @@ describe('DELETE /api/content/series/:id — remoção (admin)', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('GET /api/content/series/:id/episodes — listagem por tipo de usuário', () => {
-  it('usuário não autenticado vê apenas episódios gratuitos', async () => {
+  it('usuário não autenticado vê todos os episódios (inclusive premium)', async () => {
     const res = await request(app).get(`/api/content/series/${seriesId}/episodes`);
     expect(res.status).toBe(200);
     const titles = res.body.map(e => e.title);
     expect(titles).toContain('Ep 1 Grátis');
-    expect(titles).not.toContain('Ep 2 Premium');
+    expect(titles).toContain('Ep 2 Premium');
   });
 
-  it('usuário comum (não premium) vê apenas episódios gratuitos', async () => {
+  it('usuário comum (não premium) vê todos os episódios com campo isPremium para badge', async () => {
     const res = await request(app)
       .get(`/api/content/series/${seriesId}/episodes`)
       .set('Authorization', `Bearer ${getToken('user')}`);
     expect(res.status).toBe(200);
     const titles = res.body.map(e => e.title);
     expect(titles).toContain('Ep 1 Grátis');
-    expect(titles).not.toContain('Ep 2 Premium');
+    expect(titles).toContain('Ep 2 Premium');
+    const premium = res.body.find(e => e.title === 'Ep 2 Premium');
+    expect(premium.isPremium).toBe(true);
   });
 
   it('usuário premium vê todos os episódios', async () => {
@@ -255,6 +257,38 @@ describe('GET /api/content/episodes/:id — detalhes de episódio', () => {
     expect(res.status).toBe(404);
   });
 
+  it('episódio premium vem completo (panels e mídia) para usuário free', async () => {
+    const admin = getToken('admin');
+    const create = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${admin}`)
+      .send({
+        seriesId, episode_number: 13, title: 'Ep Premium Completo', isPremium: true,
+        video_url: 'https://cdn.example.com/premium/playlist.m3u8', bunnyVideoId: 'bunny-premium-123'
+      });
+    await request(app)
+      .post(`/api/content/episodes/${create.body._id}/panels`)
+      .set('Authorization', `Bearer ${admin}`)
+      .send({ panels: [{ image_url: 'https://cdn.example.com/pp1.jpg', order: 0 }] });
+
+    const res = await request(app)
+      .get(`/api/content/episodes/${create.body._id}`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(res.status).toBe(200);
+    expect(res.body.isPremium).toBe(true);
+    expect(res.body.panels.length).toBe(1);
+    expect(res.body.video_url).toBe('https://cdn.example.com/premium/playlist.m3u8');
+    expect(res.body.bunnyVideoId).toBe('bunny-premium-123');
+    expect(res.body.locked).toBeUndefined();
+  });
+
+  it('episódio premium vem completo até sem autenticação', async () => {
+    const res = await request(app).get(`/api/content/episodes/${premiumEpisodeId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.isPremium).toBe(true);
+    expect(res.body.locked).toBeUndefined();
+  });
+
   it('incrementa views a cada acesso', async () => {
     const before = (await request(app).get(`/api/content/episodes/${episodeId}`)).body.views;
     await request(app).get(`/api/content/episodes/${episodeId}`);
@@ -283,13 +317,13 @@ describe('POST /api/content/episodes — criação (admin)', () => {
     expect(list.body.some(e => e._id === create.body._id)).toBe(true);
   });
 
-  it('episódio premium NÃO aparece para usuários não-premium', async () => {
+  it('episódio premium também aparece para usuários não-premium', async () => {
     const create = await request(app)
       .post('/api/content/episodes')
       .set('Authorization', `Bearer ${getToken('admin')}`)
       .send({ seriesId, episode_number: 12, title: 'Ep Pago', isPremium: true });
     const list = await request(app).get(`/api/content/series/${seriesId}/episodes`);
-    expect(list.body.some(e => e._id === create.body._id)).toBe(false);
+    expect(list.body.some(e => e._id === create.body._id)).toBe(true);
   });
 
   it('usuário comum não pode criar episódio (403)', async () => {
