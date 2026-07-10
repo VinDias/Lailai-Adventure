@@ -448,6 +448,10 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
         nome: user.nome,
         role: user.role,
         isPremium: user.isPremium,
+        // Sem este campo, isPremiumActive() no cliente considera qualquer
+        // isPremium=true como vitalício e premium expirado não vê anúncios
+        // durante toda a sessão pós-login.
+        premiumExpiresAt: user.premiumExpiresAt,
         avatar: user.avatar
       },
       accessToken,

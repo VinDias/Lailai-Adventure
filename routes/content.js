@@ -127,8 +127,19 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const series = await Series.findByIdAndDelete(req.params.id);
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
-    // Remove episódios associados
-    await Episode.deleteMany({ seriesId: req.params.id });
+    // Remove episódios e todo o engajamento associado — sem isso, favoritos,
+    // curtidas de obra e votos de episódio ficam órfãos no banco (e os órfãos
+    // vazam no export LGPD apontando para séries inexistentes).
+    const Favorite = require('../models/Favorite');
+    const SeriesVote = require('../models/SeriesVote');
+    const episodes = await Episode.find({ seriesId: req.params.id }).select('_id').lean();
+    const episodeIds = episodes.map(e => e._id);
+    await Promise.all([
+      Episode.deleteMany({ seriesId: req.params.id }),
+      Favorite.deleteMany({ seriesId: req.params.id }),
+      SeriesVote.deleteMany({ seriesId: req.params.id }),
+      episodeIds.length ? Vote.deleteMany({ episodeId: { $in: episodeIds } }) : Promise.resolve()
+    ]);
     res.json({ success: true, message: 'Série e episódios removidos.' });
   } catch (err) {
     logger.error('[Content] DELETE /series/:id', err);
@@ -263,7 +274,15 @@ router.delete('/episodes/:id/panels/:index', verifyToken, requireAdmin, async (r
 router.get('/ads', async (req, res) => {
   try {
     const Ad = require('../models/Ad');
-    const ads = await Ad.find({ isActive: true }).lean();
+    // Respeita a janela de veiculação: startsAt/endsAt ausentes = sem restrição.
+    const now = new Date();
+    const ads = await Ad.find({
+      isActive: true,
+      $and: [
+        { $or: [{ startsAt: null }, { startsAt: { $lte: now } }] },
+        { $or: [{ endsAt: null }, { endsAt: { $gte: now } }] }
+      ]
+    }).lean();
     res.json(ads);
   } catch (err) {
     res.json([]); // fallback vazio se modelo não existir ainda
@@ -298,6 +317,9 @@ router.post('/episodes/:id/vote', verifyToken, async (req, res) => {
     );
     res.json({ success: true, type: vote.type });
   } catch (err) {
+    // Corrida de upsert (dois primeiros-votos simultâneos) gera E11000:
+    // o voto foi gravado pela outra requisição — sucesso idempotente.
+    if (err && err.code === 11000) return res.json({ success: true, type: req.body.type });
     logger.error('[Content] POST /episodes/:id/vote', err);
     res.status(500).json({ error: 'Erro ao registrar voto.' });
   }
@@ -343,6 +365,9 @@ router.post('/series/:id/vote', verifyToken, async (req, res) => {
     );
     res.json({ success: true, type: vote.type });
   } catch (err) {
+    // Corrida de upsert (dois primeiros-votos simultâneos) gera E11000:
+    // o voto foi gravado pela outra requisição — sucesso idempotente.
+    if (err && err.code === 11000) return res.json({ success: true, type: req.body.type });
     logger.error('[Content] POST /series/:id/vote', err);
     res.status(500).json({ error: 'Erro ao registrar voto.' });
   }

@@ -17,9 +17,10 @@ router.get('/', verifyToken, async (req, res) => {
       .lean();
 
     // Séries deletadas viram null no populate; despublicadas ficam fora do
-    // catálogo e portanto também não devem aparecer na lista (mesmo critério do /search)
+    // catálogo e portanto também não devem aparecer na lista. Critério estrito
+    // === true, igual ao do catálogo (docs legados sem o campo não são públicos).
     const items = favorites
-      .filter(f => f.seriesId && f.seriesId.isPublished !== false)
+      .filter(f => f.seriesId && f.seriesId.isPublished === true)
       .map(f => ({ seriesId: f.seriesId._id, series: f.seriesId }));
 
     res.json(items);
@@ -37,7 +38,7 @@ router.post('/:seriesId', verifyToken, async (req, res) => {
     }
 
     const series = await Series.findById(req.params.seriesId).lean();
-    if (!series || series.isPublished === false) {
+    if (!series || series.isPublished !== true) {
       return res.status(404).json({ error: 'Série não encontrada.' });
     }
 
@@ -48,6 +49,10 @@ router.post('/:seriesId', verifyToken, async (req, res) => {
     );
     res.json({ favorited: true });
   } catch (err) {
+    // Upsert não é atômico contra inserts concorrentes: dois toques quase
+    // simultâneos (duas abas/aparelhos) podem gerar E11000 — o favorito já
+    // existe, então é sucesso idempotente, não erro.
+    if (err && err.code === 11000) return res.json({ favorited: true });
     logger.error('[Favorites] POST /:seriesId', err);
     res.status(500).json({ error: 'Erro ao favoritar série.' });
   }

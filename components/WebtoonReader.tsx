@@ -188,14 +188,14 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
             <div className="flex gap-1 ml-2">
               <button
                 onClick={() => handleVote('like')}
-                className={`p-2 rounded-lg border transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}
+                className={`p-2 rounded-lg border transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'}`}
                 aria-label="Curtir"
               >
                 <ThumbsUp size={16} fill={myVote === 'like' ? 'currentColor' : 'none'} />
               </button>
               <button
                 onClick={() => handleVote('dislike')}
-                className={`p-2 rounded-lg border transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}
+                className={`p-2 rounded-lg border transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'}`}
                 aria-label="Não curtir"
               >
                 <ThumbsDown size={16} fill={myVote === 'dislike' ? 'currentColor' : 'none'} />

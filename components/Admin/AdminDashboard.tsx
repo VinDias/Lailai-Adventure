@@ -74,7 +74,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [loadingAds, setLoadingAds] = useState(false);
   const [showAdModal, setShowAdModal] = useState(false);
   const [editingAd, setEditingAd] = useState<any>(null);
-  const [adForm, setAdForm] = useState({ title: '', image_url: '', link_url: '', advertiser: '', startsAt: '', endsAt: '' });
+  const [adForm, setAdForm] = useState({ title: '', image_url: '', video_url: '', link_url: '', advertiser: '', startsAt: '', endsAt: '' });
   const [savingAd, setSavingAd] = useState(false);
   const [adMsg, setAdMsg] = useState('');
 
@@ -573,7 +573,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   const openNewAd = () => {
     setEditingAd(null);
-    setAdForm({ title: '', image_url: '', link_url: '', advertiser: '', startsAt: '', endsAt: '' });
+    setAdForm({ title: '', image_url: '', video_url: '', link_url: '', advertiser: '', startsAt: '', endsAt: '' });
     setAdMsg('');
     setShowAdModal(true);
   };
@@ -581,7 +581,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const openEditAd = (ad: any) => {
     setEditingAd(ad);
     setAdForm({
-      title: ad.title, image_url: ad.image_url, link_url: ad.link_url ?? '',
+      title: ad.title, image_url: ad.image_url, video_url: ad.video_url ?? '', link_url: ad.link_url ?? '',
       advertiser: ad.advertiser ?? '',
       startsAt: ad.startsAt ? ad.startsAt.slice(0, 10) : '',
       endsAt: ad.endsAt ? ad.endsAt.slice(0, 10) : ''
@@ -1939,6 +1939,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                   onChange={e => setAdForm(f => ({ ...f, image_url: e.target.value }))}
                   className="mt-2 w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-3 py-2 text-xs font-mono text-zinc-400 outline-none focus:border-rose-500 transition-colors"
                 />
+              </div>
+              {/* Vídeo opcional: quando preenchido, o interstitial toca o vídeo e a imagem vira poster */}
+              <div>
+                <FormField label="URL do Vídeo (opcional, MP4/WebM)" value={adForm.video_url} onChange={v => setAdForm(f => ({ ...f, video_url: v }))} />
+                <p className="text-[10px] text-zinc-600 font-bold mt-1">Com vídeo, o anúncio de tela cheia toca o vídeo; a imagem é usada como capa e no banner do feed.</p>
               </div>
               <FormField label="URL de Destino (link)" value={adForm.link_url} onChange={v => setAdForm(f => ({ ...f, link_url: v }))} />
               <FormField label="Anunciante" value={adForm.advertiser} onChange={v => setAdForm(f => ({ ...f, advertiser: v }))} />

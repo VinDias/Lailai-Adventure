@@ -2,8 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Light mode = padrão */
+/* Light mode = padrão.
+   color-scheme declarado impede o dark mode forçado do navegador (Chrome
+   auto-dark / Samsung Internet) de inverter cores — causava ícones SVG
+   invisíveis em alguns aparelhos. */
 :root {
+  color-scheme: light;
   --bg-color: #f5f5f7;
   --text-color: #1d1d1f;
   --nav-bg: rgba(245, 245, 247, 0.9);
@@ -15,6 +19,7 @@
 
 /* Dark mode = classe .dark no <html> */
 .dark {
+  color-scheme: dark;
   --bg-color: #0f0f0f;
   --text-color: #ffffff;
   --nav-bg: rgba(0, 0, 0, 0.85);

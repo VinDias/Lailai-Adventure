@@ -10,7 +10,6 @@ import HQCine from './components/HQCine';
 import VFilm from './components/VFilm';
 import HiQua from './components/HiQua';
 import MyFavorites from './components/MyFavorites';
-import Ads from './components/Ads';
 import ThemeToggle from './components/ThemeToggle';
 import SearchOverlay from './components/SearchOverlay';
 import ConsentBanner from './components/ConsentBanner';
@@ -19,7 +18,6 @@ import PrivacyCenter from './components/PrivacyCenter';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search, Heart } from 'lucide-react';
 import { getLocalizedPrice } from './utils/localizedPrice';
 import { initConsent } from './utils/consent';
-import { isPremiumActive } from './utils/premium';
 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewMode>(ViewMode.AUTH);
@@ -150,13 +148,10 @@ const App: React.FC = () => {
 
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onSelectSeries={handleSearchSelect} />
 
+      {/* O banner flutuante no topo foi removido a pedido do cliente: sobrepunha o
+          conteúdo e ficava pequeno/cortado. A publicidade para usuário free fica nos
+          banners de feed (HQCine/VCine/Hi-Qua) e nos interstitials de vídeo/leitura. */}
       <main className="flex-1 overflow-hidden relative">
-        {!isPremiumActive(user) && (
-          <div className="absolute top-0 left-0 right-0 z-[100] px-4">
-             <Ads />
-          </div>
-        )}
-
         {view === ViewMode.HQCINE && (
           <HQCine
             user={user}

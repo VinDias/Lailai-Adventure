@@ -20,6 +20,11 @@ const Ads: React.FC = () => {
       if (settings.adsense_client_id) setAdClient(settings.adsense_client_id);
       if (settings.adsense_slot_id) setAdSlot(settings.adsense_slot_id);
       setOwnAd(ad);
+      // Só conta impressão se o banner próprio de fato vai aparecer
+      // (sem slot AdSense configurado ou sem consentimento).
+      if (ad && !(settings.adsense_slot_id && hasAdConsent())) {
+        api.trackAdImpression(ad._id || ad.id);
+      }
     }).finally(() => setReady(true));
   }, []);
 
@@ -61,19 +66,25 @@ const Ads: React.FC = () => {
     );
   }
 
-  // Fallback: anúncio próprio do banco de dados
+  // Fallback: anúncio próprio do banco de dados — card 16:9 em vez da tira
+  // pequena (max-h-32) que cortava a arte e o cliente reprovou.
   if (!ownAd) return null;
 
   return (
-    <div className="w-full my-4 rounded-2xl overflow-hidden border border-white/5">
+    <div className="w-full my-4 rounded-2xl overflow-hidden border border-white/5 shadow-lg">
       <a
         href={ownAd.link_url || undefined}
         target="_blank"
         rel="noopener noreferrer"
-        className="block relative"
+        onClick={() => { if (ownAd.link_url) api.trackAdClick(ownAd._id || ownAd.id); }}
+        className="block relative aspect-video bg-zinc-900"
         style={{ cursor: ownAd.link_url ? 'pointer' : 'default' }}
       >
-        <img src={ownAd.image_url} alt={ownAd.title || 'Anúncio'} className="w-full max-h-32 object-cover" />
+        <img src={ownAd.image_url} alt={ownAd.title || 'Anúncio'} className="w-full h-full object-cover" />
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pt-8 pb-3">
+          {ownAd.title && <p className="text-white text-sm font-black leading-tight">{ownAd.title}</p>}
+          {ownAd.advertiser && <p className="text-zinc-400 text-[10px] font-bold mt-0.5">{ownAd.advertiser}</p>}
+        </div>
         <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/60 rounded text-[8px] font-black text-zinc-400 uppercase tracking-widest">
           Patrocinado
         </div>

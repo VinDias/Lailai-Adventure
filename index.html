@@ -5,8 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#000000">
+    <!-- Declarar color-scheme desliga o "modo escuro forçado" do Chrome/Samsung
+         Internet, que invertia cores de SVG (ícone de dislike invisível no A17). -->
+    <meta name="color-scheme" content="dark light">
     <meta name="description" content="Lorflux - Cinematic Comics. O futuro é aqui.">
     <link rel="manifest" href="/manifest.json" />
+    <!-- Aplica o tema salvo ANTES do primeiro paint (evita flash claro e a janela
+         de auto-darkening do navegador). Script externo síncrono, não inline:
+         a CSP do servidor só permite script-src 'self'. -->
+    <script src="/theme-init.js"></script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
     <title>Lorflux - Cinematic Comics</title>

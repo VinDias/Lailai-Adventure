@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
+import { Volume2, VolumeX } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { api } from '../services/api';
 
@@ -11,29 +12,39 @@ const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
   const { ad_skip_seconds } = useSettings();
   const [timeLeft, setTimeLeft] = useState(ad_skip_seconds);
   const [ad, setAd] = useState<any>(undefined); // undefined = carregando, null = sem anúncios
-  const [imageLoaded, setImageLoaded] = useState(false);
+  const [mediaReady, setMediaReady] = useState(false);
+  // Autoplay com som é bloqueado pelos navegadores: vídeo inicia mudo com botão de som.
+  const [muted, setMuted] = useState(true);
+  const [videoFailed, setVideoFailed] = useState(false);
 
   useEffect(() => {
     api.getRandomAd().then(a => setAd(a ?? null));
+    // Failsafe de carregamento: se a request de anúncios ficar pendurada (rede
+    // móvel instável), libera o conteúdo em vez de deixar o usuário em tela preta.
+    const loadFailsafe = setTimeout(() => {
+      setAd(prev => (prev === undefined ? null : prev));
+    }, 8000);
+    return () => clearTimeout(loadFailsafe);
   }, []);
 
-  // Sem anúncios → pula automaticamente
+  // Sem anúncios → pula automaticamente; com anúncio → registra a impressão
   useEffect(() => {
     if (ad === null) onFinish();
+    else if (ad) api.trackAdImpression(ad._id || ad.id);
   }, [ad]);
 
-  // Failsafe: se a request da imagem ficar pendurada (nem load nem error),
+  // Failsafe: se a mídia ficar pendurada (nem load nem error),
   // libera o countdown após 8s para o usuário nunca ficar preso no anúncio.
   useEffect(() => {
-    if (!ad || imageLoaded) return;
-    const failsafe = setTimeout(() => setImageLoaded(true), 8000);
+    if (!ad || mediaReady) return;
+    const failsafe = setTimeout(() => setMediaReady(true), 8000);
     return () => clearTimeout(failsafe);
-  }, [ad, imageLoaded]);
+  }, [ad, mediaReady]);
 
-  // O countdown só começa quando a imagem do anúncio termina de carregar,
+  // O countdown só começa quando a mídia do anúncio está pronta,
   // para o tempo de exibição não ser "comido" pelo carregamento.
   useEffect(() => {
-    if (!imageLoaded) return;
+    if (!mediaReady) return;
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) { clearInterval(timer); return 0; }
@@ -41,13 +52,17 @@ const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [imageLoaded]);
+  }, [mediaReady]);
 
   // Ainda carregando ou sem anúncios
   if (!ad) return null;
 
+  const isVideo = Boolean(ad.video_url) && !videoFailed;
+
   const handleAdClick = () => {
-    if (ad.link_url) window.open(ad.link_url, '_blank', 'noopener,noreferrer');
+    if (!ad.link_url) return;
+    api.trackAdClick(ad._id || ad.id);
+    window.open(ad.link_url, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -57,14 +72,36 @@ const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
         style={{ cursor: ad.link_url ? 'pointer' : 'default' }}
         onClick={handleAdClick}
       >
-        <img
-          src={ad.image_url}
-          className="w-full h-full object-cover opacity-90"
-          alt={ad.title || 'Anúncio'}
-          onLoad={() => setImageLoaded(true)}
-          onError={() => setImageLoaded(true)} // se a imagem falhar, libera o countdown mesmo assim
-        />
+        {isVideo ? (
+          <video
+            src={ad.video_url}
+            poster={ad.image_url}
+            className="w-full h-full object-cover"
+            autoPlay
+            muted={muted}
+            playsInline
+            onPlaying={() => setMediaReady(true)}
+            onError={() => { setVideoFailed(true); setMediaReady(true); }}
+          />
+        ) : (
+          <img
+            src={ad.image_url}
+            className="w-full h-full object-cover opacity-90"
+            alt={ad.title || 'Anúncio'}
+            onLoad={() => setMediaReady(true)}
+            onError={() => setMediaReady(true)} // se a imagem falhar, libera o countdown mesmo assim
+          />
+        )}
         <div className="absolute top-6 left-6 px-3 py-1 bg-amber-500 text-black text-[9px] font-black rounded-sm tracking-widest">PATROCINADO</div>
+        {isVideo && (
+          <button
+            onClick={e => { e.stopPropagation(); setMuted(m => !m); }}
+            aria-label={muted ? 'Ativar som' : 'Desativar som'}
+            className="absolute top-5 right-5 p-2.5 bg-black/60 backdrop-blur-sm rounded-full border border-white/10 text-white"
+          >
+            {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          </button>
+        )}
         {ad.link_url && (
           <div className="absolute bottom-6 left-6 right-6 py-3 bg-white text-black text-xs font-black rounded-xl tracking-wide">
             Saiba mais

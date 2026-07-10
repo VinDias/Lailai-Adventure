@@ -6,7 +6,7 @@ const requireAdmin = require('../middlewares/requireAdmin');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 
-const AD_FIELDS = ['title', 'image_url', 'link_url', 'advertiser', 'isActive', 'startsAt', 'endsAt'];
+const AD_FIELDS = ['title', 'image_url', 'video_url', 'link_url', 'advertiser', 'isActive', 'startsAt', 'endsAt'];
 
 // GET /api/admin/ads — listar todos os anúncios (admin)
 router.get('/', verifyToken, requireAdmin, async (req, res) => {
@@ -22,12 +22,12 @@ router.get('/', verifyToken, requireAdmin, async (req, res) => {
 // POST /api/admin/ads — criar anúncio (admin)
 router.post('/', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { title, image_url, link_url, advertiser, startsAt, endsAt } = req.body;
+    const { title, image_url, video_url, link_url, advertiser, startsAt, endsAt } = req.body;
     if (!title || !image_url) {
       return res.status(400).json({ error: 'title e image_url são obrigatórios.' });
     }
 
-    const ad = await Ad.create({ title, image_url, link_url, advertiser, startsAt, endsAt });
+    const ad = await Ad.create({ title, image_url, video_url, link_url, advertiser, startsAt, endsAt });
     logger.info(`[Admin] Anúncio criado: ${title}`);
     res.status(201).json(ad);
   } catch (err) {

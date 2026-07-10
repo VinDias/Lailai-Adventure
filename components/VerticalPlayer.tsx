@@ -318,14 +318,14 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
               <button
                 onClick={() => handleVote('like')}
                 aria-label="Curtir"
-                className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-black/50 border-white/10 text-white/70'}`}
+                className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-black/50 border-white/10 text-zinc-300'}`}
               >
                 <ThumbsUp size={18} fill={myVote === 'like' ? 'currentColor' : 'none'} />
               </button>
               <button
                 onClick={() => handleVote('dislike')}
                 aria-label="Não curtir"
-                className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-black/50 border-white/10 text-white/70'}`}
+                className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-black/50 border-white/10 text-zinc-300'}`}
               >
                 <ThumbsDown size={18} fill={myVote === 'dislike' ? 'currentColor' : 'none'} />
               </button>

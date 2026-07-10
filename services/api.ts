@@ -270,6 +270,17 @@ class ApiService {
     return null;
   }
 
+  // Métricas de anúncio — fire-and-forget: falha de rede nunca afeta a exibição.
+  trackAdImpression(adId: string) {
+    if (!adId) return;
+    this.request(`/admin/ads/${adId}/impression`, { method: 'POST' }).catch(() => {});
+  }
+
+  trackAdClick(adId: string) {
+    if (!adId) return;
+    this.request(`/admin/ads/${adId}/click`, { method: 'POST' }).catch(() => {});
+  }
+
   // Admin
   async getAdminStats() {
     return this.request<any>('/admin/management/stats');
