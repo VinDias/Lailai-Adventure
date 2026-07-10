@@ -4,6 +4,8 @@ import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
 import { Play, Check, ThumbsUp } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
+import Ads from './Ads';
+import { isPremiumActive } from '../utils/premium';
 
 interface HQCineProps {
   user: User | null;
@@ -115,6 +117,9 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
           onChange={e => setFilter(e.target.value)}
         />
       </div>
+
+      {/* Banner de feed para usuário free — substitui o antigo overlay flutuante */}
+      {!isPremiumActive(user) && <div className="px-8"><Ads /></div>}
 
       <section className="px-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
         {series.filter(s => s.title.toLowerCase().includes(filter.toLowerCase()) || s.genre.toLowerCase().includes(filter.toLowerCase())).map(s => (

@@ -4,6 +4,8 @@ import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
 import { Check, ThumbsUp } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
+import Ads from './Ads';
+import { isPremiumActive } from '../utils/premium';
 
 interface VFilmProps {
   user: User | null;
@@ -129,6 +131,8 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
       </div>
 
       <section className="px-8">
+        {/* Banner de feed para usuário free — substitui o antigo overlay flutuante */}
+        {!isPremiumActive(user) && <Ads />}
         {series.length === 0 ? (
           <div className="py-20 text-center">
             <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">Nenhum curta disponível</p>

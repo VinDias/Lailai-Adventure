@@ -125,11 +125,14 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
 // DELETE /api/content/series/:id — remover série (admin)
 router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const series = await Series.findByIdAndDelete(req.params.id);
+    const series = await Series.findById(req.params.id);
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
     // Remove episódios e todo o engajamento associado — sem isso, favoritos,
     // curtidas de obra e votos de episódio ficam órfãos no banco (e os órfãos
     // vazam no export LGPD apontando para séries inexistentes).
+    // A série é apagada por ÚLTIMO: se alguma limpeza falhar, o DELETE pode
+    // ser repetido (a série ainda existe); apagando primeiro, o retry daria
+    // 404 e os órfãos ficariam permanentes.
     const Favorite = require('../models/Favorite');
     const SeriesVote = require('../models/SeriesVote');
     const episodes = await Episode.find({ seriesId: req.params.id }).select('_id').lean();
@@ -140,6 +143,7 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
       SeriesVote.deleteMany({ seriesId: req.params.id }),
       episodeIds.length ? Vote.deleteMany({ episodeId: { $in: episodeIds } }) : Promise.resolve()
     ]);
+    await Series.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Série e episódios removidos.' });
   } catch (err) {
     logger.error('[Content] DELETE /series/:id', err);
@@ -275,12 +279,17 @@ router.get('/ads', async (req, res) => {
   try {
     const Ad = require('../models/Ad');
     // Respeita a janela de veiculação: startsAt/endsAt ausentes = sem restrição.
+    // O admin salva as datas via <input type="date"> (meia-noite UTC), então
+    // endsAt é comparado com o INÍCIO do dia atual para a data final ser
+    // inclusiva — senão a campanha sumiria à 00:00 UTC do último dia,
+    // perdendo o dia inteiro de veiculação.
     const now = new Date();
+    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
     const ads = await Ad.find({
       isActive: true,
       $and: [
         { $or: [{ startsAt: null }, { startsAt: { $lte: now } }] },
-        { $or: [{ endsAt: null }, { endsAt: { $gte: now } }] }
+        { $or: [{ endsAt: null }, { endsAt: { $gte: startOfToday } }] }
       ]
     }).lean();
     res.json(ads);

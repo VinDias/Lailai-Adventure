@@ -7,6 +7,20 @@
 // Bump em VERSION invalida todos os caches antigos no activate.
 const VERSION = "v2";
 const RUNTIME_CACHE = `lorflux-${VERSION}`;
+// Cada deploy do Vite gera hashes novos em /assets/; sem poda, os bundles de
+// builds antigos acumulariam no storage do aparelho a cada release.
+const MAX_ASSET_ENTRIES = 40;
+
+function pruneAssets(cache) {
+  return cache.keys().then(keys => {
+    const assets = keys.filter(k => new URL(k.url).pathname.startsWith("/assets/"));
+    if (assets.length <= MAX_ASSET_ENTRIES) return;
+    // cache.keys() preserva a ordem de inserção: remove os mais antigos.
+    return Promise.all(
+      assets.slice(0, assets.length - MAX_ASSET_ENTRIES).map(k => cache.delete(k))
+    );
+  });
+}
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -70,7 +84,9 @@ self.addEventListener("fetch", (event) => {
         cached || fetch(request).then(resp => {
           if (resp.ok) {
             const copy = resp.clone();
-            caches.open(RUNTIME_CACHE).then(c => c.put(request, copy));
+            caches.open(RUNTIME_CACHE).then(c =>
+              c.put(request, copy).then(() => pruneAssets(c))
+            );
           }
           return resp;
         })
