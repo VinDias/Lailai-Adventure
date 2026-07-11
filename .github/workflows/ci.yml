@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Typecheck, testes e build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # O mongodb-memory-server baixa o binário do mongod na primeira execução;
+      # o cache evita ~70MB de download por run.
+      - name: Cache do binário do MongoDB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Testes frontend
+        run: npm run test
+
+      - name: Testes backend
+        run: npm run test:backend
+
+      - name: Build de produção
+        run: npm run build
+
+  # Deploy automático na VPS — DESLIGADO por padrão.
+  # Para ativar: Settings → Secrets and variables → Actions →
+  #   - Variable  DEPLOY_ENABLED = true
+  #   - Secrets   VPS_HOST, VPS_USER, VPS_SSH_KEY (chave privada com acesso ao lorflux@vps)
+  # Enquanto desligado, o deploy segue manual (git pull && npm run build && pm2 restart lorflux-app).
+  deploy:
+    name: Deploy na VPS
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Executar deploy remoto
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /var/www/lorflux
+            git pull
+            npm ci
+            npm run build
+            pm2 restart lorflux-app

@@ -57,6 +57,23 @@ Montado em `/api/bunny`.
 ### `mobilePayment.js` — Pagamento Mobile
 - Integração com processador de pagamento alternativo para dispositivos móveis
 
+### `favorites.js` — Meus Favoritos
+Montado em `/api/favorites` (todas com `verifyToken`).
+- `GET /` — lista favoritos da conta (filtra séries despublicadas/deletadas, critério `isPublished === true`)
+- `POST /:seriesId` — adiciona (upsert idempotente; corrida E11000 tratada como sucesso)
+- `DELETE /:seriesId` — remove
+
+### `account.js` — Conta e LGPD
+Montado em `/api/account`.
+- `PUT /me/consent` — consentimento de marketing
+- `GET /me/export` — export de dados (LGPD)
+- `DELETE /me` — exclusão de conta com limpeza de engajamento
+- `POST /me/avatar` — upload de foto de perfil (multer memória → sharp 512×512 webp → Bunny Storage `lorflux/avatars/`)
+
+### `settings.js` — Configurações
+- `GET /public` — settings públicas (tagline, anúncios, `google_client_id` vindo do env quando configurado)
+- `GET /`, `PUT /:key` — CRUD (admin)
+
 ---
 
 ## Padrões
@@ -65,3 +82,4 @@ Montado em `/api/bunny`.
 - Rotas protegidas usam os middlewares `verifyToken`, `requireAdmin` ou `requirePremium`
 - Arquivos `.js` (CommonJS) — o backend não usa TypeScript
 - Validação de dados via `validators/contentValidator.js` (Joi)
+- **Rotas de autenticação vivem no `server.js`** (não nesta pasta): register, login, `POST /api/auth/google` (Google Identity Services — verifica ID token, vincula por e-mail verificado, dormente sem `GOOGLE_CLIENT_ID`), refresh-token, logout, forgot/reset-password, `/auth/me`

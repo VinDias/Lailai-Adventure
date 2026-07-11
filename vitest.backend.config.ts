@@ -7,7 +7,9 @@ export default defineConfig({
     include: ['tests/backend/**/*.test.{js,ts}'],
     testTimeout: 30000,
     hookTimeout: 30000,
-    singleThread: true,
+    // Arquivos de teste rodam em sequência: compartilham a instância do
+    // mongodb-memory-server (substitui o antigo singleThread do vitest <4).
+    fileParallelism: false,
     env: {
       REDIS_URL: 'redis://localhost:6379',
       JWT_SECRET: 'test-jwt-secret',

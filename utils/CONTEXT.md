@@ -2,7 +2,7 @@
 
 ## Responsabilidade
 
-Funções utilitárias transversais usadas pelo backend — logging, geração de tokens e gerenciamento de diretórios.
+Funções utilitárias transversais — arquivos `.js` (CommonJS) são do backend; arquivos `.ts` são helpers do frontend.
 
 ---
 
@@ -29,7 +29,15 @@ Gerenciamento da estrutura de diretórios locais.
 
 ---
 
+### Helpers do frontend (`.ts`)
+
+| Arquivo | Propósito |
+|---------|-----------|
+| `consent.ts` | Consentimento de cookies/anúncios (LGPD) + carregamento condicional do AdSense |
+| `premium.ts` | `isPremiumActive(user)` — premium só vale se não expirado (checa `premiumExpiresAt`) |
+| `localizedPrice.ts` | Preço da assinatura formatado pela locale |
+| `googleSignIn.ts` | Carrega o script do Google Identity Services sob demanda (uma vez, com retry) para o botão "Entrar com Google" |
+
 ## Observações
 
-- Todos os arquivos são CommonJS (`.js`) — o backend não usa TypeScript
-- O `logger.js` é o único mecanismo de log do backend; nunca use `console.log` em produção
+- Backend usa apenas os `.js` (CommonJS); nunca use `console.log` em produção — use o `logger.js`

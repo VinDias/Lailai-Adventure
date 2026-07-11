@@ -1,5 +1,7 @@
 
-import { defineConfig } from 'vite';
+// defineConfig do vitest/config inclui a tipagem do bloco `test` —
+// o do 'vite' puro não conhece a chave e quebra o typecheck.
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({

@@ -19,11 +19,13 @@ Usuários da plataforma.
 
 ### `Series.js`
 Séries de conteúdo (container de episódios).
-- Campos: `title`, `genre`, `description`, `coverUrl`
+- Campos: `title`, `genre`, `description`, `cover_image`
 - Tipo: `hqcine` | `vcine` | `hiqua`
 - `isPremium` (boolean) — se a série é exclusiva para assinantes
-- `orderIndex` — ordenação manual na listagem
-- `isPublished` — controla visibilidade pública
+- `order_index` — ordenação manual na listagem
+- `isPublished` — controla visibilidade pública (default `false`; catálogo exige `true` estrito)
+- `translations` — `{ en|es|zh: { genre, description } }`, preenchido automaticamente pelo `translationService` no save (título NÃO é traduzido — decisão do cliente)
+- `creator` (planejado, Fase 3) — nome do ilustrador para atribuição de royalties
 
 ### `Episode.js`
 Episódios de uma série.
@@ -31,16 +33,25 @@ Episódios de uma série.
 - `episode_number`, `title`, `description`, `duration`
 - Vídeo: `video_url`, `bunnyVideoId`, `thumbnail`
 - Webtoon: array de objetos `panels` (`image_url`, `order`, `translationLayers[]`)
-- Áudio: `audioTrack1Url` (dublagem/voice comic), `audioTrack2Url` (trilha/alternativo) — consumidos pelo `VerticalPlayer`
+- Áudio: `audioTrack1Url`..`audioTrack4Url` + labels — consumidos pelo `VerticalPlayer`
 - `isPremium`, `status` (`draft` | `processing` | `published`)
-- `views`, `order_index`
+- `views`, `order_index`, `webtoonLanguageLabels`
+- `translations` — `{ en|es|zh: { description } }`, automático via `translationService`
 
 ### `Ad.js`
-Campanhas publicitárias.
-- `advertiserId`, `videoUrl`
-- `duration`, `maxViews`
-- `format`, `resolution`
-- `isActive` — controla se o anúncio está em exibição
+Campanhas publicitárias próprias (interstitial + banner de feed).
+- `title`, `image_url` (obrigatória; capa/fallback), `video_url` (opcional — interstitial toca vídeo), `link_url`, `advertiser`
+- `isActive` + janela de veiculação `startsAt`/`endsAt` (endsAt inclusivo até o fim do dia)
+- Métricas: `impressions`, `clicks` (registradas pelo AdComponent/Ads via `/api/admin/ads/:id/impression|click`)
+
+### `Favorite.js`
+Lista "Meus Favoritos" por conta — índice único composto (`userId`, `seriesId`).
+
+### `SeriesVote.js`
+Curtida única por obra — índice único composto (`userId`, `seriesId`), `type: like|dislike` (UI só usa like).
+
+### `EngagementEvent.js` (planejado — Fase 3)
+Log append-only com cadeia de hash (sha256 encadeado) para telemetria auditável de views/leituras/impressões — base do Motor de Royalties e Anti-fraude. Eventos fraudulentos são `flagged` (ficam no log, fora do cálculo).
 
 ### `Vote.js`
 Engajamento dos usuários com conteúdo.

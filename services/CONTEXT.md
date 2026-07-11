@@ -12,11 +12,12 @@ Lógica de negócio e integrações com APIs e serviços externos. Separa as reg
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `api.ts` | Cliente HTTP centralizado do frontend — wrapper sobre `fetch` com gerenciamento de JWT, detecção de offline, e métodos para todas as chamadas à API (auth, séries, episódios, votação, admin, checkout) |
-| `geminiService.ts` | Integração com Google Gemini AI — recomendações de conteúdo baseadas em preferências do usuário e geração de resumos de episódios para marketing |
+| `api.ts` | Cliente HTTP centralizado do frontend — wrapper sobre `fetch` com gerenciamento de JWT, detecção de offline, e métodos para todas as chamadas à API (auth — incluindo `googleLogin` —, séries, episódios, votação, favoritos, avatar, métricas de anúncio, admin, checkout) |
 | `subscription.service.ts` | Helpers de gerenciamento de status de assinatura premium no frontend |
 | `media.service.ts` | Extração de metadados de mídia e validação de formatos de vídeo/imagem |
 | `mockData.ts` | Dados fictícios para desenvolvimento local — canais, episódios, anúncios, quadrinhos e aulas com interfaces tipadas |
+
+> `geminiService.ts` foi removido em jul/2026 (código morto: usava `process.env.API_KEY` no browser). A integração Gemini agora é backend, via `translationService.js`.
 
 ### Backend (JavaScript)
 
@@ -28,6 +29,7 @@ Lógica de negócio e integrações com APIs e serviços externos. Separa as reg
 | `emailService.js` | Serviço de e-mail transacional com nodemailer — `sendEmail()` genérico + templates prontos: `sendWelcome()`, `sendPremiumConfirmation()`, `sendPasswordReset()`. Lazy transporter (só conecta ao SMTP na primeira chamada). Ver `EMAIL_SETUP.md` para configuração DNS. |
 | `donationService.js` | Processamento de doações |
 | `mobilePaymentService.js` | Integração com processador de pagamento alternativo para mobile |
+| `translationService.js` | Tradução automática de conteúdo do catálogo (genre/description de Series, description de Episode) para EN/ES/ZH via `@google/genai` (`GEMINI_API_KEY`). Fire-and-forget no create/update; sem chave → no-op silencioso (UI cai no PT). Título NUNCA é traduzido. |
 
 ---
 

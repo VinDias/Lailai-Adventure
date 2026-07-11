@@ -10,14 +10,12 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `HQCineHome.tsx` | Página inicial da seção HQCine com destaque de séries |
-| `HQCine.tsx` | Navegação e seleção de episódios de quadrinhos cinematográficos |
+| `HQCine.tsx` | Navegação e seleção de episódios de quadrinhos cinematográficos (com banner de anúncio para free e curtida/favorito por obra) |
 | `VFilm.tsx` | Player e navegação de filmes verticais (VCine) |
 | `HiQua.tsx` | Navegação e seleção de séries de webtoon |
-| `ComicFeed.tsx` | Feed de conteúdo de quadrinhos |
-| `HiQuaFeed.tsx` | Feed de conteúdo de webtoons |
-| `VideoFeed.tsx` | Feed de conteúdo de vídeo |
-| `Discover.tsx` | Interface de descoberta e busca de conteúdo |
+| `MyFavorites.tsx` | Tela "Meus Favoritos" — lista de obras favoritadas pela conta |
+
+> Removidos em jul/2026 (código morto, sem imports): `HQCineHome.tsx`, `ComicFeed.tsx`, `HiQuaFeed.tsx`, `UserTab.tsx`.
 
 ## Player e Leitor
 
@@ -32,11 +30,13 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `Auth.tsx` | Tela de login e registro com suporte a email/senha e OAuth (Google, Microsoft) |
+| `Auth.tsx` | Tela de login/registro por e-mail/senha + botão "Entrar com Google" (Google Identity Services; aparece só quando `google_client_id` está nas settings públicas) + fluxos de esqueci/redefinir senha |
+| `Onboarding.tsx` | Walkthrough de primeiro uso — 4 passos apresentando HQCine/VCine/Hi-Qua/Conta; exibido uma vez (flag `lorflux_onboarded` no localStorage) |
 | `Profile.tsx` | Página de perfil do usuário com acesso às abas de conta e assinatura |
-| `UserTab.tsx` | Aba com informações da conta do usuário |
 | `SubscriptionTab.tsx` | Aba com status da assinatura premium e opção de upgrade |
 | `Logout.tsx` | Botão e lógica de logout |
+
+> A aba Conta (renderizada em `App.tsx`) inclui: troca de foto de perfil (upload → `/api/account/me/avatar`), Meus Favoritos, Avaliar o app (link Play Store), seletor de idioma (i18n) e Centro de Privacidade.
 
 ## Monetização
 
@@ -69,3 +69,4 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 - Comunicação com o backend via `services/api.ts`
 - Estado local gerenciado com `useState`/`useEffect` do React 19
 - Nenhuma biblioteca de gerenciamento de estado global (sem Redux/Zustand)
+- **i18n:** strings de UI voltadas ao usuário vêm de `i18n/translations.ts` via hook `useT()` do `contexts/I18nContext.tsx` (PT/EN/ES/ZH, persistido em `lorflux_language` — a mesma chave usada pelo `WebtoonReader` para os balões). Textos do Admin e conteúdo legal permanecem em PT.
