@@ -5,6 +5,10 @@ import { ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft } from 'lucide-react';
 import AdComponent from './AdComponent';
 import { api } from '../services/api';
 import { isPremiumActive } from '../utils/premium';
+import { useI18n, useT } from '../contexts/I18nContext';
+import type { Lang } from '../i18n/translations';
+
+const UI_LANGS: Lang[] = ['pt', 'en', 'es', 'zh'];
 
 interface ReaderProps {
   webtoon: Webtoon;
@@ -37,9 +41,12 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
   const [loading, setLoading] = useState(true);
   // Usuário free vê um interstitial antes de cada capítulo (assinante não vê)
   const [showAd, setShowAd] = useState(!isPremiumActive(user));
-  const [language, setLanguage] = useState<string>(() => {
-    return localStorage.getItem('lorflux_language') || 'pt';
-  });
+  const t = useT();
+  const { lang: uiLang, setLang: setUiLang } = useI18n();
+  // O idioma dos balões parte do idioma da interface (mesma chave de storage).
+  // Painéis podem ter idiomas fora do conjunto da UI (ja, ko...) — o estado
+  // local aceita qualquer código; só os 4 da UI sincronizam de volta.
+  const [language, setLanguage] = useState<string>(uiLang);
   const [availableLanguages, setAvailableLanguages] = useState<{ code: string; label: string }[]>([{ code: 'pt', label: 'PT' }]);
   const [customLabels, setCustomLabels] = useState<Record<string, string>>({});
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
@@ -126,7 +133,9 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
 
   const changeLanguage = (lang: string) => {
     setLanguage(lang);
-    localStorage.setItem('lorflux_language', lang);
+    try { localStorage.setItem('lorflux_language', lang); } catch { /* storage indisponível */ }
+    // Idiomas do conjunto da UI sincronizam a interface inteira junto.
+    if (UI_LANGS.includes(lang as Lang)) setUiLang(lang as Lang);
   };
 
   const handleVote = async (type: 'like' | 'dislike') => {
@@ -160,13 +169,13 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
               onClick={() => onNavigate(prevEpisode)}
               className="flex items-center gap-1 px-3 py-1.5 bg-white/5 rounded-xl text-[10px] font-black text-zinc-500 hover:text-white hover:bg-white/10 transition-all uppercase tracking-widest"
             >
-              <ChevronLeft size={12} /> Cap. {prevEpisode.episode_number}
+              <ChevronLeft size={12} /> {t('reader.chapterShort')} {prevEpisode.episode_number}
             </button>
           )}
         </div>
         <div className="text-center">
           <h1 className="text-xs font-black text-white uppercase tracking-widest truncate max-w-[200px]">{webtoon.titulo}</h1>
-          <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">HI-QUA READER • {paineis.length} PAINÉIS</p>
+          <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">HI-QUA READER • {paineis.length} {t('reader.panels')}</p>
         </div>
         <div className="flex items-center gap-2">
           {/* Seletor de idioma */}
@@ -189,14 +198,14 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
               <button
                 onClick={() => handleVote('like')}
                 className={`p-2 rounded-lg border transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'}`}
-                aria-label="Curtir"
+                aria-label={t('reader.like')}
               >
                 <ThumbsUp size={16} fill={myVote === 'like' ? 'currentColor' : 'none'} />
               </button>
               <button
                 onClick={() => handleVote('dislike')}
                 className={`p-2 rounded-lg border transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-white/5 border-white/10 text-zinc-400 hover:text-white'}`}
-                aria-label="Não curtir"
+                aria-label={t('reader.dislike')}
               >
                 <ThumbsDown size={16} fill={myVote === 'dislike' ? 'currentColor' : 'none'} />
               </button>
@@ -213,7 +222,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
         ) : paineis.length === 0 ? (
           <div className="h-screen flex items-center justify-center flex-col gap-4">
             <p className="text-zinc-600 text-xs font-black uppercase tracking-widest">
-              Nenhum painel disponível
+              {t('reader.noPanels')}
             </p>
           </div>
         ) : (
@@ -243,7 +252,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
       </div>
 
       <div className="py-20 px-8 text-center bg-black border-t border-white/5">
-        <span className="text-zinc-800 font-black text-[10px] uppercase tracking-[0.6em] mb-12 block">Fim do Capítulo</span>
+        <span className="text-zinc-800 font-black text-[10px] uppercase tracking-[0.6em] mb-12 block">{t('reader.chapterEnd')}</span>
         <div className="flex flex-col items-center gap-4 max-w-sm mx-auto">
           {nextEpisode && onNavigate ? (
             <>
@@ -251,16 +260,16 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
                 onClick={() => onNavigate(nextEpisode)}
                 className="w-full flex items-center justify-center gap-3 px-8 py-5 bg-rose-600 text-white font-black rounded-2xl hover:scale-105 hover:bg-rose-500 transition-all shadow-2xl uppercase tracking-widest"
               >
-                Capítulo {nextEpisode.episode_number} — {nextEpisode.title}
+                {t('feed.chapter')} {nextEpisode.episode_number} — {nextEpisode.title}
                 <ChevronRight size={20} />
               </button>
               <button onClick={onClose} className="text-zinc-600 font-black text-xs uppercase tracking-widest hover:text-white transition-all py-2">
-                ← Voltar à lista
+                {t('reader.backToList')}
               </button>
             </>
           ) : (
             <button onClick={onClose} className="px-20 py-5 bg-white text-black font-black rounded-2xl hover:scale-105 transition-all shadow-2xl">
-              CONCLUIR
+              {t('reader.finish')}
             </button>
           )}
         </div>

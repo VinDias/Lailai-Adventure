@@ -1,10 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
+const multer = require('multer');
 const verifyToken = require('../middlewares/verifyToken');
 const { clearAuthCookies } = require('../utils/authCookies');
 const logger = require('../utils/logger');
 const { maskEmail } = require('../utils/pii');
+const bunnyStorage = require('../utils/bunnyStorage');
+
+// Upload de avatar: memória (o buffer vai direto pro sharp), só imagem, 5MB.
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith('image/')) return cb(null, true);
+    cb(new Error('Apenas imagens são aceitas.'));
+  },
+});
 
 const User = require('../models/User');
 const Vote = require('../models/Vote');
@@ -20,6 +32,41 @@ const PasswordResetToken = require('../models/PasswordResetToken');
  *  - PUT    /api/account/me/consent → revogação/atualização de consentimento (Art. 8º, §5º)
  *  - DELETE /api/account/me         → eliminação dos dados (Art. 18, VI)
  */
+
+// ─── FOTO DE PERFIL ──────────────────────────────────────────────────────────
+// POST /api/account/me/avatar — troca a foto de perfil da conta.
+router.post('/me/avatar', verifyToken, (req, res) => {
+  avatarUpload.single('avatar')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: 'Nenhuma imagem enviada.' });
+
+    if (!bunnyStorage.isConfigured() && !bunnyStorage.hasTestUploader()) {
+      return res.status(503).json({ error: 'Armazenamento de imagens não configurado.' });
+    }
+
+    try {
+      // Normaliza qualquer imagem para 512×512 webp — tamanho previsível,
+      // sem metadados EXIF (privacidade) e barato de servir pelo CDN.
+      const sharp = require('sharp');
+      const processed = await sharp(req.file.buffer)
+        .rotate() // respeita a orientação EXIF antes de descartá-la
+        .resize(512, 512, { fit: 'cover' })
+        .webp({ quality: 80 })
+        .toBuffer();
+
+      // Nome com sufixo aleatório: troca de foto gera URL nova (evita cache
+      // do CDN servindo a foto antiga).
+      const remotePath = `lorflux/avatars/${req.user.id}-${Date.now().toString(36)}.webp`;
+      const url = await bunnyStorage.uploadBufferToStorage(processed, remotePath, 'image/webp');
+
+      await User.findByIdAndUpdate(req.user.id, { avatar: url });
+      res.json({ avatar: url });
+    } catch (e) {
+      logger.error('[Account] POST /me/avatar', e);
+      res.status(500).json({ error: 'Erro ao processar a imagem.' });
+    }
+  });
+});
 
 // ─── EXPORTAÇÃO / ACESSO AOS DADOS ───────────────────────────────────────────
 router.get('/me/export', verifyToken, async (req, res) => {

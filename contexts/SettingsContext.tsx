@@ -15,6 +15,8 @@ export interface AppSettings {
   // AdSense
   adsense_client_id: string;
   adsense_slot_id: string;
+  // Google Sign-In (vazio = botão de login Google oculto)
+  google_client_id: string;
 }
 
 export const SETTINGS_DEFAULTS: AppSettings = {
@@ -27,6 +29,7 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   ad_frequency_webtoon:  7,
   adsense_client_id:     'ca-pub-5972610130504852',
   adsense_slot_id:       '',
+  google_client_id:      '',
 };
 
 const SettingsContext = createContext<AppSettings>(SETTINGS_DEFAULTS);
@@ -46,6 +49,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         ad_frequency_webtoon:  parseInt(raw.ad_frequency_webtoon) || SETTINGS_DEFAULTS.ad_frequency_webtoon,
         adsense_client_id:     raw.adsense_client_id     || SETTINGS_DEFAULTS.adsense_client_id,
         adsense_slot_id:       raw.adsense_slot_id       || SETTINGS_DEFAULTS.adsense_slot_id,
+        google_client_id:      raw.google_client_id      || SETTINGS_DEFAULTS.google_client_id,
       });
     });
   }, []);

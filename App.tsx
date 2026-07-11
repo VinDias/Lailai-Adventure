@@ -10,16 +10,21 @@ import HQCine from './components/HQCine';
 import VFilm from './components/VFilm';
 import HiQua from './components/HiQua';
 import MyFavorites from './components/MyFavorites';
+import Onboarding, { hasSeenOnboarding } from './components/Onboarding';
 import ThemeToggle from './components/ThemeToggle';
 import SearchOverlay from './components/SearchOverlay';
 import ConsentBanner from './components/ConsentBanner';
 import LegalPolicy from './components/LegalPolicy';
 import PrivacyCenter from './components/PrivacyCenter';
-import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search, Heart } from 'lucide-react';
+import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search, Heart, Star, Pencil } from 'lucide-react';
 import { getLocalizedPrice } from './utils/localizedPrice';
 import { initConsent } from './utils/consent';
+import { useI18n, useT } from './contexts/I18nContext';
+import { LANG_OPTIONS } from './i18n/translations';
 
 const App: React.FC = () => {
+  const t = useT();
+  const { lang, setLang } = useI18n();
   const [view, setView] = useState<ViewMode>(ViewMode.AUTH);
   const [user, setUser] = useState<User | null>(null);
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
@@ -32,8 +37,35 @@ const App: React.FC = () => {
   const [booting, setBooting] = useState(true);
   const [legalOpen, setLegalOpen] = useState(false);
   const [legalTab, setLegalTab] = useState<'privacy' | 'terms'>('privacy');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingAvatar(true);
+    try {
+      const { avatar } = await api.uploadAvatar(file);
+      setUser(prev => (prev ? { ...prev, avatar } : prev));
+    } catch (err: any) {
+      alert(err?.message || t('account.photoError'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const openPolicy = (tab: 'privacy' | 'terms' = 'privacy') => { setLegalTab(tab); setLegalOpen(true); };
+
+  // URLs públicas /privacidade e /termos abrem o modal legal (funciona
+  // deslogado) — exigência da tela de consentimento OAuth do Google, que
+  // pede uma URL acessível da política de privacidade.
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path === '/privacidade') openPolicy('privacy');
+    else if (path === '/termos') openPolicy('terms');
+  }, []);
 
   // Limpeza de tokens legados que ficavam no localStorage (agora usamos cookies httpOnly).
   const purgeLegacyTokens = () => {
@@ -58,6 +90,7 @@ const App: React.FC = () => {
         if (restored) {
           setUser(restored);
           setView(ViewMode.HQCINE);
+          if (!hasSeenOnboarding()) setShowOnboarding(true);
         }
       } catch { /* segue para tela de login */ }
       finally { setBooting(false); }
@@ -71,6 +104,7 @@ const App: React.FC = () => {
     const rtok = (u as any).refreshToken;
     if (rtok) api.setRefreshToken(rtok);
     setView(ViewMode.HQCINE);
+    if (!hasSeenOnboarding()) setShowOnboarding(true);
   };
 
   const openWebtoonEpisode = (ep: any, series: any) => {
@@ -133,7 +167,7 @@ const App: React.FC = () => {
     <div className="h-screen w-full flex flex-col bg-[var(--bg-color)] text-[var(--text-color)] overflow-hidden font-inter select-none transition-colors duration-300">
       {isOffline && (
         <div className="bg-rose-600 text-white text-[10px] font-black uppercase py-1 text-center tracking-widest z-[5000]">
-          MODO OFFLINE ATIVO
+          {t('common.offline')}
         </div>
       )}
 
@@ -218,17 +252,57 @@ const App: React.FC = () => {
         {view === ViewMode.PROFILE && (
           <div className="p-8 animate-apple max-w-xl mx-auto pt-20 text-center">
             <div className="relative inline-block mb-8">
-              <img src={user?.avatar || 'https://picsum.photos/seed/user/200'} className="w-32 h-32 rounded-[3.5rem] border-4 border-white/5 shadow-2xl" />
+              <img src={user?.avatar || 'https://picsum.photos/seed/user/200'} className={`w-32 h-32 rounded-[3.5rem] border-4 border-white/5 shadow-2xl object-cover ${uploadingAvatar ? 'opacity-50' : ''}`} />
               {user?.isPremium && <div className="absolute -bottom-2 -right-2 bg-amber-500 p-2 rounded-full border-4 border-[#0A0A0B]"><Sparkles size={16} className="text-black" /></div>}
+              {/* Troca de foto de perfil */}
+              <button
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={uploadingAvatar}
+                aria-label={t('account.changePhoto')}
+                className="absolute -top-1 -right-1 p-2.5 bg-rose-600 rounded-full border-4 border-[var(--bg-color)] text-white hover:bg-rose-500 transition-all disabled:opacity-60"
+              >
+                {uploadingAvatar
+                  ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  : <Pencil size={14} />}
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
             </div>
             <h2 className="text-4xl font-black text-[var(--text-color)] mb-2 tracking-tighter">{user?.nome}</h2>
             <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mb-12">{user?.email}</p>
             <div className="space-y-4">
               {!user?.isPremium && (
-                <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">ASSINAR PREMIUM ({getLocalizedPrice()})</button>
+                <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')} ({getLocalizedPrice()})</button>
               )}
-              <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> MEUS FAVORITOS</button>
-              <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">SAIR DA CONTA</button>
+              <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> {t('account.myFavorites')}</button>
+              <button
+                onClick={() => window.open('https://play.google.com/store/apps/details?id=com.lorflux.twa', '_blank', 'noopener,noreferrer')}
+                className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"
+              >
+                <Star size={18} /> {t('account.rateApp')}
+              </button>
+              <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">{t('account.logout')}</button>
+
+              {/* Seletor de idioma da interface (compartilhado com os balões do leitor) */}
+              <div className="pt-4">
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3">{t('account.language')}</p>
+                <div className="flex justify-center gap-2">
+                  {LANG_OPTIONS.map(opt => (
+                    <button
+                      key={opt.code}
+                      onClick={() => setLang(opt.code)}
+                      className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all ${lang === opt.code ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-400 border border-white/10 hover:text-white'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <PrivacyCenter user={user} onOpenPolicy={openPolicy} onDeleted={handleAccountDeleted} />
@@ -268,13 +342,14 @@ const App: React.FC = () => {
         <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={<Play />} label="HQCine" />
         <NavBtn active={view === ViewMode.VCINE} onClick={() => setView(ViewMode.VCINE)} icon={<Film />} label="VCine" />
         <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={<BookOpen />} label="Hi-Qua" />
-        <NavBtn active={view === ViewMode.PROFILE || view === ViewMode.FAVORITES} onClick={() => setView(ViewMode.PROFILE)} icon={<UserIcon />} label="Conta" />
+        <NavBtn active={view === ViewMode.PROFILE || view === ViewMode.FAVORITES} onClick={() => setView(ViewMode.PROFILE)} icon={<UserIcon />} label={t('nav.account')} />
         <ThemeToggle />
         {(user as any)?.role === 'superadmin' && (
           <NavBtn active={view === ViewMode.ADMIN_DASHBOARD} onClick={() => setView(ViewMode.ADMIN_DASHBOARD)} icon={<ShieldAlert />} label="Admin" />
         )}
       </nav>
 
+      {showOnboarding && <Onboarding onFinish={() => setShowOnboarding(false)} />}
       <ConsentBanner onOpenPolicy={() => openPolicy('privacy')} />
       <LegalPolicy open={legalOpen} onClose={() => setLegalOpen(false)} initialTab={legalTab} />
     </div>

@@ -6,6 +6,8 @@ import { Check, ThumbsUp } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 import Ads from './Ads';
 import { isPremiumActive } from '../utils/premium';
+import { useT, useI18n } from '../contexts/I18nContext';
+import { localizeSeries } from '../i18n/localizeContent';
 
 interface VFilmProps {
   user: User | null;
@@ -15,6 +17,8 @@ interface VFilmProps {
 }
 
 const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed }) => {
+  const t = useT();
+  const { lang } = useI18n();
   const [series, setSeries] = useState<Series[]>([]);
   const [filter, setFilter] = useState('');
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
@@ -123,7 +127,7 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
       <div className="px-8 mb-6">
         <input
           type="text"
-          placeholder="Buscar por título ou gênero..."
+          placeholder={t('feed.searchPlaceholder')}
           className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white text-sm focus:border-rose-500/50 transition-all outline-none"
           value={filter}
           onChange={e => setFilter(e.target.value)}
@@ -135,7 +139,7 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
         {!isPremiumActive(user) && <Ads />}
         {series.length === 0 ? (
           <div className="py-20 text-center">
-            <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">Nenhum curta disponível</p>
+            <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">{t('feed.noShorts')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
@@ -162,7 +166,7 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                  <ImageWithFallback src={selectedSeries.cover_image} className="w-64 aspect-[9/16] rounded-[2.5rem] object-cover shadow-2xl" alt={selectedSeries.title} />
                  <div className="flex-1">
                     <h2 className="text-6xl font-black text-white mb-6 tracking-tighter">{selectedSeries.title}</h2>
-                    <p className="text-zinc-400 text-lg leading-relaxed mb-8">{selectedSeries.description}</p>
+                    <p className="text-zinc-400 text-lg leading-relaxed mb-8">{localizeSeries(selectedSeries, lang).description}</p>
                     <div className="flex flex-wrap items-center gap-4">
                       <button
                         onClick={toggleFavorite}
@@ -170,7 +174,7 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                         className={`px-12 py-5 font-black rounded-2xl shadow-xl transition-all disabled:opacity-50 flex items-center gap-3 ${isFavorited ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'bg-rose-600 text-white hover:bg-rose-500'}`}
                       >
                         {isFavorited && <Check size={18} strokeWidth={3} />}
-                        {isFavorited ? 'NA MINHA LISTA' : 'ADICIONAR À LISTA'}
+                        {isFavorited ? t('feed.inMyList') : t('feed.addToList')}
                       </button>
                       <button
                         onClick={toggleLike}
@@ -194,7 +198,7 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                       <div className="flex-1">
                          <div className="flex items-center gap-2">
                             <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Produção #{ep.episode_number}</span>
-                            {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">PREMIUM</span>}
+                            {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">{t('common.premium')}</span>}
                          </div>
                          <h4 className="text-white font-bold text-lg">{ep.title}</h4>
                       </div>

@@ -4,6 +4,7 @@ import { Series, User } from '../types';
 import { api } from '../services/api';
 import { X } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
+import { useT } from '../contexts/I18nContext';
 
 interface MyFavoritesProps {
   user: User | null;
@@ -11,6 +12,7 @@ interface MyFavoritesProps {
 }
 
 const MyFavorites: React.FC<MyFavoritesProps> = ({ user, onOpenSeries }) => {
+  const t = useT();
   const [favorites, setFavorites] = useState<{ seriesId: string; series: Series }[]>([]);
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -43,13 +45,13 @@ const MyFavorites: React.FC<MyFavoritesProps> = ({ user, onOpenSeries }) => {
   return (
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
       <header className="p-8 pt-16 md:p-12 animate-apple">
-        <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">MEUS FAVORITOS</h1>
-        <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.5em] ml-1">Minha Lista</p>
+        <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">{t('favorites.title')}</h1>
+        <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.5em] ml-1">{t('favorites.subtitle')}</p>
       </header>
 
       {favorites.length === 0 ? (
         <div className="py-20 px-8 text-center">
-          <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">Você ainda não adicionou nada à lista</p>
+          <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">{t('favorites.empty')}</p>
         </div>
       ) : (
         <section className="px-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
@@ -61,7 +63,7 @@ const MyFavorites: React.FC<MyFavoritesProps> = ({ user, onOpenSeries }) => {
                 <button
                   onClick={(e) => handleRemove(e, String(s._id))}
                   disabled={removingId === String(s._id)}
-                  aria-label="Remover dos favoritos"
+                  aria-label={t('favorites.remove')}
                   className="absolute top-4 right-4 p-2.5 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-white/60 hover:text-rose-500 hover:border-rose-500/40 transition-all disabled:opacity-50"
                 >
                   <X size={16} strokeWidth={3} />

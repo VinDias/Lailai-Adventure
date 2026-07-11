@@ -129,19 +129,22 @@ app.use(helmet({
       baseUri: ["'self'"],
       objectSrc: ["'none'"],
       frameAncestors: ["'self'"],
-      scriptSrc: ["'self'", ...GOOGLE_ADS],
+      scriptSrc: ["'self'", "https://accounts.google.com", ...GOOGLE_ADS],
       scriptSrcAttr: ["'none'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
       imgSrc: ["'self'", "data:", "blob:", "https:"],
       mediaSrc: ["'self'", "blob:", "https:"],
       connectSrc: ["'self'", "https:"],
-      frameSrc: ["'self'", "https://*.google.com", "https://*.doubleclick.net", "https://googleads.g.doubleclick.net"],
+      frameSrc: ["'self'", "https://accounts.google.com", "https://*.google.com", "https://*.doubleclick.net", "https://googleads.g.doubleclick.net"],
       workerSrc: ["'self'", "blob:"],
       ...(isProduction ? { upgradeInsecureRequests: [] } : {}),
     },
   },
   crossOriginResourcePolicy: { policy: "cross-origin" },
+  // O popup do Google Sign-In (GIS) precisa conversar com a janela que o abriu;
+  // o default "same-origin" do helmet quebraria o fluxo de login.
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   // strict-origin-when-cross-origin: envia URL completa em same-origin,
   // só a origin em cross-origin HTTPS→HTTPS (necessário pro Bunny aceitar
   // o Referer e satisfazer Allowed domains + Block direct url file access),
@@ -459,6 +462,92 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     });
   } catch (err) {
     logger.error("[Login Error]", err);
+    res.status(500).json({ error: "Erro interno." });
+  }
+});
+
+// LOGIN COM GOOGLE (Google Identity Services) — recebe o ID token emitido pelo
+// botão do GIS, verifica a assinatura junto ao Google e cria/vincula a conta.
+// Requer GOOGLE_CLIENT_ID no ambiente (o mesmo client ID usado no frontend);
+// sem ele a rota fica dormente (503) e o botão nem aparece no app.
+app.post('/api/auth/google', accountLimiter, async (req, res) => {
+  try {
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(503).json({ error: "Login com Google não está configurado." });
+    }
+    const { credential } = req.body;
+    if (!isNonEmptyString(credential)) {
+      return res.status(400).json({ error: "Credencial do Google ausente." });
+    }
+
+    const { verifyGoogleIdToken } = require('./utils/googleTokenVerifier');
+    let payload;
+    try {
+      payload = await verifyGoogleIdToken(credential, process.env.GOOGLE_CLIENT_ID);
+    } catch {
+      return res.status(401).json({ error: "Credencial do Google inválida." });
+    }
+    if (!payload || !payload.email || payload.email_verified !== true) {
+      return res.status(401).json({ error: "E-mail do Google não verificado." });
+    }
+
+    const normalizedEmail = payload.email.toLowerCase().trim();
+    let user = await User.findOne({ email: normalizedEmail });
+
+    if (user) {
+      if (!user.isActive) return res.status(403).json({ error: "Conta desativada." });
+      // Vincula o Google a uma conta existente pelo e-mail (verificado pelo
+      // Google). O login por e-mail/senha continua funcionando normalmente.
+      let changed = false;
+      if (!user.providerId) { user.providerId = payload.sub; changed = true; }
+      if (!user.avatar && payload.picture) { user.avatar = payload.picture; changed = true; }
+      if (changed) await user.save();
+    } else {
+      // Conta nova via Google. O aceite dos Termos/Privacidade é apresentado
+      // junto ao botão ("Ao continuar com o Google, você aceita...") —
+      // registrado aqui para a trilha de consentimento LGPD, como no cadastro.
+      user = await User.create({
+        email: normalizedEmail,
+        nome: String(payload.name || normalizedEmail.split('@')[0]).trim().slice(0, 120),
+        avatar: payload.picture || '',
+        role: 'user',
+        isPremium: false,
+        isActive: true,
+        provider: 'google',
+        providerId: payload.sub,
+        consent: {
+          termsAcceptedAt: new Date(),
+          privacyAcceptedAt: new Date(),
+          ip: req.ip,
+        },
+      });
+      logger.info(`Novo usuário via Google: ${require('./utils/pii').maskEmail(normalizedEmail)}`);
+    }
+
+    const tokenPayload = { id: user._id, email: user.email, role: user.role, isPremium: user.isPremium, premiumExpiresAt: user.premiumExpiresAt };
+    const accessToken = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign(tokenPayload, process.env.REFRESH_SECRET, { expiresIn: '7d' });
+
+    await RefreshToken.create({ userId: user._id, token: refreshToken });
+    setAuthCookies(res, { accessToken, refreshToken });
+
+    logger.info(`Login Google realizado: ${require('./utils/pii').maskEmail(user.email)}`);
+    res.json({
+      success: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        nome: user.nome,
+        role: user.role,
+        isPremium: user.isPremium,
+        premiumExpiresAt: user.premiumExpiresAt ?? null,
+        avatar: user.avatar
+      },
+      accessToken,
+      refreshToken
+    });
+  } catch (err) {
+    logger.error("[Google Login Error]", err);
     res.status(500).json({ error: "Erro interno." });
   }
 });

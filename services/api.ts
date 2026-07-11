@@ -87,6 +87,24 @@ class ApiService {
     });
   }
 
+  async uploadAvatar(file: File): Promise<{ avatar: string }> {
+    // Multipart não passa pelo request(): o Content-Type do FormData (com
+    // boundary) precisa ser definido pelo próprio browser.
+    const form = new FormData();
+    form.append('avatar', file);
+    const response = await fetch(`${API_URL}/account/me/avatar`, {
+      method: 'POST',
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      body: form,
+      credentials: 'include'
+    });
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}));
+      throw new Error(errBody.error || `Erro ${response.status}`);
+    }
+    return response.json();
+  }
+
   async exportMyData(): Promise<void> {
     const response = await fetch(`${API_URL}/account/me/export`, {
       headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
@@ -164,6 +182,16 @@ class ApiService {
     const data = await this.request<{ user: any; accessToken: string; refreshToken?: string }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials)
+    });
+    this.accessToken = data.accessToken;
+    if (data.refreshToken) this.refreshTokenValue = data.refreshToken;
+    return { ...data.user, accessToken: data.accessToken, refreshToken: data.refreshToken };
+  }
+
+  async googleLogin(credential: string) {
+    const data = await this.request<{ user: any; accessToken: string; refreshToken?: string }>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential })
     });
     this.accessToken = data.accessToken;
     if (data.refreshToken) this.refreshTokenValue = data.refreshToken;

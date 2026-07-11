@@ -2,10 +2,12 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { hasAdConsent, loadAdSense, CONSENT_EVENT } from '../utils/consent';
+import { useT } from '../contexts/I18nContext';
 
 const DEFAULT_CLIENT = 'ca-pub-5972610130504852';
 
 const Ads: React.FC = () => {
+  const t = useT();
   const [adClient, setAdClient] = useState(DEFAULT_CLIENT);
   const [adSlot, setAdSlot] = useState('');
   const [ready, setReady] = useState(false);
@@ -53,7 +55,7 @@ const Ads: React.FC = () => {
   if (adSlot && consented) {
     return (
       <div className="w-full my-4 bg-white/5 border border-white/5 rounded-2xl overflow-hidden p-2 flex flex-col items-center">
-        <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-2">Publicidade</span>
+        <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mb-2">{t('ads.label')}</span>
         <ins
           className="adsbygoogle"
           style={{ display: 'block' }}
@@ -86,7 +88,7 @@ const Ads: React.FC = () => {
           {ownAd.advertiser && <p className="text-zinc-400 text-[10px] font-bold mt-0.5">{ownAd.advertiser}</p>}
         </div>
         <div className="absolute top-2 right-2 px-2 py-0.5 bg-black/60 rounded text-[8px] font-black text-zinc-400 uppercase tracking-widest">
-          Patrocinado
+          {t('ads.sponsored')}
         </div>
       </a>
     </div>

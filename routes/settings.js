@@ -19,6 +19,9 @@ router.get('/public', async (req, res) => {
     const docs = await Setting.find({ key: { $in: PUBLIC_KEYS } }).lean();
     const result = {};
     docs.forEach(d => { result[d.key] = d.value; });
+    // Client ID do Google Sign-In vem do ambiente (não é segredo — vai no HTML
+    // de qualquer forma). Presente = frontend mostra o botão "Entrar com Google".
+    if (process.env.GOOGLE_CLIENT_ID) result.google_client_id = process.env.GOOGLE_CLIENT_ID;
     res.json(result);
   } catch (err) {
     logger.error('[Settings] GET /public', err);

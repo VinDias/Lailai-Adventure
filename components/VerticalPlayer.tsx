@@ -6,6 +6,7 @@ import { X, ThumbsUp, ThumbsDown, Play, Pause, Volume2, VolumeX, Maximize, Setti
 import AdComponent from './AdComponent';
 import { api } from '../services/api';
 import { isPremiumActive } from '../utils/premium';
+import { useT } from '../contexts/I18nContext';
 
 interface PlayerProps {
   video: Video;
@@ -27,6 +28,7 @@ const LANG_LABELS: Record<string, string> = {
 };
 
 const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
+  const t = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -258,9 +260,9 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   if (playbackError) {
     return (
       <div className="fixed inset-0 z-[1000] bg-black flex flex-col items-center justify-center p-10 text-center">
-        <h2 className="text-3xl font-black text-white mb-4 italic">Vídeo indisponível</h2>
-        <p className="text-zinc-500 mb-8">Não foi possível carregar este vídeo agora. Tente novamente em instantes.</p>
-        <button onClick={onClose} className="px-12 py-4 bg-rose-600 text-white font-black rounded-2xl">VOLTAR</button>
+        <h2 className="text-3xl font-black text-white mb-4 italic">{t('player.unavailable')}</h2>
+        <p className="text-zinc-500 mb-8">{t('player.unavailableHint')}</p>
+        <button onClick={onClose} className="px-12 py-4 bg-rose-600 text-white font-black rounded-2xl">{t('player.back')}</button>
       </div>
     );
   }
@@ -301,13 +303,13 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
         <div className="flex gap-2 flex-wrap justify-end">
           {hasMultiAudio && (
             <div className="flex gap-1 bg-black/50 backdrop-blur-sm rounded-full border border-white/10 p-1">
-              {audioTracks.map((t, i) => (
+              {audioTracks.map((track, i) => (
                 <button
-                  key={t.id ?? i}
-                  onClick={() => changeAudioTrack(t.id ?? i)}
-                  className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${currentAudioTrack === (t.id ?? i) ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
+                  key={track.id ?? i}
+                  onClick={() => changeAudioTrack(track.id ?? i)}
+                  className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${currentAudioTrack === (track.id ?? i) ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
                 >
-                  {video.hlsAudioLabels?.[i] || LANG_LABELS[t.lang?.toLowerCase()] || t.name || `Faixa ${i + 1}`}
+                  {video.hlsAudioLabels?.[i] || LANG_LABELS[track.lang?.toLowerCase()] || track.name || `${t('player.track')} ${i + 1}`}
                 </button>
               ))}
             </div>
@@ -317,14 +319,14 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
             <>
               <button
                 onClick={() => handleVote('like')}
-                aria-label="Curtir"
+                aria-label={t('reader.like')}
                 className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'like' ? 'bg-rose-600 border-rose-500 text-white' : 'bg-black/50 border-white/10 text-zinc-300'}`}
               >
                 <ThumbsUp size={18} fill={myVote === 'like' ? 'currentColor' : 'none'} />
               </button>
               <button
                 onClick={() => handleVote('dislike')}
-                aria-label="Não curtir"
+                aria-label={t('reader.dislike')}
                 className={`p-3 rounded-full border backdrop-blur-sm transition-all ${myVote === 'dislike' ? 'bg-zinc-600 border-zinc-500 text-white' : 'bg-black/50 border-white/10 text-zinc-300'}`}
               >
                 <ThumbsDown size={18} fill={myVote === 'dislike' ? 'currentColor' : 'none'} />
@@ -347,9 +349,9 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
 
           {showQuality && hasQuality && (
             <div className="mb-3 bg-black/80 backdrop-blur-md rounded-2xl px-4 py-3">
-              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">Qualidade</div>
+              <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-2">{t('player.quality')}</div>
               <div className="flex gap-2 flex-wrap">
-                <button onClick={() => changeQuality(-1)} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${currentQuality === -1 ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>Auto</button>
+                <button onClick={() => changeQuality(-1)} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${currentQuality === -1 ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>{t('player.auto')}</button>
                 {qualityLevels.map((q, i) => (
                   <button key={i} onClick={() => changeQuality(i)} className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${currentQuality === i ? 'bg-rose-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'}`}>{q.height}p</button>
                 ))}

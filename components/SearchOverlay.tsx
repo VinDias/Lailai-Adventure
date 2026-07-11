@@ -2,6 +2,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import ImageWithFallback from './ImageWithFallback';
+import { useT, useI18n } from '../contexts/I18nContext';
+import { localizeSeries } from '../i18n/localizeContent';
 import { Search, X, Play, Film, BookOpen } from 'lucide-react';
 
 interface SeriesResult {
@@ -41,6 +43,8 @@ const TypeIcon: React.FC<{ type?: string; size?: number }> = ({ type, size = 14 
 };
 
 const SearchOverlay: React.FC<SearchOverlayProps> = ({ open, onClose, onSelectSeries }) => {
+  const t = useT();
+  const { lang } = useI18n();
   const [query, setQuery] = useState('');
   const [series, setSeries] = useState<SeriesResult[]>([]);
   const [episodes, setEpisodes] = useState<EpisodeResult[]>([]);
@@ -108,7 +112,7 @@ const SearchOverlay: React.FC<SearchOverlayProps> = ({ open, onClose, onSelectSe
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Buscar séries, episódios ou gêneros…"
+            placeholder={t('search.placeholder')}
             className="flex-1 bg-transparent outline-none text-[var(--text-color,white)] text-base placeholder:text-zinc-600"
           />
           <button onClick={onClose} className="p-2 rounded-full hover:bg-white/10 transition-all" aria-label="Fechar busca">
@@ -131,14 +135,14 @@ const SearchOverlay: React.FC<SearchOverlayProps> = ({ open, onClose, onSelectSe
 
           {hasQuery && !loading && !hasResults && (
             <p className="text-center text-zinc-600 font-bold uppercase text-[10px] tracking-[0.4em] py-16">
-              Nenhum resultado para "{trimmed}"
+              {t('search.noResults')} "{trimmed}"
             </p>
           )}
 
           {hasQuery && !loading && series.length > 0 && (
             <section className="mb-8">
               <h3 className="text-zinc-500 font-black uppercase text-[10px] tracking-[0.4em] mb-3 px-1">
-                Séries ({series.length})
+                {t('search.series')} ({series.length})
               </h3>
               <div className="space-y-2">
                 {series.map(s => (
@@ -152,7 +156,7 @@ const SearchOverlay: React.FC<SearchOverlayProps> = ({ open, onClose, onSelectSe
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="text-[var(--text-color,white)] font-bold text-sm truncate">{s.title}</h4>
-                      <p className="text-zinc-500 text-xs truncate">{s.genre}</p>
+                      <p className="text-zinc-500 text-xs truncate">{localizeSeries(s, lang).genre}</p>
                     </div>
                     {s.content_type && (
                       <span className="flex items-center gap-1 text-rose-500 font-black text-[10px] uppercase tracking-widest shrink-0">
@@ -168,7 +172,7 @@ const SearchOverlay: React.FC<SearchOverlayProps> = ({ open, onClose, onSelectSe
           {hasQuery && !loading && episodes.length > 0 && (
             <section>
               <h3 className="text-zinc-500 font-black uppercase text-[10px] tracking-[0.4em] mb-3 px-1">
-                Episódios ({episodes.length})
+                {t('search.episodes')} ({episodes.length})
               </h3>
               <div className="space-y-2">
                 {episodes.map(ep => (

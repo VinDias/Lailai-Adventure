@@ -9,9 +9,9 @@ Rascunhos prontos pra colar no [Play Console](https://play.google.com/console). 
 | Package name (Application ID) | `com.lorflux.twa` |
 | Categoria primária | **Entretenimento** |
 | Categoria secundária | Quadrinhos / Livros |
-| Tags sugeridas | comics, séries, animação, hqs, brasileiro, lgpd |
+| Tags sugeridas | quadrinhos, webtoon, hq, comics, mangá, séries, animação, leitor de quadrinhos |
 | Idioma padrão | Português (Brasil) |
-| Idiomas adicionais | English (United States) |
+| Idiomas adicionais | English (US), Español, 中文 (o app tem seletor de idioma) |
 | Site | `https://www.lorflux.com` |
 | E-mail de contato | `contato@lorflux.com` |
 | Política de Privacidade (URL) | `https://www.lorflux.com/privacidade` |
@@ -25,30 +25,36 @@ Rascunhos prontos pra colar no [Play Console](https://play.google.com/console). 
 
 ### 2.2. Descrição curta (máx. 80 chars) — pt-BR
 
-`HQs cinematográficas que ganham vida. Histórias em vídeo, episódio a episódio.` *(78 chars)*
+`Quadrinhos, webtoons e HQs em vídeo. Leia e assista séries originais grátis.` *(77 chars)*
 
 **Alternativas:**
-- `Cinematic comics em vídeo. Mergulhe em histórias que ganham vida na tela.` *(73)*
-- `Quadrinhos em movimento. Séries cinematográficas, episódio por episódio.` *(72)*
+- `Leitor de quadrinhos e webtoons + HQs cinematográficas em vídeo. Grátis.` *(72)*
+- `HQs que ganham vida: quadrinhos em vídeo, webtoons e séries originais.` *(70)*
 
 ### 2.3. Descrição curta — en-US
 
-`Cinematic comics in motion. Original stories, episode by episode.` *(64)*
+`Comics, webtoons and cinematic graphic stories in motion. Read & watch free.` *(77)*
 
 ### 2.4. Descrição longa (máx. 4000 chars) — pt-BR
 
 ```
-Lorflux é uma plataforma de cinematic comics — quadrinhos que ganham vida em vídeo. Cada episódio é uma obra cinematográfica em si: arte, narrativa e som combinados para uma experiência diferente da leitura tradicional.
+Lorflux é o app de quadrinhos, webtoons e HQs cinematográficas: histórias em quadrinhos que ganham vida em vídeo. Leia webtoons no seu ritmo ou assista a quadrinhos em movimento — cada episódio combina arte, narrativa e som numa experiência que vai além da leitura tradicional de comics e mangás.
 
-DESTAQUES
-• Séries originais episódicas, com novas obras adicionadas regularmente.
-• Reprodução fluida em HLS adaptativo, com áudio em múltiplos idiomas quando disponível.
-• Interface minimalista pensada para o celular — uma obra de cada vez, sem distrações.
-• Sistema de curtidas e lista de favoritos para apoiar e guardar suas obras preferidas.
-• Modo escuro permanente, pensado para leitura/visualização noturna.
+LEIA E ASSISTA
+• HQCine — quadrinhos cinematográficos em vídeo: séries originais episódio a episódio.
+• Hi-Qua — leitor de webtoons e quadrinhos digitais em rolagem vertical, com troca de idioma dos balões (português, inglês, espanhol e chinês).
+• VCine — curtas e filmes verticais originais, com áudio em múltiplos idiomas quando disponível.
+
+POR QUE LORFLUX
+• Séries originais e novas obras adicionadas regularmente ao catálogo de quadrinhos.
+• Leitor de quadrinhos fluido, feito para o celular — uma obra de cada vez, sem distrações.
+• Curta suas HQs favoritas e monte sua lista em Meus Favoritos.
+• Interface em 4 idiomas (PT, EN, ES, 中文) com troca instantânea.
+• Tema claro e escuro para leitura confortável a qualquer hora.
+• Entre com sua conta Google em um toque.
 
 GRÁTIS E PREMIUM
-A plataforma é gratuita com anúncios e todo o catálogo é acessível. Para uma experiência sem anúncios, assine o Premium direto no app via Google Play.
+Todo o catálogo de quadrinhos, webtoons e vídeos é gratuito com anúncios. Para ler e assistir sem anúncios, assine o Premium direto no app.
 
 PRIVACIDADE E LGPD
 A Lorflux foi construída com a Lei Geral de Proteção de Dados (LGPD) em mente:
@@ -63,25 +69,31 @@ REQUISITOS
 • Conexão à internet para reprodução (streaming HLS).
 • Conta gratuita opcional para curtir, montar sua lista de favoritos e assinar Premium.
 
-Aproveite o catálogo. Boas histórias.
+Baixe agora e mergulhe em histórias em quadrinhos que se movem. Boas histórias.
 ```
 
-*(≈ 1450 chars — bem dentro do limite)*
+*(≈ 1900 chars — bem dentro do limite; palavras-chave ASO: quadrinhos, webtoon, HQ, comics, mangá, leitor de quadrinhos, histórias em quadrinhos, séries, filmes verticais)*
 
 ### 2.5. Descrição longa — en-US
 
 ```
-Lorflux is a cinematic comics platform — graphic stories brought to life as motion video. Each episode is a cinematic piece on its own: artwork, narrative and sound combined for an experience that goes beyond traditional reading.
+Lorflux is the app for comics, webtoons and cinematic graphic novels: stories brought to life as motion video. Read webtoons at your own pace or watch comics in motion — every episode combines artwork, narrative and sound for an experience beyond traditional comic reading.
 
-HIGHLIGHTS
-• Original episodic series, with new releases added regularly.
-• Smooth adaptive HLS playback, with multi-language audio when available.
-• Minimalist mobile-first interface — one piece at a time, no clutter.
-• Like system and favorites list to support and keep track of the works you love.
-• Permanent dark mode designed for nighttime viewing.
+READ AND WATCH
+• HQCine — cinematic comics in video: original series, episode by episode.
+• Hi-Qua — vertical-scroll webtoon and digital comic reader with speech-bubble language switching (Portuguese, English, Spanish, Chinese).
+• VCine — original vertical short films, with multi-language audio when available.
+
+WHY LORFLUX
+• Original series and new comics added to the catalog regularly.
+• Smooth mobile-first comic reader — one story at a time, no clutter.
+• Like your favorite comics and build your list in My Favorites.
+• Interface in 4 languages (PT, EN, ES, 中文) with instant switching.
+• Light and dark themes for comfortable reading anytime.
+• One-tap Google Sign-In.
 
 FREE AND PREMIUM
-The platform is free with ads and the full catalog is accessible. For an ad-free experience, subscribe to Premium right in the app via Google Play.
+The full catalog of comics, webtoons and videos is free with ads. For an ad-free experience, subscribe to Premium right in the app via Google Play.
 
 PRIVACY
 Lorflux is built with privacy regulations in mind (LGPD/Brazil):
@@ -102,7 +114,11 @@ Enjoy the catalog. Good stories.
 ### 2.6. Novidades desta versão (máx. 500 chars) — pt-BR
 
 ```
-Versão de lançamento da Lorflux. Estreia o catálogo de cinematic comics com séries originais, reprodução adaptativa, múltiplos áudios, modo Premium sem anúncios e total conformidade com a LGPD.
+• Entre com sua conta Google em um toque.
+• Tour de boas-vindas apresentando o app na primeira abertura.
+• Interface em 4 idiomas (PT, EN, ES, 中文) com tradução automática das descrições.
+• Foto de perfil personalizável na aba Conta.
+• Anúncios em vídeo e melhorias de estabilidade.
 ```
 
 ## 3. Segurança de Dados (Data Safety)
@@ -134,9 +150,13 @@ Respostas pré-preenchidas pro questionário do Play Console. Estrutura segue as
 
 Marcar como "Não coletado":
 - Localização (precisa ou aproximada)
-- Fotos, vídeos ou áudio do dispositivo do usuário
+- Vídeos ou áudio do dispositivo do usuário
 - Arquivos e documentos
 - Calendário, contatos, SMS, ligações
+
+> ⚠️ **Fotos**: com a funcionalidade de foto de perfil, marcar **"Fotos" como COLETADO
+> (opcional)** — finalidade "Funcionalidade do app / Personalização da conta",
+> não compartilhado com terceiros, exclusão disponível em Conta > Privacidade.
 - Estado de saúde / atividade física
 - Mensagens pessoais
 - Microfone / câmera

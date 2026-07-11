@@ -6,6 +6,8 @@ import { Play, Check, ThumbsUp } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 import Ads from './Ads';
 import { isPremiumActive } from '../utils/premium';
+import { useT, useI18n } from '../contexts/I18nContext';
+import { localizeSeries } from '../i18n/localizeContent';
 
 interface HQCineProps {
   user: User | null;
@@ -15,6 +17,8 @@ interface HQCineProps {
 }
 
 const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed }) => {
+  const t = useT();
+  const { lang } = useI18n();
   const [series, setSeries] = useState<Series[]>([]);
   const [filter, setFilter] = useState('');
   const [selectedSeries, setSelectedSeries] = useState<Series | null>(null);
@@ -111,7 +115,7 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
       <div className="px-8 mb-6">
         <input
           type="text"
-          placeholder="Buscar por título ou gênero..."
+          placeholder={t('feed.searchPlaceholder')}
           className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white text-sm focus:border-rose-500/50 transition-all outline-none"
           value={filter}
           onChange={e => setFilter(e.target.value)}
@@ -146,8 +150,8 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
               <div className="flex-1">
                 <h2 className="text-6xl font-black text-white mb-6 tracking-tighter italic">Original</h2>
                 <h3 className="text-4xl font-black text-white mb-4">{selectedSeries.title}</h3>
-                <p className="text-zinc-400 text-lg leading-relaxed mb-8">{selectedSeries.description}</p>
-                {selectedSeries.isPremium && <div className="mb-4 inline-block bg-amber-500 text-black text-[10px] font-black px-4 py-1.5 rounded-full">PREMIUM</div>}
+                <p className="text-zinc-400 text-lg leading-relaxed mb-8">{localizeSeries(selectedSeries, lang).description}</p>
+                {selectedSeries.isPremium && <div className="mb-4 inline-block bg-amber-500 text-black text-[10px] font-black px-4 py-1.5 rounded-full">{t('common.premium')}</div>}
                 <div className="flex flex-wrap items-center gap-4">
                   <button
                     onClick={toggleFavorite}
@@ -155,7 +159,7 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
                     className={`px-12 py-5 font-black rounded-2xl transition-all disabled:opacity-50 flex items-center gap-3 ${isFavorited ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'bg-white text-black hover:bg-zinc-200'}`}
                   >
                     {isFavorited && <Check size={18} strokeWidth={3} />}
-                    {isFavorited ? 'NA MINHA LISTA' : 'ADICIONAR À LISTA'}
+                    {isFavorited ? t('feed.inMyList') : t('feed.addToList')}
                   </button>
                   <button
                     onClick={toggleLike}
@@ -179,8 +183,8 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Capítulo {ep.episode_number}</span>
-                      {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">PREMIUM</span>}
+                      <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">{t('feed.chapter')} {ep.episode_number}</span>
+                      {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">{t('common.premium')}</span>}
                     </div>
                     <h4 className="text-white font-bold text-lg">{ep.title}</h4>
                   </div>

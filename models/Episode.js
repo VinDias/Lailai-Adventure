@@ -28,6 +28,13 @@ const EpisodeSchema = new mongoose.Schema({
     es: { type: String, default: '' },
     zh: { type: String, default: '' }
   },
+  // Preenchido automaticamente pelo translationService no save (só descrição;
+  // título do episódio fica intacto).
+  translations: {
+    en: { description: String },
+    es: { description: String },
+    zh: { description: String }
+  },
   isPremium: { type: Boolean, default: false },
   status: { type: String, enum: ['processing', 'published', 'draft'], default: 'draft' },
   views: { type: Number, default: 0 },

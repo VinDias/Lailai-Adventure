@@ -101,7 +101,15 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'title, genre e content_type são obrigatórios.' });
     }
 
-    const series = await Series.create({ title, genre, description, cover_image, isPremium, content_type, order_index, isPublished });
+    // Tradução automática de gênero/descrição (EN/ES/ZH). Não-crítico: falha
+    // ou serviço indisponível não impedem o save (UI cai no PT).
+    const translationService = require('../services/translationService');
+    const translations = await translationService.buildTranslationsSafe({ genre, description }, `série "${title}"`);
+
+    const series = await Series.create({
+      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished,
+      ...(translations ? { translations } : {})
+    });
     logger.info(`[Admin] Série criada: ${title}`);
     res.status(201).json(series);
   } catch (err) {
@@ -113,7 +121,22 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
 // PUT /api/content/series/:id — editar série (admin)
 router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const series = await Series.findByIdAndUpdate(req.params.id, { $set: pick(req.body, SERIES_FIELDS) }, { new: true, runValidators: true });
+    const updates = pick(req.body, SERIES_FIELDS);
+
+    // Gênero/descrição mudaram → refaz as traduções com os valores mesclados
+    // (o campo não enviado mantém o valor atual do documento).
+    if ('genre' in updates || 'description' in updates) {
+      const current = await Series.findById(req.params.id).select('genre description').lean();
+      if (!current) return res.status(404).json({ error: 'Série não encontrada.' });
+      const translationService = require('../services/translationService');
+      const translations = await translationService.buildTranslationsSafe({
+        genre: updates.genre ?? current.genre,
+        description: updates.description ?? current.description,
+      }, `série ${req.params.id}`);
+      if (translations) updates.translations = translations;
+    }
+
+    const series = await Series.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
     res.json(series);
   } catch (err) {
@@ -199,7 +222,14 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'seriesId, episode_number e title são obrigatórios.' });
     }
 
-    const episode = await Episode.create({ seriesId, episode_number, title, description, video_url, bunnyVideoId, thumbnail, duration, isPremium, order_index });
+    // Tradução automática da descrição (título do episódio fica intacto).
+    const translationService = require('../services/translationService');
+    const translations = await translationService.buildTranslationsSafe({ description }, `episódio "${title}"`);
+
+    const episode = await Episode.create({
+      seriesId, episode_number, title, description, video_url, bunnyVideoId, thumbnail, duration, isPremium, order_index,
+      ...(translations ? { translations } : {})
+    });
     logger.info(`[Admin] Episódio criado: ${title} (série: ${seriesId})`);
     res.status(201).json(episode);
   } catch (err) {
@@ -211,7 +241,18 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
 // PUT /api/content/episodes/:id — editar episódio (admin)
 router.put('/episodes/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const episode = await Episode.findByIdAndUpdate(req.params.id, { $set: pick(req.body, EPISODE_FIELDS) }, { new: true, runValidators: true });
+    const updates = pick(req.body, EPISODE_FIELDS);
+
+    // Descrição mudou → refaz as traduções.
+    if ('description' in updates) {
+      const translationService = require('../services/translationService');
+      const translations = await translationService.buildTranslationsSafe(
+        { description: updates.description }, `episódio ${req.params.id}`
+      );
+      if (translations) updates.translations = translations;
+    }
+
+    const episode = await Episode.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
     res.json(episode);
   } catch (err) {

@@ -8,7 +8,14 @@ const SeriesSchema = new mongoose.Schema({
   isPremium: { type: Boolean, default: false },
   content_type: { type: String, enum: ['hqcine', 'vcine', 'hiqua'], required: true },
   order_index: { type: Number, default: 0 },
-  isPublished: { type: Boolean, default: false }
+  isPublished: { type: Boolean, default: false },
+  // Preenchido automaticamente pelo translationService no save.
+  // Título NÃO é traduzido (decisão do cliente).
+  translations: {
+    en: { genre: String, description: String },
+    es: { genre: String, description: String },
+    zh: { genre: String, description: String }
+  }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Series', SeriesSchema);

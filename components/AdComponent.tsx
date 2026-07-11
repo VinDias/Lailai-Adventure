@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Volume2, VolumeX } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
+import { useT } from '../contexts/I18nContext';
 import { api } from '../services/api';
 
 interface AdComponentProps {
@@ -9,6 +10,7 @@ interface AdComponentProps {
 }
 
 const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
+  const t = useT();
   const { ad_skip_seconds } = useSettings();
   const [timeLeft, setTimeLeft] = useState(ad_skip_seconds);
   const [ad, setAd] = useState<any>(undefined); // undefined = carregando, null = sem anúncios
@@ -92,7 +94,7 @@ const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
             onError={() => setMediaReady(true)} // se a imagem falhar, libera o countdown mesmo assim
           />
         )}
-        <div className="absolute top-6 left-6 px-3 py-1 bg-amber-500 text-black text-[9px] font-black rounded-sm tracking-widest">PATROCINADO</div>
+        <div className="absolute top-6 left-6 px-3 py-1 bg-amber-500 text-black text-[9px] font-black rounded-sm tracking-widest">{t('ads.sponsored')}</div>
         {isVideo && (
           <button
             onClick={e => { e.stopPropagation(); setMuted(m => !m); }}
@@ -104,20 +106,20 @@ const AdComponent: React.FC<AdComponentProps> = ({ onFinish }) => {
         )}
         {ad.link_url && (
           <div className="absolute bottom-6 left-6 right-6 py-3 bg-white text-black text-xs font-black rounded-xl tracking-wide">
-            Saiba mais
+            {t('ads.learnMore')}
           </div>
         )}
       </div>
 
       {ad.title && <h3 className="text-xl font-black text-white mb-2 italic">{ad.title}</h3>}
       {ad.advertiser && <p className="text-zinc-500 text-xs mb-2">{ad.advertiser}</p>}
-      <p className="text-zinc-600 text-xs mb-8">Seu conteúdo começará em breve...</p>
+      <p className="text-zinc-600 text-xs mb-8">{t('ads.contentSoon')}</p>
 
       <button
         onClick={timeLeft === 0 ? onFinish : undefined}
         className={`px-12 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all ${timeLeft === 0 ? 'bg-white text-black scale-105' : 'bg-white/5 text-white/20 border border-white/10 cursor-not-allowed'}`}
       >
-        {timeLeft > 0 ? `Pular em ${timeLeft}s` : 'Pular Anúncio'}
+        {timeLeft > 0 ? `${t('ads.skipIn')} ${timeLeft}s` : t('ads.skip')}
       </button>
     </div>
   );

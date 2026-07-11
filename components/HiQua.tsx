@@ -7,6 +7,8 @@ import Ads from './Ads';
 import ImageWithFallback from './ImageWithFallback';
 import { useSettings } from '../contexts/SettingsContext';
 import { isPremiumActive } from '../utils/premium';
+import { useT, useI18n } from '../contexts/I18nContext';
+import { localizeSeries } from '../i18n/localizeContent';
 
 interface HiQuaProps {
   user: User | null;
@@ -16,6 +18,8 @@ interface HiQuaProps {
 }
 
 const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed }) => {
+  const t = useT();
+  const { lang } = useI18n();
   const { ad_frequency_feed } = useSettings();
   const [series, setSeries] = useState<Series[]>([]);
   const [filter, setFilter] = useState('');
@@ -125,7 +129,7 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
       <div className="px-8 mb-6">
         <input
           type="text"
-          placeholder="Buscar por título ou gênero..."
+          placeholder={t('feed.searchPlaceholder')}
           className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-white text-sm focus:border-rose-500/50 transition-all outline-none"
           value={filter}
           onChange={e => setFilter(e.target.value)}
@@ -136,7 +140,7 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
         {!isPremiumActive(user) && <Ads />}
         {series.length === 0 ? (
           <div className="py-20 text-center">
-            <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">Nenhum webtoon disponível</p>
+            <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">{t('feed.noWebtoons')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
@@ -167,7 +171,7 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                  <ImageWithFallback src={selectedSeries.cover_image} className="w-64 aspect-[9/16] rounded-[2.5rem] object-cover shadow-2xl" alt={selectedSeries.title} />
                  <div className="flex-1">
                     <h2 className="text-6xl font-black text-white mb-6 tracking-tighter italic">{selectedSeries.title}</h2>
-                    <p className="text-zinc-400 text-lg leading-relaxed mb-8">{selectedSeries.description}</p>
+                    <p className="text-zinc-400 text-lg leading-relaxed mb-8">{localizeSeries(selectedSeries, lang).description}</p>
                     <div className="flex flex-wrap items-center gap-4">
                       <button
                         onClick={toggleFavorite}
@@ -175,7 +179,7 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                         className={`px-12 py-5 font-black rounded-2xl transition-all disabled:opacity-50 flex items-center gap-3 ${isFavorited ? 'bg-emerald-500 text-black hover:bg-emerald-400' : 'bg-white text-black hover:bg-zinc-200'}`}
                       >
                         {isFavorited && <Check size={18} strokeWidth={3} />}
-                        {isFavorited ? 'NA MINHA LISTA' : 'ADICIONAR À LISTA'}
+                        {isFavorited ? t('feed.inMyList') : t('feed.addToList')}
                       </button>
                       <button
                         onClick={toggleLike}
@@ -190,7 +194,7 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                  </div>
               </div>
               <div className="space-y-4">
-                 <h3 className="text-xl font-black text-white mb-6">Episódios</h3>
+                 <h3 className="text-xl font-black text-white mb-6">{t('feed.episodes')}</h3>
                  {content.episodes.map(ep => (
                    <div key={ep._id || ep.id} onClick={() => onOpen(ep, selectedSeries, content.episodes)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
                       <div className="w-20 h-28 bg-black rounded-2xl overflow-hidden shrink-0">
@@ -198,8 +202,8 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                       </div>
                       <div className="flex-1">
                          <div className="flex items-center gap-2">
-                            <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">Capítulo {ep.episode_number}</span>
-                            {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">PREMIUM</span>}
+                            <span className="text-rose-500 font-black text-[10px] uppercase tracking-widest">{t('feed.chapter')} {ep.episode_number}</span>
+                            {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">{t('common.premium')}</span>}
                          </div>
                          <h4 className="text-white font-bold text-lg">{ep.title}</h4>
                       </div>
