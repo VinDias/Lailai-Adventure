@@ -67,6 +67,8 @@ jobs:
             set -e
             cd /var/www/lorflux
             git pull
-            npm ci
+            # npm install (não ci): o npm da VPS é 10.x e o lock é de npm 11;
+            # install respeita o lock quando compatível e não derruba o deploy.
+            npm install --no-audit --no-fund
             npm run build
             pm2 restart lorflux-app
