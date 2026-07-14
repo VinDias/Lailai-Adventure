@@ -26,6 +26,11 @@ jobs:
           path: ~/.cache/mongodb-binaries
           key: mongodb-binaries-${{ runner.os }}
 
+      # O package-lock.json é gerado com npm 11 (dev local); o npm 10 que vem
+      # com o Node 20 não resolve o layout novo do lock e falha o npm ci.
+      - name: Alinhar versão do npm
+        run: npm install -g npm@11
+
       - name: Instalar dependências
         run: npm ci
 

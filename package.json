@@ -63,6 +63,7 @@
     "autoprefixer": "^10.4.17",
     "jsdom": "^29.0.0",
     "mongodb-memory-server": "^11.0.1",
+    "playwright": "^1.60.0",
     "postcss": "^8.4.35",
     "supertest": "^7.2.2",
     "tailwindcss": "^3.4.0",
