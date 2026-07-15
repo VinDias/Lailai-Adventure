@@ -288,6 +288,47 @@ class ApiService {
     });
   }
 
+  async listChannels() {
+    return this.request<any[]>('/channels');
+  }
+
+  // ─── Royalties (Fase 3, admin) ─────────────────────────────────────────────
+  async getRoyaltyReport(period: string) {
+    return this.request<any>(`/admin/royalties/report?period=${encodeURIComponent(period)}`);
+  }
+
+  async closeRoyaltyPeriod(period: string, poolFinal: number) {
+    return this.request<any>('/admin/royalties/close', {
+      method: 'POST',
+      body: JSON.stringify({ period, poolFinal })
+    });
+  }
+
+  async getRoyaltyPeriods() {
+    return this.request<any[]>('/admin/royalties/periods');
+  }
+
+  async verifyRoyaltyIntegrity() {
+    return this.request<{ ok: boolean; checked: number; brokenAt?: number }>('/admin/royalties/verify-integrity');
+  }
+
+  async downloadRoyaltyCsv(period: string): Promise<void> {
+    const response = await fetch(`${API_URL}/admin/royalties/export.csv?period=${encodeURIComponent(period)}`, {
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      credentials: 'include'
+    });
+    if (!response.ok) throw new Error('Não foi possível exportar o CSV.');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `royalties-${period}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   async getRandomAd() {
     try {
       const ads = await this.request<any[]>('/content/ads');

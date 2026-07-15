@@ -30,6 +30,7 @@ Lógica de negócio e integrações com APIs e serviços externos. Separa as reg
 | `donationService.js` | Processamento de doações |
 | `mobilePaymentService.js` | Integração com processador de pagamento alternativo para mobile |
 | `translationService.js` | Tradução automática de conteúdo do catálogo (genre/description de Series, description de Episode) para EN/ES/ZH via `@google/genai` (`GEMINI_API_KEY`). Fire-and-forget no create/update; sem chave → no-op silencioso (UI cai no PT). Título NUNCA é traduzido. |
+| `engagementLogger.js` | Fase 3 — grava `EngagementEvent` com cadeia de hash e anti-fraude (dedupe 6h, burst 60s). Append serializado por fila de promessas em processo (requer app em instância única no PM2). Chamado fire-and-forget pelas rotas de conteúdo/anúncio; falha de log NUNCA afeta a resposta. |
 
 ---
 

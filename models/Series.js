@@ -9,6 +9,8 @@ const SeriesSchema = new mongoose.Schema({
   content_type: { type: String, enum: ['hqcine', 'vcine', 'hiqua'], required: true },
   order_index: { type: Number, default: 0 },
   isPublished: { type: Boolean, default: false },
+  // Canal do ilustrador (Fase 3): agrupa a obra no relatório de royalties.
+  channelId: { type: mongoose.Schema.Types.ObjectId, ref: 'Channel' },
   // Preenchido automaticamente pelo translationService no save.
   // Título NÃO é traduzido (decisão do cliente).
   translations: {

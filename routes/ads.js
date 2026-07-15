@@ -65,6 +65,11 @@ router.post('/:id/impression', async (req, res) => {
   Ad.findByIdAndUpdate(req.params.id, { $inc: { impressions: 1 } })
     .exec()
     .catch(err => logger.error(`[Ads] Erro ao registrar impressão do anúncio ${req.params.id}`, err));
+  // Telemetria de royalties: impressões válidas compõem o pool sugerido do mês.
+  require('../services/engagementLogger').logEvent({
+    type: 'ad_impression', adId: req.params.id,
+    userId: req.user?.id, ip: req.ip, ua: req.headers['user-agent'],
+  });
   res.json({ ok: true });
 });
 
@@ -73,6 +78,10 @@ router.post('/:id/click', async (req, res) => {
   Ad.findByIdAndUpdate(req.params.id, { $inc: { clicks: 1 } })
     .exec()
     .catch(err => logger.error(`[Ads] Erro ao registrar clique do anúncio ${req.params.id}`, err));
+  require('../services/engagementLogger').logEvent({
+    type: 'ad_click', adId: req.params.id,
+    userId: req.user?.id, ip: req.ip, ua: req.headers['user-agent'],
+  });
   res.json({ ok: true });
 });
 

@@ -25,7 +25,7 @@ Séries de conteúdo (container de episódios).
 - `order_index` — ordenação manual na listagem
 - `isPublished` — controla visibilidade pública (default `false`; catálogo exige `true` estrito)
 - `translations` — `{ en|es|zh: { genre, description } }`, preenchido automaticamente pelo `translationService` no save (título NÃO é traduzido — decisão do cliente)
-- `creator` (planejado, Fase 3) — nome do ilustrador para atribuição de royalties
+- `channelId` (Fase 3) — ref ao `Channel` do ilustrador; agrupa a obra no relatório de royalties
 
 ### `Episode.js`
 Episódios de uma série.
@@ -50,8 +50,18 @@ Lista "Meus Favoritos" por conta — índice único composto (`userId`, `seriesI
 ### `SeriesVote.js`
 Curtida única por obra — índice único composto (`userId`, `seriesId`), `type: like|dislike` (UI só usa like).
 
-### `EngagementEvent.js` (planejado — Fase 3)
-Log append-only com cadeia de hash (sha256 encadeado) para telemetria auditável de views/leituras/impressões — base do Motor de Royalties e Anti-fraude. Eventos fraudulentos são `flagged` (ficam no log, fora do cálculo).
+### `EngagementEvent.js` (Fase 3)
+Log **append-only com cadeia de hash** (sha256 encadeado por `seq`/`prevHash`) — telemetria auditável de `view`/`read`/`ad_impression`/`ad_click`, base do Motor de Royalties.
+- `seq` único via counter atômico (`Counter.js`); append serializado em processo (app roda em fork único no PM2)
+- `ipHash`/`uaHash` pseudonimizados com salt (LGPD) — nunca IP puro
+- Anti-fraude no log: `flagged`/`flagReason` (`dedupe` 6h, `burst` 60s) — evento flagged fica NO log e FORA do cálculo
+- NUNCA editar/deletar documentos desta coleção — a verificação de integridade re-percorre a cadeia
+
+### `RoyaltyPeriod.js` (Fase 3)
+Fechamento mensal de royalties: `period` (YYYY-MM, único), `poolSuggested` (CPM + assinaturas), `poolFinal` (confirmado pelo admin), `breakdown[{channelId, channelName, points, share, amount}]`, `status: draft|closed`.
+
+### `Counter.js` (Fase 3)
+Sequências atômicas (`findOneAndUpdate` + `$inc`) — usado pelo `seq` do EngagementEvent.
 
 ### `Vote.js`
 Engajamento dos usuários com conteúdo.

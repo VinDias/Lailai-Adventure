@@ -7,9 +7,10 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle, Settings, Music, Languages
+  CheckCircle2, AlertCircle, Settings, Music, Languages, Coins
 } from 'lucide-react';
 import ImageWithFallback from '../ImageWithFallback';
+import RoyaltiesPanel from './RoyaltiesPanel';
 
 function isValidUrl(str: string) {
   try { return Boolean(str && new URL(str).protocol.startsWith('http')); } catch { return false; }
@@ -48,8 +49,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   // Estado do formulário de nova série
   const [newSeries, setNewSeries] = useState({
     title: '', genre: '', description: '',
-    cover_image: '', content_type: 'hqcine', isPremium: false
+    cover_image: '', content_type: 'hqcine', isPremium: false, channelId: ''
   });
+  // Canais de ilustradores (Fase 3 — atribuição de royalties por obra)
+  const [channels, setChannels] = useState<any[]>([]);
+  const [newChannelName, setNewChannelName] = useState('');
+  const [creatingChannel, setCreatingChannel] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState('');
 
@@ -711,7 +716,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setCreating(true);
     setCreateMsg('');
     try {
-      const created = await api.createSeries({ ...newSeries, isPublished: true });
+      // channelId vazio ("Sem canal") não pode ir como string vazia (cast de ObjectId)
+      const created = await api.createSeries({ ...newSeries, channelId: newSeries.channelId || undefined, isPublished: true });
       if (coverFile) {
         const id = created._id || created.id;
         try {
@@ -721,7 +727,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         } catch { /* não crítico */ }
       }
       setContentList(prev => [created, ...prev]);
-      setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false });
+      setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '' });
       setCoverFile(null);
       setCreateMsg('Série criada com sucesso!');
       setTimeout(() => { setCreateMsg(''); setShowCreateModal(false); }, 1500);
@@ -800,6 +806,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
           <SidebarLink active={currentSubView === ViewMode.ADMIN_DASHBOARD} onClick={() => setSubView(ViewMode.ADMIN_DASHBOARD)} icon={<LayoutDashboard size={18} />} label="Dashboard" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_CONTENT} onClick={() => { setSelectedSeries(null); setSelectedEpisode(null); setSubView(ViewMode.ADMIN_CONTENT); }} icon={<Layers size={18} />} label="Gerenciar Conteúdo" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_ADS} onClick={() => setSubView(ViewMode.ADMIN_ADS)} icon={<Megaphone size={18} />} label="Anúncios" />
+          <SidebarLink active={currentSubView === ViewMode.ADMIN_ROYALTIES} onClick={() => setSubView(ViewMode.ADMIN_ROYALTIES)} icon={<Coins size={18} />} label="Royalties" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_SETTINGS} onClick={() => setSubView(ViewMode.ADMIN_SETTINGS)} icon={<Settings size={18} />} label="Configurações" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_USERS} onClick={() => setSubView(ViewMode.ADMIN_USERS)} icon={<Users size={18} />} label="Usuários" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_PAYMENTS} onClick={() => setSubView(ViewMode.ADMIN_PAYMENTS)} icon={<DollarSign size={18} />} label="Assinantes" />
@@ -845,7 +852,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-4xl font-black tracking-tighter">Gerenciar Séries</h2>
               <button
-                onClick={() => setShowCreateModal(true)}
+                onClick={() => {
+                  setShowCreateModal(true);
+                  // Canais para o vínculo de royalties (Fase 3)
+                  api.listChannels().then(setChannels).catch(() => setChannels([]));
+                }}
                 className="flex items-center gap-2 px-6 py-3 bg-rose-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-rose-500 transition-all"
               >
                 <Plus size={16} /> Nova Série
@@ -1417,6 +1428,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         )}
 
         {/* CONFIGURAÇÕES GLOBAIS */}
+        {/* ROYALTIES (Fase 3) */}
+        {currentSubView === ViewMode.ADMIN_ROYALTIES && <RoyaltiesPanel />}
+
         {currentSubView === ViewMode.ADMIN_SETTINGS && (
           <div className="max-w-2xl animate-apple">
             <h2 className="text-4xl font-black tracking-tighter mb-8">Configurações</h2>
@@ -1838,6 +1852,45 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <input type="checkbox" checked={newSeries.isPremium} onChange={e => setNewSeries(s => ({ ...s, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
                 <span className="text-sm font-bold text-[var(--text-color)]">Conteúdo Premium</span>
               </label>
+
+              {/* Canal do ilustrador — atribuição de royalties (Fase 3) */}
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Canal / Ilustrador (royalties)</label>
+                <select
+                  value={newSeries.channelId}
+                  onChange={e => setNewSeries(s => ({ ...s, channelId: e.target.value }))}
+                  className="w-full bg-black/5 dark:bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500"
+                >
+                  <option value="" className="bg-zinc-900 text-white">Sem canal (fora do rateio)</option>
+                  {channels.map(ch => <option key={ch._id} value={ch._id} className="bg-zinc-900 text-white">{ch.name}</option>)}
+                </select>
+                <div className="flex gap-2 mt-2">
+                  <input
+                    type="text"
+                    value={newChannelName}
+                    onChange={e => setNewChannelName(e.target.value)}
+                    placeholder="Criar canal novo (nome do ilustrador)..."
+                    className="flex-1 bg-white/5 border border-[var(--border-color)] rounded-xl px-3 py-2 text-xs font-bold text-[var(--text-color)] outline-none focus:border-rose-500 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    disabled={creatingChannel || !newChannelName.trim()}
+                    onClick={async () => {
+                      setCreatingChannel(true);
+                      try {
+                        const ch = await api.createChannel({ name: newChannelName.trim() });
+                        setChannels(prev => [...prev, ch].sort((a, b) => a.name.localeCompare(b.name)));
+                        setNewSeries(s => ({ ...s, channelId: ch._id }));
+                        setNewChannelName('');
+                      } catch { alert('Erro ao criar canal.'); }
+                      finally { setCreatingChannel(false); }
+                    }}
+                    className="px-4 py-2 bg-white/5 border border-[var(--border-color)] rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all disabled:opacity-40"
+                  >
+                    {creatingChannel ? '...' : '+ Canal'}
+                  </button>
+                </div>
+              </div>
 
               {createMsg && <p className={`text-sm font-bold text-center ${createMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{createMsg}</p>}
 

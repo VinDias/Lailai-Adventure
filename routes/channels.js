@@ -2,7 +2,20 @@ const express = require('express');
 const router = express.Router();
 const Channel = require('../models/Channel');
 const verifyToken = require('../middlewares/verifyToken');
+const requireAdmin = require('../middlewares/requireAdmin');
 const logger = require('../utils/logger');
+
+// GET /api/channels — lista todos os canais ativos (admin)
+// Usado pelo formulário de séries (vínculo de canal/ilustrador — Fase 3).
+router.get('/', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const channels = await Channel.find({ isActive: true }).select('name ownerId').sort({ name: 1 }).lean();
+    res.json(channels);
+  } catch (err) {
+    logger.error('[Channels] GET /', err);
+    res.status(500).json({ error: 'Erro ao listar canais.' });
+  }
+});
 
 // GET /api/channels/me — canais do usuário autenticado
 router.get('/me', verifyToken, async (req, res) => {

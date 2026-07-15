@@ -10,7 +10,7 @@ const optionalAuth = require('../middlewares/optionalAuth');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 
-const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished'];
+const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId'];
 const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
   'audioTrack1Url', 'audioTrack1Lang', 'audioTrack2Url', 'audioTrack2Lang', 'audioTrack3Url', 'audioTrack3Lang', 'audioTrack4Url', 'audioTrack4Lang'];
 
@@ -96,7 +96,7 @@ router.get('/series/:id', async (req, res) => {
 // POST /api/content/series — criar série (admin)
 router.post('/series', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished } = req.body;
+    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId } = req.body;
     if (!title || !genre || !content_type) {
       return res.status(400).json({ error: 'title, genre e content_type são obrigatórios.' });
     }
@@ -108,6 +108,7 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
 
     const series = await Series.create({
       title, genre, description, cover_image, isPremium, content_type, order_index, isPublished,
+      ...(channelId ? { channelId } : {}),
       ...(translations ? { translations } : {})
     });
     logger.info(`[Admin] Série criada: ${title}`);
@@ -206,6 +207,20 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
     Episode.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
       .exec()
       .catch(err => logger.error(`[Content] Erro ao incrementar views do episódio ${req.params.id}`, err));
+
+    // Telemetria de royalties (fire-and-forget): webtoon conta como leitura,
+    // vídeo como view. Dedupe/anti-fraude ficam no engagementLogger.
+    if (episode.seriesId) {
+      const engagementLogger = require('../services/engagementLogger');
+      engagementLogger.logEvent({
+        type: episode.seriesId.content_type === 'hiqua' ? 'read' : 'view',
+        seriesId: episode.seriesId._id,
+        episodeId: episode._id,
+        userId: req.user?.id,
+        ip: req.ip,
+        ua: req.headers['user-agent'],
+      });
+    }
 
     res.json(episode);
   } catch (err) {

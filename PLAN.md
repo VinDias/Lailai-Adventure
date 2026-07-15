@@ -106,10 +106,17 @@ Fluxo mínimo do **Google Identity Services (GIS)** — ID token, sem client sec
 - **`Series.creator`** (novo campo, texto) — atribuição de obra a ilustrador, editável no admin.
 - **Admin → aba "Royalties":** período (mês), tabela por criador/série (views válidas, leituras, impressões atribuídas, % do pool, valor), export CSV, botão de verificação de integridade.
 
-### ⚠️ Três decisões em aberto (Fellipe/Vin) — bloqueiam SÓ a Fase 3
-1. **Pool de receita:** valor manual informado por mês (recomendado — Vin controla) OU estimativa automática (CPM × impressões + % premium)?
-2. **Chave de rateio:** views válidas simples OU ponderação (ex.: vídeo 1.0 / leitura de capítulo 0.5)?
-3. **Criador:** campo texto livre na série (recomendado — simples) OU vincular ao modelo `Channel` existente?
+### ✅ Três decisões tomadas (Fellipe, 12/07/2026)
+1. **Pool de receita: HÍBRIDO** — o motor SUGERE o valor do mês (impressões válidas de anúncio ÷ 1000 × `premium_cpm_rate` + assinantes premium ativos × `royalty_premium_per_sub`), e o Vin confirma/ajusta manualmente antes de fechar o período.
+2. **Chave de rateio: consumo válido simples** — 1 ponto por view de vídeo válida e 1 ponto por leitura de capítulo válida (pós anti-fraude). Share do canal = pontos ÷ total.
+3. **Criador: vínculo ao modelo `Channel`** — `Series.channelId` referencia o canal do ilustrador; o admin seleciona (ou cria) o canal no formulário da série. Relatório agrupa por canal.
+
+### Detalhes de implementação decorrentes
+- `models/EngagementEvent.js`: `seq` sequencial (counter atômico), cadeia `prevHash`→`hash` (sha256). **Único escritor**: o `lorflux-app` roda em fork único no PM2 — a serialização do append é feita por fila de promessas em processo (`services/engagementLogger.js`). IP/UA pseudonimizados por sha256 com salt (LGPD).
+- Anti-fraude no momento do log: (a) dedupe — mesmo usuário-ou-IP × episódio × tipo em janela de 6h → `flagged: 'dedupe'`; (b) burst — >30 eventos do mesmo IP em 60s → `flagged: 'burst'`. Flagged fica NO log (auditável) e FORA do cálculo. No relatório: alerta de anomalia quando razão pontos/usuários-únicos > 20.
+- `models/RoyaltyPeriod.js`: fechamento mensal com `poolSuggested`, `poolFinal`, `breakdown[{channelId, points, share, amount}]`, `status draft|closed`.
+- Rotas `routes/royalties.js` em `/api/admin/royalties` (admin): `GET /report?period`, `POST /close`, `GET /periods`, `GET /verify-integrity`, `GET /export.csv?period`.
+- Instrumentação: `GET /episodes/:id` loga `view` (hqcine/vcine) ou `read` (hiqua); endpoints de impressão/clique de anúncio logam `ad_impression`/`ad_click` (sem série).
 
 ---
 

@@ -161,6 +161,10 @@ router.delete('/me', verifyToken, async (req, res) => {
       Channel.updateMany({ followers: userId }, { $pull: { followers: userId } }),
       RefreshToken.deleteMany({ userId: userId.toString() }),
       PasswordResetToken.deleteMany({ userId }),
+      // Log de royalties é append-only (cadeia de hash): eventos não podem ser
+      // deletados, mas o vínculo com a conta é removido — o userId fica fora
+      // do hash justamente para permitir esta desvinculação LGPD.
+      require('../models/EngagementEvent').updateMany({ userId }, { $unset: { userId: 1 } }),
     ]);
 
     await User.findByIdAndDelete(userId);

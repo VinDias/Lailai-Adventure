@@ -74,6 +74,14 @@ Montado em `/api/account`.
 - `GET /public` — settings públicas (tagline, anúncios, `google_client_id` vindo do env quando configurado)
 - `GET /`, `PUT /:key` — CRUD (admin)
 
+### `royalties.js` — Motor de Royalties (Fase 3)
+Montado em `/api/admin/royalties` (tudo `verifyToken` + `requireAdmin`).
+- `GET /report?period=YYYY-MM` — pontos válidos por canal (view/read não-flagged), share, pool sugerido (impressões÷1000×`premium_cpm_rate` + premium ativos×`royalty_premium_per_sub`), alertas de anomalia
+- `POST /close` — fecha o período com `poolFinal` confirmado (snapshot em `RoyaltyPeriod`)
+- `GET /periods` — períodos fechados
+- `GET /verify-integrity` — re-percorre a cadeia de hash do log de eventos
+- `GET /export.csv?period=YYYY-MM` — CSV do relatório
+
 ---
 
 ## Padrões
