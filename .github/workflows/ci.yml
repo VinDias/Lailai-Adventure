@@ -66,9 +66,10 @@ jobs:
           script: |
             set -e
             cd /var/www/lorflux
+            # Descarta lock reescrito por npm antigo da VPS (npm 10 normaliza o
+            # lock do npm 11 e o pull passaria a conflitar em todo deploy).
+            git restore package-lock.json 2>/dev/null || true
             git pull
-            # npm install (não ci): o npm da VPS é 10.x e o lock é de npm 11;
-            # install respeita o lock quando compatível e não derruba o deploy.
             npm install --no-audit --no-fund
             npm run build
             pm2 restart lorflux-app
