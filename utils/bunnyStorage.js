@@ -30,8 +30,10 @@ async function uploadBufferToStorage(buffer, remotePath, contentType = 'applicat
     throw new Error(`Bunny Storage respondeu ${res.status}: ${errText.slice(0, 200)}`);
   }
 
-  const pullZone = process.env.BUNNY_STORAGE_CDN_BASE || `https://${storageZone}.b-cdn.net`;
-  return `${pullZone.replace(/\/$/, '')}/${remotePath}`;
+  // MESMA variável usada pelos uploads de capas/painéis (routes/bunnyWebhook):
+  // o hostname do Pull Zone é diferente do host da API de storage.
+  const cdnHostname = process.env.BUNNY_STORAGE_HOSTNAME || `${storageZone}.b-cdn.net`;
+  return `https://${cdnHostname}/${remotePath}`;
 }
 
 /** Injeção exclusiva de testes (mesmo padrão do googleTokenVerifier). */

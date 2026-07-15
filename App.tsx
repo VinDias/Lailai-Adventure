@@ -12,6 +12,7 @@ import HiQua from './components/HiQua';
 import MyFavorites from './components/MyFavorites';
 import Onboarding, { hasSeenOnboarding } from './components/Onboarding';
 import ThemeToggle from './components/ThemeToggle';
+import ImageWithFallback from './components/ImageWithFallback';
 import SearchOverlay from './components/SearchOverlay';
 import ConsentBanner from './components/ConsentBanner';
 import LegalPolicy from './components/LegalPolicy';
@@ -252,7 +253,9 @@ const App: React.FC = () => {
         {view === ViewMode.PROFILE && (
           <div className="p-8 animate-apple max-w-xl mx-auto pt-20 text-center">
             <div className="relative inline-block mb-8">
-              <img src={user?.avatar || 'https://picsum.photos/seed/user/200'} className={`w-32 h-32 rounded-[3.5rem] border-4 border-white/5 shadow-2xl object-cover ${uploadingAvatar ? 'opacity-50' : ''}`} />
+              <div className={`w-32 h-32 rounded-[3.5rem] border-4 border-white/5 shadow-2xl overflow-hidden ${uploadingAvatar ? 'opacity-50' : ''}`}>
+                <ImageWithFallback src={user?.avatar} className="w-full h-full object-cover" alt={user?.nome || 'Avatar'} />
+              </div>
               {user?.isPremium && <div className="absolute -bottom-2 -right-2 bg-amber-500 p-2 rounded-full border-4 border-[#0A0A0B]"><Sparkles size={16} className="text-black" /></div>}
               {/* Troca de foto de perfil */}
               <button
