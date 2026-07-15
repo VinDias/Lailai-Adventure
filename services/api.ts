@@ -380,6 +380,13 @@ class ApiService {
     });
   }
 
+  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean }>) {
+    return this.request<any>(`/content/series/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
   async updateEpisode(id: string, data: Partial<{ thumbnail: string; title: string; description: string; isPremium: boolean; video_url: string; status: string }>) {
     return this.request<any>(`/content/episodes/${id}`, {
       method: 'PUT',

@@ -7,7 +7,7 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle, Settings, Music, Languages, Coins
+  CheckCircle2, AlertCircle, Settings, Music, Languages, Coins, Pencil
 } from 'lucide-react';
 import ImageWithFallback from '../ImageWithFallback';
 import RoyaltiesPanel from './RoyaltiesPanel';
@@ -55,6 +55,87 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [channels, setChannels] = useState<any[]>([]);
   const [newChannelName, setNewChannelName] = useState('');
   const [creatingChannel, setCreatingChannel] = useState(false);
+
+  // Edição de série existente (título/gênero/descrição sem recriar)
+  const [editingSeries, setEditingSeries] = useState<any>(null);
+  const [editSeriesForm, setEditSeriesForm] = useState({ title: '', genre: '', description: '', isPremium: false, channelId: '' });
+  const [savingSeries, setSavingSeries] = useState(false);
+  const [editSeriesMsg, setEditSeriesMsg] = useState('');
+
+  // Edição de episódio existente (título/descrição)
+  const [editingEpisode, setEditingEpisode] = useState<any>(null);
+  const [editEpisodeForm, setEditEpisodeForm] = useState({ title: '', description: '', isPremium: false });
+  const [savingEpisode, setSavingEpisode] = useState(false);
+  const [editEpisodeMsg, setEditEpisodeMsg] = useState('');
+
+  const openEditSeries = (item: any) => {
+    setEditingSeries(item);
+    setEditSeriesForm({
+      title: item.title ?? '',
+      genre: item.genre ?? '',
+      description: item.description ?? '',
+      isPremium: Boolean(item.isPremium),
+      channelId: item.channelId ?? '',
+    });
+    setEditSeriesMsg('');
+    api.listChannels().then(setChannels).catch(() => setChannels([]));
+  };
+
+  const handleSaveSeriesEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSeries) return;
+    setSavingSeries(true);
+    setEditSeriesMsg('');
+    try {
+      const id = editingSeries._id || editingSeries.id;
+      const updated = await api.updateSeries(id, {
+        title: editSeriesForm.title,
+        genre: editSeriesForm.genre,
+        description: editSeriesForm.description,
+        isPremium: editSeriesForm.isPremium,
+        ...(editSeriesForm.channelId ? { channelId: editSeriesForm.channelId } : {}),
+      });
+      setContentList(prev => prev.map(s => (s._id || s.id) === id ? { ...s, ...updated } : s));
+      setEditSeriesMsg('Série atualizada!');
+      setTimeout(() => setEditingSeries(null), 900);
+    } catch {
+      setEditSeriesMsg('Erro ao salvar a série.');
+    } finally {
+      setSavingSeries(false);
+    }
+  };
+
+  const openEditEpisode = (ep: any) => {
+    setEditingEpisode(ep);
+    setEditEpisodeForm({
+      title: ep.title ?? '',
+      description: ep.description ?? '',
+      isPremium: Boolean(ep.isPremium),
+    });
+    setEditEpisodeMsg('');
+  };
+
+  const handleSaveEpisodeEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEpisode) return;
+    setSavingEpisode(true);
+    setEditEpisodeMsg('');
+    try {
+      const id = editingEpisode._id || editingEpisode.id;
+      const updated = await api.updateEpisode(id, {
+        title: editEpisodeForm.title,
+        description: editEpisodeForm.description,
+        isPremium: editEpisodeForm.isPremium,
+      });
+      setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === id ? { ...ep, ...updated } : ep));
+      setEditEpisodeMsg('Episódio atualizado!');
+      setTimeout(() => setEditingEpisode(null), 900);
+    } catch {
+      setEditEpisodeMsg('Erro ao salvar o episódio.');
+    } finally {
+      setSavingEpisode(false);
+    }
+  };
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState('');
 
@@ -916,6 +997,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
+                            <button onClick={() => openEditSeries(item)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Editar título, gênero e descrição"><Pencil size={16} /></button>
                             <button onClick={() => handleSelectSeries(item)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Gerenciar episódios"><List size={16} /></button>
                             <button onClick={() => handleReorder(id, 'up')} className="p-2 bg-white/5 rounded-lg text-zinc-500 hover:text-white"><ArrowUp size={16} /></button>
                             <button onClick={() => handleReorder(id, 'down')} className="p-2 bg-white/5 rounded-lg text-zinc-500 hover:text-white"><ArrowDown size={16} /></button>
@@ -1048,6 +1130,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                                 </button>
                               </>
                             )}
+                            <button onClick={() => openEditEpisode(ep)} className="p-2 bg-white/5 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-all" title="Editar título e descrição"><Pencil size={15} /></button>
                             <button onClick={() => handleDeleteEpisode(epId)} className="p-2 bg-rose-600/10 rounded-lg text-rose-500 hover:bg-rose-600 hover:text-white transition-all"><Trash2 size={16} /></button>
                           </div>
                         </div>
@@ -1945,6 +2028,86 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
           </div>
         </div>
       )}
+      {/* Modal — Editar Série (título/gênero/descrição sem recriar a obra) */}
+      {editingSeries && (
+        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-2xl font-black tracking-tighter">Editar Série</h3>
+              <button onClick={() => setEditingSeries(null)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
+            </div>
+            <form onSubmit={handleSaveSeriesEdit} className="space-y-4">
+              <FormField label="Título *" value={editSeriesForm.title} onChange={v => setEditSeriesForm(f => ({ ...f, title: v }))} required />
+              <FormField label="Gênero *" value={editSeriesForm.genre} onChange={v => setEditSeriesForm(f => ({ ...f, genre: v }))} required />
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Descrição</label>
+                <textarea
+                  value={editSeriesForm.description}
+                  onChange={e => setEditSeriesForm(f => ({ ...f, description: e.target.value }))}
+                  rows={4}
+                  className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors resize-none"
+                />
+                <p className="text-[10px] text-zinc-600 font-bold mt-1">Ao salvar, as traduções (EN/ES/ZH) do gênero e da descrição são refeitas automaticamente.</p>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Canal / Ilustrador (royalties)</label>
+                <select
+                  value={editSeriesForm.channelId}
+                  onChange={e => setEditSeriesForm(f => ({ ...f, channelId: e.target.value }))}
+                  className="w-full bg-black/5 dark:bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500"
+                >
+                  <option value="" className="bg-zinc-900 text-white">Sem canal (fora do rateio)</option>
+                  {channels.map(ch => <option key={ch._id} value={ch._id} className="bg-zinc-900 text-white">{ch.name}</option>)}
+                </select>
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={editSeriesForm.isPremium} onChange={e => setEditSeriesForm(f => ({ ...f, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
+                <span className="text-sm font-bold text-[var(--text-color)]">Conteúdo Premium</span>
+              </label>
+              {editSeriesMsg && <p className={`text-sm font-bold text-center ${editSeriesMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{editSeriesMsg}</p>}
+              <button type="submit" disabled={savingSeries || !editSeriesForm.title || !editSeriesForm.genre}
+                className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                {savingSeries ? 'Salvando...' : 'SALVAR ALTERAÇÕES'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal — Editar Episódio (título/descrição) */}
+      {editingEpisode && (
+        <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-2xl font-black tracking-tighter">Editar Episódio</h3>
+              <button onClick={() => setEditingEpisode(null)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
+            </div>
+            <form onSubmit={handleSaveEpisodeEdit} className="space-y-4">
+              <FormField label="Título *" value={editEpisodeForm.title} onChange={v => setEditEpisodeForm(f => ({ ...f, title: v }))} required />
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Descrição</label>
+                <textarea
+                  value={editEpisodeForm.description}
+                  onChange={e => setEditEpisodeForm(f => ({ ...f, description: e.target.value }))}
+                  rows={3}
+                  className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors resize-none"
+                />
+                <p className="text-[10px] text-zinc-600 font-bold mt-1">A tradução da descrição é refeita automaticamente ao salvar.</p>
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={editEpisodeForm.isPremium} onChange={e => setEditEpisodeForm(f => ({ ...f, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
+                <span className="text-sm font-bold text-[var(--text-color)]">Episódio Premium</span>
+              </label>
+              {editEpisodeMsg && <p className={`text-sm font-bold text-center ${editEpisodeMsg.includes('Erro') ? 'text-rose-500' : 'text-green-400'}`}>{editEpisodeMsg}</p>}
+              <button type="submit" disabled={savingEpisode || !editEpisodeForm.title}
+                className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                {savingEpisode ? 'Salvando...' : 'SALVAR ALTERAÇÕES'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal — Novo/Editar Anúncio */}
       {showAdModal && (
         <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
