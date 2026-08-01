@@ -15,19 +15,40 @@ function isAvailable() {
   return Boolean(testTranslator || process.env.GEMINI_API_KEY);
 }
 
-async function translateText(text, targetLang) {
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/** Erros transitórios da API (cota por minuto, indisponibilidade) valem retry. */
+function isRetryable(err) {
+  const msg = String(err?.message || '');
+  return /429|RESOURCE_EXHAUSTED|quota|rate/i.test(msg) || /503|UNAVAILABLE|overloaded/i.test(msg);
+}
+
+async function translateText(text, targetLang, { retries = 4 } = {}) {
   if (testTranslator) return testTranslator(text, targetLang);
 
   const { GoogleGenAI } = require('@google/genai');
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `Traduza o texto abaixo do português para ${LANG_NAMES[targetLang]}. Responda APENAS com a tradução, sem comentários, sem aspas e sem explicações.\n\n${text}`,
-    config: { temperature: 0.2 },
-  });
-  const translated = (response.text || '').trim();
-  if (!translated) throw new Error(`Tradução vazia para ${targetLang}`);
-  return translated;
+
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Traduza o texto abaixo do português para ${LANG_NAMES[targetLang]}. Responda APENAS com a tradução, sem comentários, sem aspas e sem explicações.\n\n${text}`,
+        config: { temperature: 0.2 },
+      });
+      const translated = (response.text || '').trim();
+      if (!translated) throw new Error(`Tradução vazia para ${targetLang}`);
+      return translated;
+    } catch (err) {
+      lastErr = err;
+      // O nível gratuito limita requisições por minuto: espera crescente
+      // (2s, 4s, 8s, 16s) antes de desistir.
+      if (!isRetryable(err) || attempt === retries) break;
+      await sleep(2000 * Math.pow(2, attempt));
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -42,14 +63,16 @@ async function buildTranslations(fields) {
     .filter(([, value]) => typeof value === 'string' && value.trim().length > 0);
   if (entries.length === 0) return null;
 
+  // Sequencial (e não Promise.all): a cota gratuita é por minuto e o disparo
+  // simultâneo dos 3 idiomas era o que estourava o limite no backfill.
   const result = {};
-  await Promise.all(TARGET_LANGS.map(async (lang) => {
+  for (const lang of TARGET_LANGS) {
     const translated = {};
     for (const [key, value] of entries) {
       translated[key] = await translateText(value, lang);
     }
     result[lang] = translated;
-  }));
+  }
   return result;
 }
 

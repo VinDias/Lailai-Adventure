@@ -24,6 +24,9 @@ const translationService = require('../services/translationService');
   const Episode = require('../models/Episode');
 
   let ok = 0, skipped = 0, failed = 0;
+  // Respiro entre itens: a cota gratuita do Gemini é por minuto.
+  const PAUSE_MS = 4000;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   const allSeries = await Series.find().lean();
   console.log(`── Séries: ${allSeries.length} ─────────────────────────`);
@@ -37,6 +40,7 @@ const translationService = require('../services/translationService');
         await Series.updateOne({ _id: s._id }, { $set: { translations } });
         console.log(`✅ Série "${s.title}" traduzida`);
         ok++;
+        await sleep(PAUSE_MS);
       } else skipped++;
     } catch (err) {
       console.error(`❌ Série "${s.title}": ${err.message}`);
@@ -56,6 +60,7 @@ const translationService = require('../services/translationService');
         await Episode.updateOne({ _id: ep._id }, { $set: { translations } });
         console.log(`✅ Episódio "${ep.title}" traduzido`);
         ok++;
+        await sleep(PAUSE_MS);
       } else skipped++;
     } catch (err) {
       console.error(`❌ Episódio "${ep.title}": ${err.message}`);
