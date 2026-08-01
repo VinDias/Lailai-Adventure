@@ -17,15 +17,26 @@ function isAvailable() {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// O nível gratuito limita requisições por MINUTO por modelo (gemini-3-flash: 5).
+// Por isso cada item é traduzido numa ÚNICA chamada (os 3 idiomas de uma vez),
+// em vez de uma chamada por idioma/campo — 6x menos requisições por obra.
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
+
 /** Erros transitórios da API (cota por minuto, indisponibilidade) valem retry. */
 function isRetryable(err) {
   const msg = String(err?.message || '');
   return /429|RESOURCE_EXHAUSTED|quota|rate/i.test(msg) || /503|UNAVAILABLE|overloaded/i.test(msg);
 }
 
-async function translateText(text, targetLang, { retries = 4 } = {}) {
-  if (testTranslator) return testTranslator(text, targetLang);
+/** A resposta 429 informa quanto esperar ("Please retry in 43.6s" / retryDelay). */
+function retryDelayMs(err, attempt) {
+  const msg = String(err?.message || '');
+  const m = msg.match(/retry in ([\d.]+)s/i) || msg.match(/"retryDelay"\s*:\s*"(\d+)s"/);
+  if (m) return Math.ceil(parseFloat(m[1]) * 1000) + 2000; // margem de 2s
+  return Math.min(60000, 5000 * Math.pow(2, attempt));
+}
 
+async function callModel(prompt, { retries = 5 } = {}) {
   const { GoogleGenAI } = require('@google/genai');
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -33,22 +44,58 @@ async function translateText(text, targetLang, { retries = 4 } = {}) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: `Traduza o texto abaixo do português para ${LANG_NAMES[targetLang]}. Responda APENAS com a tradução, sem comentários, sem aspas e sem explicações.\n\n${text}`,
-        config: { temperature: 0.2 },
+        model: MODEL,
+        contents: prompt,
+        config: { temperature: 0.2, responseMimeType: 'application/json' },
       });
-      const translated = (response.text || '').trim();
-      if (!translated) throw new Error(`Tradução vazia para ${targetLang}`);
-      return translated;
+      const text = (response.text || '').trim();
+      if (!text) throw new Error('Resposta vazia do modelo');
+      return text;
     } catch (err) {
       lastErr = err;
-      // O nível gratuito limita requisições por minuto: espera crescente
-      // (2s, 4s, 8s, 16s) antes de desistir.
       if (!isRetryable(err) || attempt === retries) break;
-      await sleep(2000 * Math.pow(2, attempt));
+      await sleep(retryDelayMs(err, attempt));
     }
   }
   throw lastErr;
+}
+
+/** Traduz todos os campos para os 3 idiomas numa única requisição. */
+async function translateAllLangs(entries) {
+  const fieldList = entries.map(([k, v]) => `- ${k}: ${JSON.stringify(v)}`).join('\n');
+  const shape = TARGET_LANGS
+    .map(l => `"${l}": {${entries.map(([k]) => `"${k}": "tradução em ${LANG_NAMES[l]}"`).join(', ')}}`)
+    .join(', ');
+
+  const prompt = `Traduza os campos abaixo do português para inglês, espanhol e chinês simplificado.
+
+Campos:
+${fieldList}
+
+Responda APENAS com um JSON válido exatamente neste formato, sem markdown e sem comentários:
+{${shape}}`;
+
+  const raw = await callModel(prompt);
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.replace(/^```(?:json)?|```$/g, '').trim());
+  } catch {
+    throw new Error('Modelo não devolveu JSON válido');
+  }
+
+  const result = {};
+  for (const lang of TARGET_LANGS) {
+    const got = parsed[lang];
+    if (!got) throw new Error(`Tradução ausente para ${lang}`);
+    const obj = {};
+    for (const [key] of entries) {
+      const value = typeof got[key] === 'string' ? got[key].trim() : '';
+      if (!value) throw new Error(`Campo "${key}" vazio em ${lang}`);
+      obj[key] = value;
+    }
+    result[lang] = obj;
+  }
+  return result;
 }
 
 /**
@@ -63,17 +110,21 @@ async function buildTranslations(fields) {
     .filter(([, value]) => typeof value === 'string' && value.trim().length > 0);
   if (entries.length === 0) return null;
 
-  // Sequencial (e não Promise.all): a cota gratuita é por minuto e o disparo
-  // simultâneo dos 3 idiomas era o que estourava o limite no backfill.
-  const result = {};
-  for (const lang of TARGET_LANGS) {
-    const translated = {};
-    for (const [key, value] of entries) {
-      translated[key] = await translateText(value, lang);
+  // Testes injetam um tradutor por (texto, idioma) — mantém a seam simples.
+  if (testTranslator) {
+    const result = {};
+    for (const lang of TARGET_LANGS) {
+      const translated = {};
+      for (const [key, value] of entries) {
+        translated[key] = await testTranslator(value, lang);
+      }
+      result[lang] = translated;
     }
-    result[lang] = translated;
+    return result;
   }
-  return result;
+
+  // Produção: uma única requisição para os 3 idiomas (economia de cota).
+  return translateAllLangs(entries);
 }
 
 /**
