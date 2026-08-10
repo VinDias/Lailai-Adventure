@@ -4,9 +4,9 @@ import { api } from '../../services/api';
 
 /**
  * Fase 3 — Painel de Royalties (admin, sempre em PT).
- * Pool híbrido: o sistema sugere (impressões×CPM + assinantes×valor), o admin
- * confirma o valor final e fecha o mês. Eventos flagged já vêm excluídos do
- * relatório pelo backend.
+ * Pool híbrido: o sistema sugere a fatia dos autores (60% da receita estimada,
+ * conforme a regra do cliente) e o admin confirma o valor final ao fechar o mês.
+ * Eventos flagged já vêm excluídos do relatório pelo backend.
  */
 
 const currentPeriod = () => {
@@ -105,9 +105,11 @@ const RoyaltiesPanel: React.FC = () => {
           {/* Pool do mês (regra híbrida) */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-3xl p-6">
-              <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Pool sugerido</p>
+              <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Pool sugerido (autores)</p>
               <p className="text-2xl font-black text-amber-500">{brl(report.poolSuggested)}</p>
-              <p className="text-[10px] text-zinc-600 font-bold mt-1">impressões ÷ 1000 × CPM + assinantes × valor</p>
+              <p className="text-[10px] text-zinc-600 font-bold mt-1">
+                {Math.round((report.authorShare ?? 0.6) * 100)}% de {brl(report.grossRevenue ?? report.poolSuggested)} (receita do mês)
+              </p>
             </div>
             <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-3xl p-6">
               <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Impressões válidas</p>

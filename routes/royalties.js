@@ -86,22 +86,26 @@ async function buildReport(range) {
   })).sort((a, b) => b.points - a.points);
 
   // Pool sugerido (híbrido — o admin confirma/ajusta no fechamento)
-  const [adImpressions, cpm, perSub] = await Promise.all([
+  const [adImpressions, cpm, perSub, authorShare] = await Promise.all([
     EngagementEvent.countDocuments({
       type: 'ad_impression', flagged: false,
       createdAt: { $gte: range.start, $lt: range.end },
     }),
     getSettingNumber('premium_cpm_rate', 0),
     getSettingNumber('royalty_premium_per_sub', 0),
+    // Regra do cliente: 60% da receita de anúncios e assinaturas vai para os
+    // autores, 40% fica com a plataforma. Configurável sem alterar código.
+    getSettingNumber('royalty_author_share', 0.6),
   ]);
   const now = new Date();
   const premiumUsers = await User.countDocuments({
     isPremium: true,
     $or: [{ premiumExpiresAt: null }, { premiumExpiresAt: { $gt: now } }],
   });
-  const poolSuggested = (adImpressions / 1000) * cpm + premiumUsers * perSub;
+  const grossRevenue = (adImpressions / 1000) * cpm + premiumUsers * perSub;
+  const poolSuggested = grossRevenue * authorShare;
 
-  return { channels, totalPoints, adImpressions, premiumUsers, cpm, perSub, poolSuggested };
+  return { channels, totalPoints, adImpressions, premiumUsers, cpm, perSub, grossRevenue, authorShare, poolSuggested };
 }
 
 // GET /api/admin/royalties/report?period=YYYY-MM

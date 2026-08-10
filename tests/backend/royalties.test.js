@@ -185,15 +185,36 @@ describe('relatório e fechamento', () => {
     expect(b.share).toBeCloseTo(0.25);
   });
 
-  it('pool sugerido = impressões/1000 × CPM + premium ativos × valor por assinante', async () => {
+  it('pool sugerido = 60% da receita (impressões/1000 × CPM + premium × valor)', async () => {
     const res = await request(app)
       .get(`/api/admin/royalties/report?period=${currentPeriod()}`)
       .set('Authorization', `Bearer ${auth.getToken('admin')}`);
 
-    // 100 impressões ÷ 1000 × 10 = 1.0 | 1 premium ativo × 2 = 2.0
-    expect(res.body.poolSuggested).toBeCloseTo(3.0);
+    // 100 impressões ÷ 1000 × 10 = 1.0 | 1 premium ativo × 2 = 2.0 → bruto 3.0
+    expect(res.body.grossRevenue).toBeCloseTo(3.0);
+    // Regra do cliente: 60% para os autores, 40% para a plataforma.
+    expect(res.body.authorShare).toBeCloseTo(0.6);
+    expect(res.body.poolSuggested).toBeCloseTo(1.8);
     expect(res.body.adImpressions).toBe(100);
     expect(res.body.premiumUsers).toBe(1);
+  });
+
+  it('a fatia dos autores é configurável por setting (royalty_author_share)', async () => {
+    const Setting = require('../../models/Setting');
+    await Setting.findOneAndUpdate(
+      { key: 'royalty_author_share' },
+      { key: 'royalty_author_share', value: '0.8' },
+      { upsert: true },
+    );
+
+    const res = await request(app)
+      .get(`/api/admin/royalties/report?period=${currentPeriod()}`)
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+
+    expect(res.body.authorShare).toBeCloseTo(0.8);
+    expect(res.body.poolSuggested).toBeCloseTo(2.4); // 3.0 × 0.8
+
+    await Setting.deleteOne({ key: 'royalty_author_share' }); // não vaza para os outros testes
   });
 
   it('POST /close fecha o período com poolFinal e amounts por share', async () => {
