@@ -400,8 +400,10 @@ export type TranslationKey = keyof typeof pt;
 
 export const TRANSLATIONS: Record<Lang, Record<TranslationKey, string>> = { pt, en, es, zh };
 
+// Rótulos do seletor de idioma. PORT-BR (e não "PT") a pedido do cliente:
+// deixa claro que a tradução é português do Brasil.
 export const LANG_OPTIONS: { code: Lang; label: string }[] = [
-  { code: 'pt', label: 'PT' },
+  { code: 'pt', label: 'PORT-BR' },
   { code: 'en', label: 'EN' },
   { code: 'es', label: 'ES' },
   { code: 'zh', label: '中文' },

@@ -1163,7 +1163,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest shrink-0">Idioma:</span>
                 {([
                   { value: 'original', label: 'Original (Base)' },
-                  { value: 'pt', label: 'PT' },
+                  { value: 'pt', label: 'PORT-BR' },
                   { value: 'en', label: 'EN' },
                   { value: 'es', label: 'ES' },
                   { value: 'zh', label: 'ZH' },
