@@ -31,8 +31,8 @@ Coleção nova `ReadingProgress`, **um documento por (usuário, episódio)**:
   seriesId:    ObjectId,  // ref Series — denormalizado para o carrossel
   episodeId:   ObjectId,  // ref Episode
   contentType: String,    // 'hqcine' | 'vcine' | 'hiqua'
-  position:    Number,    // segundos (vídeo) ou scrollTop em px (webtoon)
-  percent:     Number,    // 0..1 — a barrinha e o rótulo "62%"
+  position:    Number,    // segundos de reprodução — só vídeo
+  percent:     Number,    // 0..1 — a barrinha, o rótulo "62%" e a volta no webtoon
   completed:   Boolean,   // true quando percent >= 0.9
   updatedAt:   Date,
 }
@@ -84,8 +84,13 @@ representa a verdade.
 - `ContinueCarousel` — carrossel no topo de cada aba, com capa, nome do capítulo,
   percentual e barra
 - Barra fina de progresso nos cards do catálogo, só em obra já iniciada
-- Restauração automática: `VerticalPlayer` posiciona `videoRef.current.currentTime`;
-  `WebtoonReader` restaura `scrollRef.current.scrollTop`
+- Restauração automática: `VerticalPlayer` posiciona `videoRef.current.currentTime`
+  com `position`; `WebtoonReader` volta por **percentual** —
+  `scrollTop = scrollHeight * percent`, e não por pixels salvos
+
+  A distinção importa: pixel de scroll depende da largura da tela. Quem lê no
+  celular e continua no tablet cairia no lugar errado se guardássemos `scrollTop`
+  absoluto. O percentual atravessa qualquer tamanho de tela.
 - Hook `useProgress()` centraliza gravação, leitura e a fila do `localStorage`
 
 Pontos de engate já existem no código: o player tem `videoRef`, estado `currentTime`
@@ -128,7 +133,9 @@ existem no Centro de Privacidade (`components/PrivacyCenter.tsx` e a rota
 - `useProgress` respeita o intervalo de gravação e o limiar de mudança
 - carrossel não renderiza para quem não tem progresso
 - barra aparece só em obra iniciada
-- player e leitor restauram a posição salva
+- player restaura pelo segundo salvo
+- leitor restaura por percentual e cai no mesmo ponto relativo em telas de
+  larguras diferentes
 
 ## Fora de escopo deste bloco
 
