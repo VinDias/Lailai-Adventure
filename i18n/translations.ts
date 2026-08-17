@@ -62,6 +62,7 @@ const pt = {
   'feed.addToList': 'ADICIONAR À LISTA',
   'feed.inMyList': 'NA MINHA LISTA',
   continue_reading: 'Continuar',
+  continue_open_error: 'Não foi possível abrir. Toque para tentar de novo.',
 
   // Leitor (Hi-Qua)
   'reader.noPanels': 'Nenhum painel disponível',
@@ -164,6 +165,7 @@ const en: Record<keyof typeof pt, string> = {
   'feed.addToList': 'ADD TO LIST',
   'feed.inMyList': 'IN MY LIST',
   continue_reading: 'Continue',
+  continue_open_error: "Couldn't open. Tap to try again.",
 
   'reader.noPanels': 'No panels available',
   'reader.panels': 'PANELS',
@@ -260,6 +262,7 @@ const es: Record<keyof typeof pt, string> = {
   'feed.addToList': 'AGREGAR A LA LISTA',
   'feed.inMyList': 'EN MI LISTA',
   continue_reading: 'Continuar',
+  continue_open_error: 'No se pudo abrir. Toca para intentar de nuevo.',
 
   'reader.noPanels': 'Ningún panel disponible',
   'reader.panels': 'PANELES',
@@ -356,6 +359,7 @@ const zh: Record<keyof typeof pt, string> = {
   'feed.addToList': '加入列表',
   'feed.inMyList': '已在列表中',
   continue_reading: '继续观看',
+  continue_open_error: '无法打开，点击重试。',
 
   'reader.noPanels': '暂无画格',
   'reader.panels': '画格',

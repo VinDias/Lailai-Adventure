@@ -72,16 +72,17 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
 
   // Abre direto no episódio indicado pelo carrossel "Continuar" — pula a
   // tela de seleção da série e vai direto ao player, como um clique no episódio.
+  // Busca a série direto na API (não usa o array `series` já carregado pela
+  // aba): esse array pode ainda não ter chegado quando o usuário clica, e
+  // procurar nele fazia o clique não fazer nada em silêncio. Se a série ou o
+  // episódio não forem encontrados, lança — o carrossel mostra o erro em vez
+  // de esconder a falha.
   const handleContinuar = async (seriesId: string, episodeId: string) => {
-    const s = series.find(x => String(x._id) === seriesId);
-    if (!s) return;
-    try {
-      const data = await api.getSeriesContent(s._id);
-      const ep = data.episodes.find((e: any) => String(e._id || e.id) === episodeId);
-      if (ep) onOpen(ep, s);
-    } catch (e) {
-      console.error('Erro ao continuar assistindo', e);
-    }
+    const s = await api.getSeriesById(seriesId);
+    const data = await api.getSeriesContent(s._id);
+    const ep = data.episodes.find((e: any) => String(e._id || e.id) === episodeId);
+    if (!ep) throw new Error(`Episódio ${episodeId} não encontrado na série ${seriesId}`);
+    onOpen(ep, s);
   };
 
   const toggleFavorite = async () => {

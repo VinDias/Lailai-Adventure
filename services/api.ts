@@ -229,6 +229,14 @@ class ApiService {
     return this.request<any[]>(path);
   }
 
+  // Busca uma série específica direto na API — ao contrário de procurar num
+  // array já carregado pela tela, não depende de nenhum estado local ter
+  // chegado antes (usado pelo carrossel "Continuar", que pode aparecer antes
+  // da listagem normal da aba terminar de carregar).
+  async getSeriesById(id: string | number) {
+    return this.request<any>(`/content/series/${id}`);
+  }
+
   // Retorna { seasons: [], episodes } para compatibilidade com VFilm e HiQua
   async getSeriesContent(id: string | number) {
     try {
