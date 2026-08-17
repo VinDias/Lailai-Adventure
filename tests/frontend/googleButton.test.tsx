@@ -102,6 +102,36 @@ describe('Botão Entrar com Google', () => {
     await waitFor(() => expect(onLogin).toHaveBeenCalledWith(fakeUser));
   });
 
+  it('mantém o indicador de carregamento ativo até onLogin terminar (achado da revisão da Task 11)', async () => {
+    // Mesmo cuidado do fluxo de e-mail/senha: onLogin pode migrar o progresso do
+    // visitante antes de trocar de tela, e o callback do GIS precisa esperar essa
+    // promessa terminar antes de desligar o `loading` — senão a tela de login fica
+    // parada com os campos já reabilitados, parecendo travamento.
+    let liberarOnLogin: () => void = () => {};
+    const onLoginPendente = vi.fn(() => new Promise<void>(resolve => { liberarOnLogin = resolve; }));
+    const fakeUser = { id: 'u1', email: 'g@g.com', nome: 'G', accessToken: 'tok' };
+    apiMock.googleLogin.mockResolvedValue(fakeUser);
+    apiMock.getPublicSettings.mockResolvedValue({ google_client_id: 'client-123' });
+
+    render(
+      <SettingsProvider>
+        <Auth onLogin={onLoginPendente} />
+      </SettingsProvider>
+    );
+
+    await waitFor(() => expect(initializeSpy).toHaveBeenCalled());
+    gisState.callback!({ credential: 'jwt-do-google' });
+
+    await waitFor(() => expect(onLoginPendente).toHaveBeenCalledWith(fakeUser));
+    // onLogin ainda não terminou: o botão de envio do formulário (mesmo `loading`
+    // compartilhado do componente) continua desabilitado.
+    const botaoEnviar = () => document.querySelector('button[type="submit"]') as HTMLButtonElement;
+    await waitFor(() => expect(botaoEnviar()).toBeDisabled());
+
+    liberarOnLogin();
+    await waitFor(() => expect(botaoEnviar()).not.toBeDisabled());
+  });
+
   it('exibe o aviso de aceite dos termos junto ao botão', async () => {
     await renderAuth({ google_client_id: 'client-123' });
     await waitFor(() => expect(screen.getByTestId('google-signin')).toBeInTheDocument());

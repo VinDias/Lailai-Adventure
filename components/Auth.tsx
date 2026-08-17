@@ -7,7 +7,13 @@ import { useT } from '../contexts/I18nContext';
 import { loadGoogleSignIn } from '../utils/googleSignIn';
 
 interface AuthProps {
-  onLogin: (user: User) => void;
+  // Pode devolver uma Promise: o formulário espera ela terminar antes de
+  // desligar o indicador de carregamento (ver handleLoginRegister e o
+  // callback do GIS abaixo) — em App.tsx, onLogin migra o progresso do
+  // visitante antes de trocar de tela, e o spinner precisa continuar girando
+  // até lá, senão a tela de login fica parada com o botão já reabilitado,
+  // o que parece travamento.
+  onLogin: (user: User) => void | Promise<void>;
   onOpenPolicy?: (tab?: 'privacy' | 'terms') => void;
 }
 
@@ -48,7 +54,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy }) => {
             setLoading(true);
             try {
               const user = await api.googleLogin(resp.credential);
-              onLogin(user);
+              await onLogin(user);
             } catch (err: any) {
               setError(err.message || t('auth.errorGoogle'));
             } finally {
@@ -100,7 +106,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy }) => {
       const user = mode === 'login'
         ? await api.login({ email, password })
         : await api.register({ email, password, nome, acceptedTerms });
-      onLogin(user);
+      await onLogin(user);
     } catch (err: any) {
       const msg = err.message || '';
       if (msg.includes('409') || msg.toLowerCase().includes('já está cadastrado')) setError(t('auth.errorEmailTaken'));

@@ -98,6 +98,27 @@ describe('Auth — Login', () => {
     await waitFor(() => expect(onLogin).toHaveBeenCalled());
   });
 
+  it('mantém o indicador de carregamento ativo até onLogin terminar (achado da revisão da Task 11)', async () => {
+    // onLogin pode migrar o progresso do visitante antes de trocar de tela (App.tsx);
+    // o spinner precisa continuar girando até essa promessa resolver, senão o botão
+    // reabilita e a tela fica parada — parece travamento em vez de carregamento.
+    let liberarOnLogin: () => void = () => {};
+    const onLoginPendente = vi.fn(() => new Promise<void>(resolve => { liberarOnLogin = resolve; }));
+
+    render(<Auth onLogin={onLoginPendente} />);
+    fireEvent.change(screen.getByPlaceholderText(/e-mail/i), { target: { value: 'a@b.com' } });
+    fireEvent.change(screen.getByPlaceholderText(/senha/i), { target: { value: '123' } });
+    fireEvent.submit(document.querySelector('form')!);
+
+    await waitFor(() => expect(onLoginPendente).toHaveBeenCalled());
+    // onLogin ainda não terminou: o botão de envio continua desabilitado (spinner visível).
+    const botaoEnviar = () => document.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(botaoEnviar()).toBeDisabled();
+
+    liberarOnLogin();
+    await waitFor(() => expect(botaoEnviar()).not.toBeDisabled());
+  });
+
   it('exibe mensagem de erro ao falhar login', async () => {
     vi.mocked(api.login).mockRejectedValue(new Error('E-mail ou senha incorretos.'));
     render(<Auth onLogin={vi.fn()} />);
