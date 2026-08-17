@@ -107,6 +107,9 @@ router.get('/me/export', verifyToken, async (req, res) => {
         episodeId: p.episodeId,
         contentType: p.contentType,
         percent: p.percent,
+        // O segundo exato onde o titular parou de assistir também é dado
+        // dele (LGPD, Art. 18) — faltava no export, que trazia só o percentual.
+        position: p.position,
         completed: p.completed,
         updatedAt: p.updatedAt,
       })),

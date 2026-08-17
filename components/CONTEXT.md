@@ -59,6 +59,8 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 |---------|-----------|
 | `ThemeToggle.tsx` | Botão de alternância entre tema claro e escuro |
 | `BrandLogo.tsx` | Componente do logotipo Lorflux |
+| `ProgressBar.tsx` (Fase 4) | Barra fina de progresso — some quando `percent` é 0/ausente (obra não iniciada). Usada dentro de `ContinueCarousel` e nos cards do catálogo (`HQCine`/`HiQua`/`VFilm`) |
+| `ContinueCarousel.tsx` (Fase 4) | Carrossel "Continuar" no topo de cada aba — busca `GET /api/me/continue?contentType=` (o backend já aplica poda/dedupe/teto por tipo). Aceita `items` opcional: quando a aba já buscou a lista pra pintar a barra de progresso dos cards do catálogo, passa aqui e o carrossel não busca de novo |
 
 ---
 

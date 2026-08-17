@@ -860,6 +860,18 @@ describe('LGPD do progresso', () => {
     expect(Array.isArray(res.body.readingProgress)).toBe(true);
   });
 
+  // Achado da revisão final (item 9): o segundo exato onde o titular parou de
+  // assistir também é dado dele (LGPD, Art. 18) — o export trazia só `percent`.
+  it('o export do titular inclui o position exato de cada progresso', async () => {
+    const res = await request(app)
+      .get('/api/account/me/export')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.readingProgress.length).toBeGreaterThan(0);
+    expect(res.body.readingProgress.every(p => typeof p.position === 'number')).toBe(true);
+  });
+
   it('excluir a conta apaga o progresso junto', async () => {
     const bcrypt = require('bcrypt');
     const User = require('../../models/User');
