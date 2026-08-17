@@ -7,6 +7,7 @@ import AdComponent from './AdComponent';
 import { api } from '../services/api';
 import { isPremiumActive } from '../utils/premium';
 import { useT } from '../contexts/I18nContext';
+import { useProgress } from '../hooks/useProgress';
 
 interface PlayerProps {
   video: Video;
@@ -52,10 +53,38 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const [showControls, setShowControls] = useState(true);
   const [showQuality, setShowQuality] = useState(false);
 
+  // video.id é o id do episódio/vídeo em si; o id da série/obra vem em
+  // video.seriesId (ver App.tsx). Fallback para video.id cobre chamadores
+  // antigos/testes que ainda não preenchem seriesId.
+  const { report } = useProgress({
+    seriesId: String(video.seriesId ?? video.id ?? ''),
+    episodeId: String(video.id ?? ''),
+    contentType: video.type,
+  });
+
   useEffect(() => {
     if (!user || !video.id) return;
     api.getMyVote(video.id).then(v => setMyVote(v?.type ?? null));
   }, [video.id, user]);
+
+  // Retoma do segundo salvo assim que o vídeo troca — perto do fim, recomeça:
+  // ninguém quer voltar nos créditos. Espera o anúncio fechar: enquanto
+  // `showAd` é true o componente retorna só o <AdComponent> (ver
+  // `if (showAd) return ...` abaixo) e o <video> nem existe no DOM ainda.
+  useEffect(() => {
+    if (showAd) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const lista = await api.getContinueList();
+        const meu = lista.find((l: any) => String(l.episodeId) === String(video.id));
+        const v = videoRef.current;
+        if (cancelado || !meu || !v || meu.percent >= 0.95) return;
+        v.currentTime = meu.position || 0;
+      } catch { /* sem progresso salvo */ }
+    })();
+    return () => { cancelado = true; };
+  }, [video.id, showAd]);
 
   useEffect(() => {
     if (showAd) return;
@@ -82,7 +111,10 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     const onPause = () => setIsPlaying(false);
     const onWaiting = () => setIsBuffering(true);
     const onCanPlay = () => setIsBuffering(false);
-    const onTimeUpdate = () => setCurrentTime(v.currentTime);
+    const onTimeUpdate = () => {
+      setCurrentTime(v.currentTime);
+      if (v.duration > 0) report(v.currentTime / v.duration, v.currentTime);
+    };
     const onLoaded = () => setDuration(v.duration);
     const onVolume = () => setIsMuted(v.muted);
     v.addEventListener('playing', onPlaying);

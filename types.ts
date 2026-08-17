@@ -14,6 +14,10 @@ export interface User {
 
 export interface Video {
   id: string;
+  // id da série/obra a que o episódio pertence — usado para gravar o
+  // progresso de leitura (Fase 4). `id` acima já é o id do episódio, então
+  // isso precisa vir num campo à parte (ver App.tsx, onde é preenchido).
+  seriesId?: string;
   titulo: string;
   categoria: string;
   descricao: string;
@@ -31,6 +35,10 @@ export interface Video {
 export interface Webtoon {
   id: string;
   episodeId?: string;
+  // id da série/obra a que o episódio pertence — usado para gravar o
+  // progresso de leitura (Fase 4). Ver nota em Video.seriesId acima: `id`
+  // aqui já é tratado como id de episódio em vários pontos do app.
+  seriesId?: string;
   titulo: string;
   categoria: string;
   descricao: string;

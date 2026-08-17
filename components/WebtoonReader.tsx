@@ -7,6 +7,8 @@ import { api } from '../services/api';
 import { isPremiumActive } from '../utils/premium';
 import { useI18n, useT } from '../contexts/I18nContext';
 import type { Lang } from '../i18n/translations';
+import { useProgress } from '../hooks/useProgress';
+import { posicaoDeVolta, percentualLido } from '../utils/progressPosition';
 
 const UI_LANGS: Lang[] = ['pt', 'en', 'es', 'zh'];
 
@@ -54,6 +56,17 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastScrollY = useRef(0);
 
+  // webtoon.id é tratado como id de episódio em vários pontos deste app (ex.:
+  // navegação de capítulo em App.tsx) — o id real da série vem em
+  // webtoon.seriesId. Fallback para webtoon.id cobre chamadores antigos/testes
+  // que ainda não preenchem seriesId.
+  const { report } = useProgress({
+    seriesId: String(webtoon?.seriesId ?? webtoon?.id ?? ''),
+    episodeId: String(webtoon?.episodeId ?? webtoon?.id ?? ''),
+    contentType: 'hiqua',
+  });
+  const jaRestaurou = useRef(false);
+
   const handleScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
@@ -61,12 +74,37 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     if (y > lastScrollY.current + 20 && y > 80) setShowHeader(false);
     else if (y < lastScrollY.current - 20) setShowHeader(true);
     lastScrollY.current = y;
+    report(percentualLido(el.scrollTop, el.scrollHeight, el.clientHeight));
   };
+
+  // Restaura a posição de leitura assim que os painéis terminam de carregar —
+  // só uma vez por capítulo, e só se ainda não há rolagem manual do usuário.
+  // Também espera o anúncio fechar: enquanto `showAd` é true o componente
+  // retorna só o <AdComponent> (ver `if (showAd) return ...` abaixo) e o
+  // container rolável (scrollRef) nem existe no DOM ainda — restaurar antes
+  // disso marcaria "já restaurei" sem nunca ter restaurado de fato.
+  useEffect(() => {
+    if (jaRestaurou.current || loading || paineis.length === 0 || showAd) return;
+    jaRestaurou.current = true;
+    const episodeIdAtual = webtoon?.episodeId ?? webtoon?.id;
+
+    (async () => {
+      try {
+        const lista = await api.getContinueList();
+        const meu = lista.find((l: any) => String(l.episodeId) === String(episodeIdAtual));
+        const el = scrollRef.current;
+        if (!meu || !el || meu.percent < 0.02) return;
+        el.scrollTop = posicaoDeVolta(meu.percent, el.scrollHeight, el.clientHeight);
+      } catch { /* sem progresso salvo: começa do início mesmo */ }
+    })();
+  }, [loading, paineis.length, webtoon?.episodeId, webtoon?.id, showAd]);
 
   useEffect(() => {
     const episodeId = webtoon.episodeId || webtoon.id;
     // Navegação entre capítulos (onNavigate) não desmonta o reader:
-    // reexibe o anúncio para usuário free a cada capítulo
+    // reexibe o anúncio para usuário free a cada capítulo, e libera a
+    // restauração de posição para rodar de novo no capítulo novo.
+    jaRestaurou.current = false;
     setShowAd(!isPremiumActive(user));
     loadPanels(episodeId);
   }, [webtoon.id]);

@@ -113,6 +113,8 @@ const App: React.FC = () => {
     setActiveWebtoon({
       id: epId,
       episodeId: epId,
+      // Fase 4 (progresso): id real da série/obra, separado do id do episódio acima.
+      seriesId: (series?._id || series?.id)?.toString(),
       titulo: ep.title,
       categoria: series.genre,
       descricao: ep.description,
@@ -195,6 +197,8 @@ const App: React.FC = () => {
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
+                // Fase 4 (progresso): id real da série/obra, separado do id do episódio acima.
+                seriesId: series._id,
                 titulo: ep.title,
                 categoria: series.genre,
                 descricao: ep.description,
@@ -220,6 +224,8 @@ const App: React.FC = () => {
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
+                // Fase 4 (progresso): id real da série/obra, separado do id do episódio acima.
+                seriesId: series._id,
                 titulo: ep.title,
                 categoria: series.genre,
                 descricao: ep.description,
