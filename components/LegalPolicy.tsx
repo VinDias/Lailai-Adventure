@@ -60,6 +60,7 @@ const LegalPolicy: React.FC<LegalPolicyProps> = ({ open, onClose, initialTab = '
                 <li><strong>Pagamento:</strong> processado pela Stripe; não armazenamos dados de cartão.</li>
                 <li><strong>Técnicos:</strong> endereço IP e registro de consentimento, para segurança e cumprimento legal.</li>
                 <li><strong>Cookies:</strong> essenciais (sessão) e, mediante consentimento, de publicidade.</li>
+                <li><strong>Progresso de leitura:</strong> em que ponto você parou em cada capítulo ou episódio, para permitir que continue de onde parou. Se você ainda não tem conta, esse registro fica ligado a um identificador do seu navegador, é apagado quando você limpa os dados do navegador e expira após 180 dias sem uso. Ao criar uma conta, o histórico passa a ser vinculado a ela.</li>
               </ul>
             </Section>
 

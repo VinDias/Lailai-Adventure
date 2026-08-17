@@ -613,3 +613,48 @@ describe('POST /api/me/progress/claim', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('LGPD do progresso', () => {
+  const ReadingProgress = require('../../models/ReadingProgress');
+
+  it('o export do titular inclui o progresso de leitura', async () => {
+    const res = await request(app)
+      .get('/api/account/me/export')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('readingProgress');
+    expect(Array.isArray(res.body.readingProgress)).toBe(true);
+  });
+
+  it('excluir a conta apaga o progresso junto', async () => {
+    const bcrypt = require('bcrypt');
+    const User = require('../../models/User');
+    const descartavel = await User.create({
+      email: 'progresso-lgpd@lorflux.test',
+      passwordHash: await bcrypt.hash('Descartavel@123', 10),
+      nome: 'Conta Descartavel',
+    });
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'progresso-lgpd@lorflux.test', password: 'Descartavel@123' });
+    const token = login.body.accessToken;
+
+    const mongoose = require('mongoose');
+    await ReadingProgress.create({
+      userId: descartavel._id,
+      seriesId: new mongoose.Types.ObjectId(),
+      episodeId: new mongoose.Types.ObjectId(),
+      contentType: 'hiqua',
+      percent: 0.5,
+    });
+
+    await request(app)
+      .delete('/api/account/me')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ password: 'Descartavel@123' });
+
+    expect(await ReadingProgress.countDocuments({ userId: descartavel._id })).toBe(0);
+  });
+});

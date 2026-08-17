@@ -25,6 +25,7 @@ const Favorite = require('../models/Favorite');
 const Channel = require('../models/Channel');
 const RefreshToken = require('../models/RefreshToken');
 const PasswordResetToken = require('../models/PasswordResetToken');
+const ReadingProgress = require('../models/ReadingProgress');
 
 /**
  * LGPD — Direitos do titular dos dados (Art. 18).
@@ -74,11 +75,12 @@ router.get('/me/export', verifyToken, async (req, res) => {
     const user = await User.findById(req.user.id).select('-passwordHash').lean();
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
-    const [votes, seriesVotes, favorites, channels] = await Promise.all([
+    const [votes, seriesVotes, favorites, channels, readingProgress] = await Promise.all([
       Vote.find({ userId: req.user.id }).lean(),
       SeriesVote.find({ userId: req.user.id }).lean(),
       Favorite.find({ userId: req.user.id }).lean(),
       Channel.find({ ownerId: req.user.id }).lean(),
+      ReadingProgress.find({ userId: req.user.id }).lean(),
     ]);
 
     const payload = {
@@ -100,6 +102,14 @@ router.get('/me/export', verifyToken, async (req, res) => {
       seriesVotes: seriesVotes.map(v => ({ seriesId: v.seriesId, type: v.type, createdAt: v.createdAt })),
       favorites: favorites.map(f => ({ seriesId: f.seriesId, createdAt: f.createdAt })),
       channels: channels.map(c => ({ id: c._id, name: c.name, description: c.description, createdAt: c.createdAt })),
+      readingProgress: readingProgress.map(p => ({
+        seriesId: p.seriesId,
+        episodeId: p.episodeId,
+        contentType: p.contentType,
+        percent: p.percent,
+        completed: p.completed,
+        updatedAt: p.updatedAt,
+      })),
     };
 
     res.setHeader('Content-Type', 'application/json');
@@ -158,6 +168,7 @@ router.delete('/me', verifyToken, async (req, res) => {
       SeriesVote.deleteMany({ userId }),
       Favorite.deleteMany({ userId }),
       Channel.deleteMany({ ownerId: userId }),
+      ReadingProgress.deleteMany({ userId }),
       Channel.updateMany({ followers: userId }, { $pull: { followers: userId } }),
       RefreshToken.deleteMany({ userId: userId.toString() }),
       PasswordResetToken.deleteMany({ userId }),
