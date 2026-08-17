@@ -6,6 +6,11 @@ import ProgressBar from './ProgressBar';
 
 type Props = {
   contentType: 'hqcine' | 'vcine' | 'hiqua';
+  // A aba (HQCine/HiQua/VFilm) já busca essa mesma lista pra pintar a barra
+  // de progresso nos cards do catálogo (ver ProgressBar ali) — quando ela
+  // passa a lista pronta aqui, o carrossel não busca de novo. Sem essa prop
+  // (uso isolado/testes), o carrossel busca sozinho.
+  items?: any[];
   // As abas fazem uma busca assíncrona (série + episódio) antes de abrir de
   // verdade — por isso onOpen pode devolver uma Promise. O carrossel espera
   // por ela para mostrar carregando/erro em vez de nada.
@@ -14,11 +19,11 @@ type Props = {
 
 /**
  * Carrossel "Continuar" no topo da aba: o que o usuário deixou pela metade.
- * O backend já aplica as regras de ordenação, poda e saída — aqui só filtramos
- * pelo tipo da aba em que estamos.
+ * O backend já aplica as regras de ordenação, poda, teto por aba e saída —
+ * o `?contentType=` da própria busca já filtra pelo tipo da aba em que estamos.
  */
-const ContinueCarousel: React.FC<Props> = ({ contentType, onOpen }) => {
-  const [itens, setItens] = useState<any[]>([]);
+const ContinueCarousel: React.FC<Props> = ({ contentType, items, onOpen }) => {
+  const [buscados, setBuscados] = useState<any[]>([]);
   // Achado da revisão: o clique dependia de estado que podia não ter
   // chegado (série ainda não carregada) e, quando faltava, o handler saía
   // em silêncio — o usuário clicava e nada acontecia. Agora todo clique
@@ -29,14 +34,17 @@ const ContinueCarousel: React.FC<Props> = ({ contentType, onOpen }) => {
   const t = useT();
 
   useEffect(() => {
+    if (items !== undefined) return; // o componente pai já controla a lista
     let cancelado = false;
-    api.getContinueList()
-      .then(lista => { if (!cancelado) setItens(lista.filter((l: any) => l.contentType === contentType)); })
+    api.getContinueList(contentType)
+      .then(lista => { if (!cancelado) setBuscados(lista); })
       .catch(() => { /* sem progresso: o carrossel simplesmente não aparece */ });
     return () => { cancelado = true; };
-  }, [contentType]);
+  }, [contentType, items]);
 
   useEffect(() => () => { montado.current = false; }, []);
+
+  const itens = items ?? buscados;
 
   const handleClick = async (seriesId: string, episodeId: string) => {
     // Um clique por vez: evita duas aberturas concorrentes disputando a tela.

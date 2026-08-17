@@ -28,15 +28,30 @@ describe('ContinueCarousel', () => {
     expect(screen.getByText('62%')).toBeInTheDocument();
   });
 
-  it('mostra so o conteudo da aba em que esta', async () => {
-    vi.spyOn(api, 'getContinueList').mockResolvedValue([
-      item,
-      { ...item, seriesId: 's2', contentType: 'vcine', series: { title: 'Curta Vertical' } },
-    ] as any);
+  it('busca a lista ja filtrada pelo tipo da aba (contentType vai na propria chamada)', async () => {
+    // O backend agora filtra por contentType — o cliente não filtra mais
+    // localmente (regressão: baixava tudo e descartava dois terços). O mock
+    // simula exatamente isso: só devolve o item da aba pedida.
+    const getContinueList = vi.spyOn(api, 'getContinueList').mockResolvedValue([item] as any);
 
     render(<ContinueCarousel contentType="hiqua" onOpen={() => {}} />);
     expect(await screen.findByText('The Near Ones')).toBeInTheDocument();
-    expect(screen.queryByText('Curta Vertical')).not.toBeInTheDocument();
+    expect(getContinueList).toHaveBeenCalledWith('hiqua');
+  });
+
+  // Achado da revisão final (Important 5): as abas do catálogo (HQCine/HiQua/
+  // VFilm) reaproveitam essa mesma lista para pintar a barra de progresso nos
+  // cards — sem essa prop `items`, cada aba faria uma segunda busca idêntica.
+  it('usa a lista recebida do pai (items) sem buscar de novo', async () => {
+    const getContinueList = vi.spyOn(api, 'getContinueList');
+    render(<ContinueCarousel contentType="hiqua" items={[item]} onOpen={() => {}} />);
+    expect(await screen.findByText('The Near Ones')).toBeInTheDocument();
+    expect(getContinueList).not.toHaveBeenCalled();
+  });
+
+  it('nao renderiza nada quando o pai passa items vazio', () => {
+    const { container } = render(<ContinueCarousel contentType="hiqua" items={[]} onOpen={() => {}} />);
+    expect(container.firstChild).toBeNull();
   });
 
   // Achado da revisão (Important 3): nenhum teste cobria o clique de fato —
