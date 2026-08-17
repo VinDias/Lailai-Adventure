@@ -48,4 +48,15 @@ describe('useProgress', () => {
       expect.objectContaining({ percent: 0.5 }),
     );
   });
+
+  it('descarrega ao desmontar mesmo com variacao abaixo do limiar', () => {
+    const { result, unmount } = renderHook(() => useProgress(args));
+    act(() => { result.current.report(0.5, 0); });
+    act(() => { vi.advanceTimersByTime(3500); }); // grava 0.50, ultimoGravado = 0.50
+    act(() => { result.current.report(0.505, 0); }); // delta de 0.5%, abaixo do limiar de 2%
+    unmount();
+    expect(api.saveProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ percent: 0.505 }),
+    );
+  });
 });

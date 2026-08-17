@@ -24,10 +24,13 @@ export function useProgress({ seriesId, episodeId, contentType }: Args) {
   const ultimoGravado = useRef<number>(-1);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const gravar = useCallback(() => {
+  // O limiar existe para poupar escritas *durante* a leitura, quando haverá
+  // outra chance de gravar em breve. Na saída não há próxima chance — por
+  // isso `forcar` ignora o limiar e descarrega o pendente incondicionalmente.
+  const gravar = useCallback((forcar = false) => {
     const dados = pendente.current;
     if (!dados || !seriesId || !episodeId) return;
-    if (Math.abs(dados.percent - ultimoGravado.current) < LIMIAR_PERCENT) return;
+    if (!forcar && Math.abs(dados.percent - ultimoGravado.current) < LIMIAR_PERCENT) return;
 
     ultimoGravado.current = dados.percent;
     pendente.current = null;
@@ -48,7 +51,7 @@ export function useProgress({ seriesId, episodeId, contentType }: Args) {
 
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
-    gravar(); // descarrega o pendente ao sair
+    gravar(true); // descarrega o pendente ao sair, sempre — ignora o limiar
   }, [gravar]);
 
   return { report };
