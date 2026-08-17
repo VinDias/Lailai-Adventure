@@ -85,3 +85,80 @@ describe('identidade do request', () => {
     expect(getIdentity({ headers: {} })).toBeNull();
   });
 });
+
+describe('PUT /api/me/progress', () => {
+  let serie, episodio;
+
+  beforeAll(async () => {
+    const s = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ title: 'Obra do Progresso', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+    serie = s.body;
+
+    const e = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ seriesId: serie._id || serie.id, episode_number: 1, title: 'Capitulo 1' });
+    episodio = e.body;
+  });
+
+  const corpo = (extra = {}) => ({
+    seriesId: serie._id || serie.id,
+    episodeId: episodio._id || episodio.id,
+    contentType: 'hiqua',
+    percent: 0.4,
+    position: 0,
+    ...extra,
+  });
+
+  it('grava o progresso de quem tem conta', async () => {
+    const res = await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send(corpo());
+
+    expect(res.status).toBe(200);
+    expect(res.body.percent).toBeCloseTo(0.4);
+    expect(res.body.completed).toBe(false);
+  });
+
+  it('atualiza em vez de duplicar quando o mesmo episodio volta', async () => {
+    await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send(corpo({ percent: 0.7 }));
+
+    const ReadingProgress = require('../../models/ReadingProgress');
+    const docs = await ReadingProgress.find({
+      userId: auth.getId('user'),
+      episodeId: episodio._id || episodio.id,
+    });
+    expect(docs).toHaveLength(1);
+    expect(docs[0].percent).toBeCloseTo(0.7);
+  });
+
+  it('grava o progresso do visitante pelo cabecalho', async () => {
+    const res = await request(app)
+      .put('/api/me/progress')
+      .set('X-Anonymous-Id', ANON)
+      .send(corpo({ percent: 0.25 }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.anonymousId).toBe(ANON);
+    expect(res.body.userId).toBeUndefined();
+  });
+
+  it('recusa quem nao traz conta nem identificador de visitante', async () => {
+    const res = await request(app).put('/api/me/progress').send(corpo());
+    expect(res.status).toBe(400);
+  });
+
+  it('recusa percent fora de 0..1', async () => {
+    const res = await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send(corpo({ percent: 2 }));
+    expect(res.status).toBe(400);
+  });
+});
