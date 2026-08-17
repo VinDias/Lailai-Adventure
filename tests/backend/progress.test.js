@@ -215,3 +215,128 @@ describe('PUT /api/me/progress', () => {
     }
   });
 });
+
+describe('GET /api/me/continue', () => {
+  const ReadingProgress = require('../../models/ReadingProgress');
+  const mongoose = require('mongoose');
+  let serieA, epA1, epA2;
+
+  async function criarSerie(titulo, tipo) {
+    const r = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ title: titulo, genre: 'Teste', content_type: tipo, isPublished: true });
+    return r.body._id || r.body.id;
+  }
+
+  async function criarEpisodio(seriesId, n) {
+    const r = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ seriesId, episode_number: n, title: `Capitulo ${n}` });
+    return r.body._id || r.body.id;
+  }
+
+  beforeAll(async () => {
+    await ReadingProgress.deleteMany({ userId: auth.getId('premium') });
+    serieA = await criarSerie('Serie Carrossel', 'hiqua');
+    epA1 = await criarEpisodio(serieA, 1);
+    epA2 = await criarEpisodio(serieA, 2);
+  });
+
+  const salvar = (episodeId, percent, seriesId = serieA, contentType = 'hiqua') =>
+    request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`)
+      .send({ seriesId, episodeId, contentType, percent });
+
+  it('devolve uma linha por obra, com a serie embutida', async () => {
+    await salvar(epA1, 0.5);
+    const res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].series.title).toBe('Serie Carrossel');
+    expect(res.body[0].percent).toBeCloseTo(0.5);
+  });
+
+  it('mostra o episodio mais recente quando ha varios da mesma obra', async () => {
+    await salvar(epA2, 0.3);
+    const res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+
+    expect(res.body).toHaveLength(1);
+    expect(String(res.body[0].episodeId)).toBe(String(epA2));
+  });
+
+  it('tira a obra do carrossel quando o ultimo episodio publicado termina', async () => {
+    await salvar(epA2, 0.95); // conclui o episódio 2, que é o último
+    const res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+
+    expect(res.body).toHaveLength(0);
+  });
+
+  it('traz a obra de volta quando sai capitulo novo', async () => {
+    await criarEpisodio(serieA, 3);
+    const res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+
+    expect(res.body).toHaveLength(1);
+  });
+
+  it('no VCine so mostra o que esta entre 10% e 90%', async () => {
+    const serieV = await criarSerie('Curta Vertical', 'vcine');
+    const epV = await criarEpisodio(serieV, 1);
+
+    await salvar(epV, 0.05, serieV, 'vcine');
+    let res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+    expect(res.body.some(r => String(r.seriesId) === String(serieV))).toBe(false);
+
+    await salvar(epV, 0.5, serieV, 'vcine');
+    res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+    expect(res.body.some(r => String(r.seriesId) === String(serieV))).toBe(true);
+  });
+
+  it('ignora progresso parado ha mais de 90 dias', async () => {
+    const antigo = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000);
+    // { timestamps: false }: sem isso, o hook de timestamps do Mongoose
+    // sobrescreve nosso `updatedAt` manual com a hora atual em todo updateMany
+    // (comportamento do schema `{ timestamps: true }`, independente do que já
+    // vier em $set) e o teste nunca conseguiria simular progresso antigo.
+    await ReadingProgress.updateMany(
+      { userId: auth.getId('premium') },
+      { $set: { updatedAt: antigo } },
+      { timestamps: false },
+    );
+
+    const res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+    expect(res.body).toHaveLength(0);
+  });
+
+  it('nunca mistura o progresso de identidades diferentes', async () => {
+    await request(app)
+      .put('/api/me/progress')
+      .set('X-Anonymous-Id', ANON)
+      .send({ seriesId: serieA, episodeId: epA1, contentType: 'hiqua', percent: 0.6 });
+
+    const doVisitante = await request(app).get('/api/me/continue').set('X-Anonymous-Id', ANON);
+    const deOutroVisitante = await request(app)
+      .get('/api/me/continue')
+      .set('X-Anonymous-Id', '99999999-8888-4777-8666-555555555555');
+
+    expect(doVisitante.body.length).toBeGreaterThan(0);
+    expect(deOutroVisitante.body).toHaveLength(0);
+  });
+});

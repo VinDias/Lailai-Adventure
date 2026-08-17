@@ -35,4 +35,17 @@ router.put('/progress', async (req, res) => {
   }
 });
 
+// GET /api/me/continue — o carrossel "Continuar"
+router.get('/continue', async (req, res) => {
+  const identity = exigirIdentidade(req, res);
+  if (!identity) return;
+
+  try {
+    res.json(await progressService.buildContinueList(identity));
+  } catch (err) {
+    logger.error('[Progresso] GET /continue', err);
+    res.status(500).json({ error: 'Erro ao montar a lista de continuar.' });
+  }
+});
+
 module.exports = router;

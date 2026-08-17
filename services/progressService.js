@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const ReadingProgress = require('../models/ReadingProgress');
+const Episode = require('../models/Episode');
+const Series = require('../models/Series');
 
 /**
  * Regras de progresso e do carrossel "Continuar", isoladas do Express para
@@ -64,4 +66,68 @@ async function saveProgress(identity, dados) {
   }
 }
 
-module.exports = { saveProgress };
+const DIAS_DE_PODA = 90;
+const TETO_DO_CARROSSEL = 20;
+const VCINE_MIN = 0.1;
+const VCINE_MAX = 0.9;
+
+/**
+ * Monta o carrossel "Continuar" aplicando, nesta ordem:
+ *  1. descarta o que está parado há mais de 90 dias
+ *  2. mantém uma linha por obra — a de atualização mais recente
+ *  3. no VCine, só o que está entre 10% e 90% (vídeo curto é consumo de rolagem)
+ *  4. remove a obra cujo último episódio publicado já foi concluído
+ *  5. corta em 20 obras
+ */
+async function buildContinueList(identity) {
+  const corte = new Date(Date.now() - DIAS_DE_PODA * 24 * 60 * 60 * 1000);
+
+  const linhas = await ReadingProgress.find({ ...identity, updatedAt: { $gte: corte } })
+    .sort({ updatedAt: -1 })
+    .limit(200) // teto de segurança antes do agrupamento
+    .lean();
+
+  const porObra = new Map();
+  for (const linha of linhas) {
+    const chave = String(linha.seriesId);
+    if (!porObra.has(chave)) porObra.set(chave, linha);
+  }
+
+  const candidatas = [...porObra.values()].filter(linha => {
+    if (linha.contentType !== 'vcine') return true;
+    return linha.percent >= VCINE_MIN && linha.percent <= VCINE_MAX;
+  });
+  if (candidatas.length === 0) return [];
+
+  const idsDasObras = candidatas.map(l => new mongoose.Types.ObjectId(String(l.seriesId)));
+
+  // Último episódio de cada obra, em uma consulta só (evita N+1).
+  const ultimos = await Episode.aggregate([
+    { $match: { seriesId: { $in: idsDasObras } } },
+    { $sort: { episode_number: -1 } },
+    { $group: { _id: '$seriesId', ultimoId: { $first: '$_id' } } },
+  ]);
+  const ultimoPorObra = new Map(ultimos.map(u => [String(u._id), String(u.ultimoId)]));
+
+  const series = await Series.find({ _id: { $in: idsDasObras } })
+    .select('title cover_image content_type')
+    .lean();
+  const obraPorId = new Map(series.map(s => [String(s._id), s]));
+
+  const resultado = [];
+  for (const linha of candidatas) {
+    const chave = String(linha.seriesId);
+    const terminouOUltimo = linha.completed && ultimoPorObra.get(chave) === String(linha.episodeId);
+    if (terminouOUltimo) continue;
+
+    const obra = obraPorId.get(chave);
+    if (!obra) continue; // obra removida do catálogo
+
+    resultado.push({ ...linha, series: obra });
+    if (resultado.length >= TETO_DO_CARROSSEL) break;
+  }
+
+  return resultado;
+}
+
+module.exports = { saveProgress, buildContinueList };
