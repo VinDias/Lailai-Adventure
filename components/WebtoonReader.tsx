@@ -38,6 +38,10 @@ const DEFAULT_LANG_LABELS: Record<string, string> = {
   ja: 'JA', ko: 'KO', fr: 'FR', de: 'DE', it: 'IT',
 };
 
+// Abaixo disso, uma rolagem é ruído de layout (imagem carregando etc.), não
+// leitura de verdade — usado para decidir se o usuário já começou sozinho.
+const LIMIAR_SCROLL_PROPRIO = 40;
+
 const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate }) => {
   const [paineis, setPaineis] = useState<PanelItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +70,13 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     contentType: 'hiqua',
   });
   const jaRestaurou = useRef(false);
+  // Portão: só grava progresso depois que a restauração terminou (sucesso,
+  // sem progresso salvo, ou erro — todo caminho abre o portão). Sem isso, um
+  // report() disparado por um scroll que aconteça ANTES da restauração
+  // resolver pode gravar um valor quase-zero e, na saída, sobrescrever no
+  // banco um progresso real que já existia (ver useProgress: o flush do
+  // cleanup ignora o limiar de 2%).
+  const restauracaoResolvida = useRef(false);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -74,7 +85,9 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     if (y > lastScrollY.current + 20 && y > 80) setShowHeader(false);
     else if (y < lastScrollY.current - 20) setShowHeader(true);
     lastScrollY.current = y;
-    report(percentualLido(el.scrollTop, el.scrollHeight, el.clientHeight));
+    if (restauracaoResolvida.current) {
+      report(percentualLido(el.scrollTop, el.scrollHeight, el.clientHeight));
+    }
   };
 
   // Restaura a posição de leitura assim que os painéis terminam de carregar —
@@ -93,9 +106,19 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
         const lista = await api.getContinueList();
         const meu = lista.find((l: any) => String(l.episodeId) === String(episodeIdAtual));
         const el = scrollRef.current;
-        if (!meu || !el || meu.percent < 0.02) return;
-        el.scrollTop = posicaoDeVolta(meu.percent, el.scrollHeight, el.clientHeight);
-      } catch { /* sem progresso salvo: começa do início mesmo */ }
+        // Enquanto a resposta não chegava, o usuário pode ter começado a ler
+        // por conta própria — nesse caso não pula por cima da leitura já em
+        // andamento (pior perder a restauração do que puxar a tela dele).
+        const jaComecouSozinho = !!el && el.scrollTop > LIMIAR_SCROLL_PROPRIO;
+        if (meu && el && meu.percent >= 0.02 && !jaComecouSozinho) {
+          el.scrollTop = posicaoDeVolta(meu.percent, el.scrollHeight, el.clientHeight);
+        }
+      } catch {
+        /* sem progresso salvo: começa do início mesmo */
+      } finally {
+        // Todo caminho — sucesso, sem progresso, erro — libera a gravação.
+        restauracaoResolvida.current = true;
+      }
     })();
   }, [loading, paineis.length, webtoon?.episodeId, webtoon?.id, showAd]);
 
@@ -103,8 +126,10 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     const episodeId = webtoon.episodeId || webtoon.id;
     // Navegação entre capítulos (onNavigate) não desmonta o reader:
     // reexibe o anúncio para usuário free a cada capítulo, e libera a
-    // restauração de posição para rodar de novo no capítulo novo.
+    // restauração de posição para rodar de novo no capítulo novo — o portão
+    // de gravação fecha de novo até a restauração do capítulo novo resolver.
     jaRestaurou.current = false;
+    restauracaoResolvida.current = false;
     setShowAd(!isPremiumActive(user));
     loadPanels(episodeId);
   }, [webtoon.id]);
