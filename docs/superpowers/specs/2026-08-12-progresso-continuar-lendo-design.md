@@ -18,7 +18,7 @@ cego para dois dos cinco pesos confirmados pelo cliente.
 | Decisão | Escolha | Por quê |
 |---|---|---|
 | Onde aparece | Carrossel "Continuar" no topo de cada aba (HQCine, VCine, Hi-Qua) + barra de progresso nos cards do catálogo | Padrão de Webtoon e Netflix; o usuário abre o app e a primeira coisa que vê é o que deixou pela metade |
-| Usuário deslogado | Progresso no aparelho, migrado para a conta ao criar conta ou entrar | Ninguém perde progresso, e vira argumento natural para criar conta — conta gera o dado de afinidade que o algoritmo precisa |
+| Usuário deslogado | Progresso gravado no servidor sob um `anonymousId`, migrado para a conta ao criar conta ou entrar | Ninguém perde progresso, e o comportamento do visitante já alimenta o algoritmo desde antes do cadastro (PDF "Acesso aberto e cadastro opcional", 15/08/2026) |
 | Saída do carrossel | Ao concluir o último capítulo publicado; volta sozinha quando sai capítulo novo | Casa com a notificação do Bloco 2: o usuário recebe o aviso, abre o app e a obra já está esperando |
 
 ## Modelo de dados
@@ -27,7 +27,8 @@ Coleção nova `ReadingProgress`, **um documento por (usuário, episódio)**:
 
 ```js
 {
-  userId:      ObjectId,  // ref User
+  userId:      ObjectId,  // ref User — ausente enquanto o visitante não tem conta
+  anonymousId: String,    // identificador do visitante — ausente depois da migração
   seriesId:    ObjectId,  // ref Series — denormalizado para o carrossel
   episodeId:   ObjectId,  // ref Episode
   contentType: String,    // 'hqcine' | 'vcine' | 'hiqua'
@@ -38,11 +39,16 @@ Coleção nova `ReadingProgress`, **um documento por (usuário, episódio)**:
 }
 ```
 
+Exatamente um entre `userId` e `anonymousId` está preenchido — validado no schema.
+Depois da migração o documento passa a ter `userId` e perde o `anonymousId`.
+
 Índices:
 
-- `{ userId: 1, episodeId: 1 }` **único** — um registro por episódio por usuário
-- `{ userId: 1, updatedAt: -1 }` — monta o carrossel
+- `{ userId: 1, episodeId: 1 }` único, esparso — um registro por episódio por conta
+- `{ anonymousId: 1, episodeId: 1 }` único, esparso — idem para o visitante
+- `{ userId: 1, updatedAt: -1 }` e `{ anonymousId: 1, updatedAt: -1 }` — montam o carrossel
 - `{ userId: 1, seriesId: 1, updatedAt: -1 }` — resolve "qual episódio continuar"
+- `{ anonymousId: 1, updatedAt: 1 }` — alimenta a expiração de 180 dias do visitante
 
 **Por que por episódio e não por obra:** é o que permite saber quais capítulos já
 foram lidos, detectar "terminou o último publicado" e alimentar o percentual de
@@ -70,14 +76,24 @@ repetidamente a mesma posição quando o usuário está parado.
 |---|---|
 | `PUT /api/me/progress` | Salva o progresso de um episódio |
 | `GET /api/me/continue` | Devolve o carrossel, já ordenado e podado |
-| `POST /api/me/progress/merge` | Funde o progresso do aparelho na conta, no login |
+| `POST /api/me/progress/claim` | Migra o histórico do visitante para a conta |
 
-Todas exigem autenticação. O deslogado usa apenas `localStorage`.
+As três aceitam **conta ou visitante** (`optionalAuth`, o mesmo middleware que as
+rotas de conteúdo já usam). Sem token, o servidor identifica pelo `anonymousId`.
 
-**Regra da fusão:** para cada episódio presente nos dois lados, vence o registro
-com maior `percent`. É mais seguro que vencer por data: se o usuário leu mais no
-celular ontem e abriu o app no desktop hoje sem ler nada, o progresso maior é o que
-representa a verdade.
+**O identificador do visitante** é um UUID gerado no primeiro acesso, guardado em
+`localStorage` e enviado no cabeçalho `X-Anonymous-Id`. Não usa impressão digital de
+dispositivo: é um identificador que o próprio usuário pode apagar limpando os dados
+do navegador — importante para a LGPD.
+
+**Regra da migração:** no login ou cadastro, o app chama `claim` com o
+`anonymousId`. Para cada episódio presente nos dois lados, vence o registro com
+maior `percent`. É mais seguro que vencer por data: se o usuário leu mais no celular
+ontem e abriu o app no desktop hoje sem ler nada, o progresso maior representa a
+verdade. Os documentos do visitante são reatribuídos à conta, não duplicados.
+
+A migração é **idempotente**: chamar duas vezes com o mesmo `anonymousId` não
+duplica nem regride nada.
 
 ## Interface
 
@@ -111,7 +127,23 @@ e listener de `timeupdate`; o leitor tem `scrollRef` e `handleScroll`.
 
 Histórico de leitura é dado pessoal. Entra no export e na exclusão de conta que já
 existem no Centro de Privacidade (`components/PrivacyCenter.tsx` e a rota
-`DELETE /api/account/me`). A poda de 90 dias também limita a retenção por padrão.
+`DELETE /api/account/me`).
+
+O `anonymousId` também é dado pessoal — identificador ligado a comportamento, ainda
+que sem nome ou e-mail. Por isso:
+
+- **Base legal:** legítimo interesse para continuidade da leitura, que é a função
+  que o usuário espera. Não é usado para publicidade direcionada, o que manteria a
+  exigência de consentimento; o banner de consentimento que já existe continua
+  cuidando dos anúncios.
+- **Retenção:** progresso de visitante expira em **180 dias** sem uso. Conta não
+  expira (o usuário controla pelo Centro de Privacidade).
+- **Sob controle do usuário:** limpar os dados do navegador descarta o identificador.
+  Nada de impressão digital de dispositivo, que sobreviveria à limpeza e exigiria
+  consentimento explícito.
+- **Política de privacidade:** a página `/privacidade` precisa ganhar um parágrafo
+  descrevendo esse registro. Sem isso, a coleta fica sem transparência — e
+  transparência é requisito, não cortesia.
 
 ## Testes (antes do código)
 
@@ -124,9 +156,14 @@ existem no Centro de Privacidade (`components/PrivacyCenter.tsx` e a rota
 - obra sai do carrossel ao concluir o último episódio publicado
 - obra volta ao carrossel quando um episódio novo é publicado
 - respeita o teto de 20 e a poda de 90 dias
-- fusão mantém o maior `percent` de cada episódio
+- migração mantém o maior `percent` de cada episódio
+- migração é idempotente: chamar duas vezes não duplica nem regride
+- migração reatribui os documentos do visitante em vez de duplicá-los
 - progresso de um usuário nunca aparece para outro
+- progresso de um visitante nunca aparece para outro `anonymousId`
+- schema rejeita documento sem `userId` e sem `anonymousId`, e com os dois
 - exclusão de conta remove o progresso
+- progresso de visitante com mais de 180 dias sem uso é descartado
 
 **Frontend**
 
@@ -141,7 +178,22 @@ existem no Centro de Privacidade (`components/PrivacyCenter.tsx` e a rota
 
 Notificação de capítulo novo (Bloco 2), agenda de lançamentos (Bloco 2), Super
 Reader (Bloco 3), tags e motor de score (Bloco 4). O que este bloco garante é que,
-quando o Bloco 4 chegar, os dados de retenção e afinidade já existam com histórico.
+quando o Bloco 4 chegar, os dados de retenção e afinidade já existam com histórico —
+inclusive os do visitante sem conta.
+
+Também fora: o **motor de curadoria comunitária** (PDF de 15/08/2026). É escopo
+novo, não contratado, e será proposto junto da Fase 5 por mexer na mesma área de
+aprovação de obras.
+
+## Sobre o PDF "Acesso aberto e cadastro opcional"
+
+Os itens 2 e 7 do documento (navegar, pesquisar, ler, assistir e receber
+publicidade sem conta) **já funcionam** — as rotas de conteúdo usam `optionalAuth` e
+não existe tela obrigando login. O que este bloco acrescenta é o item 4, o registro
+do comportamento anônimo, e o item 5, a conversão desse histórico em conta.
+
+O item 6 (recomendação para visitante) depende do Bloco 4, mas nasce viável porque
+os sinais passam a existir desde aqui.
 
 ## Limitação conhecida
 
