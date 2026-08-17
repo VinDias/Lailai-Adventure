@@ -50,7 +50,17 @@ export function useProgress({ seriesId, episodeId, contentType }: Args) {
   }, [gravar]);
 
   useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
+    // `gravar` muda de identidade a cada troca de seriesId/episodeId — e o
+    // WebtoonReader/VerticalPlayer NÃO desmontam ao trocar de capítulo (só
+    // trocam a prop). Então este cleanup roda a cada troca, não só na saída
+    // de verdade. Sem zerar `timer.current` aqui, ele fica com o id do timer
+    // já cancelado (ainda truthy) — e como `report()` faz `if (timer.current)
+    // return`, nenhum timer novo é agendado depois disso: a gravação
+    // periódica morre pelo resto da sessão.
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
     gravar(true); // descarrega o pendente ao sair, sempre — ignora o limiar
   }, [gravar]);
 
