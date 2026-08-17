@@ -66,3 +66,22 @@ describe('modelo ReadingProgress', () => {
     ).rejects.toThrow();
   });
 });
+
+describe('identidade do request', () => {
+  const getIdentity = require('../../utils/requestIdentity');
+
+  it('prefere a conta quando há token válido', () => {
+    const req = { user: { id: 'abc123' }, headers: { 'x-anonymous-id': ANON } };
+    expect(getIdentity(req)).toEqual({ userId: 'abc123' });
+  });
+
+  it('cai para o visitante quando não há conta', () => {
+    const req = { headers: { 'x-anonymous-id': ANON } };
+    expect(getIdentity(req)).toEqual({ anonymousId: ANON });
+  });
+
+  it('recusa identificador de visitante fora do formato UUID', () => {
+    expect(getIdentity({ headers: { 'x-anonymous-id': 'nao-e-uuid' } })).toBeNull();
+    expect(getIdentity({ headers: {} })).toBeNull();
+  });
+});
