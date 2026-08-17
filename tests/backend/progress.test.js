@@ -161,4 +161,57 @@ describe('PUT /api/me/progress', () => {
       .send(corpo({ percent: 2 }));
     expect(res.status).toBe(400);
   });
+
+  it('recusa seriesId/episodeId com formato invalido (nao e ObjectId)', async () => {
+    const res = await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send(corpo({ seriesId: 'nao-e-um-objectid', episodeId: 'tambem-nao' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('nao perde o progresso quando duas gravacoes colidem na mesma janela (corrida)', async () => {
+    const ReadingProgress = require('../../models/ReadingProgress');
+    const mongoose = require('mongoose');
+    const userId = auth.getId('user');
+    const episodeIdCorrida = new mongoose.Types.ObjectId().toString();
+
+    // Simula o concorrente: um segundo PUT que grava o mesmo documento entre o
+    // nosso findOne() e o nosso create(), disparando E11000 no índice único
+    // parcial (userId + episodeId). O serviço precisa recuperar sozinho, sem
+    // perder a nossa gravação nem duplicar o documento.
+    const originalCreate = ReadingProgress.create.bind(ReadingProgress);
+    const dadosConcorrente = {
+      userId,
+      seriesId: serie._id || serie.id,
+      episodeId: episodeIdCorrida,
+      contentType: 'hiqua',
+      percent: 0.2,
+      position: 0,
+    };
+    const spy = vi.spyOn(ReadingProgress, 'create').mockImplementationOnce(async () => {
+      await originalCreate(dadosConcorrente);
+      const err = new Error('E11000 duplicate key error collection');
+      err.code = 11000;
+      throw err;
+    });
+
+    try {
+      const res = await request(app)
+        .put('/api/me/progress')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send(corpo({ episodeId: episodeIdCorrida, percent: 0.55 }));
+
+      // 200, não 500: a corrida é tratada, e a resposta é a nossa própria
+      // gravação (0.55), não a do concorrente (0.2).
+      expect(res.status).toBe(200);
+      expect(res.body.percent).toBeCloseTo(0.55);
+
+      const docs = await ReadingProgress.find({ userId, episodeId: episodeIdCorrida });
+      expect(docs).toHaveLength(1);
+      expect(docs[0].percent).toBeCloseTo(0.55);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
