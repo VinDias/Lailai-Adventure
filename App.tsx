@@ -22,6 +22,7 @@ import { getLocalizedPrice } from './utils/localizedPrice';
 import { initConsent } from './utils/consent';
 import { useI18n, useT } from './contexts/I18nContext';
 import { LANG_OPTIONS } from './i18n/translations';
+import { migrarProgressoDoVisitante } from './utils/claimProgress';
 
 const App: React.FC = () => {
   const t = useT();
@@ -98,7 +99,7 @@ const App: React.FC = () => {
     })();
   }, []);
 
-  const handleLogin = (u: User) => {
+  const handleLogin = async (u: User) => {
     setUser(u);
     const tok = (u as any).accessToken;
     if (tok) api.setToken(tok);
@@ -106,6 +107,11 @@ const App: React.FC = () => {
     if (rtok) api.setRefreshToken(rtok);
     setView(ViewMode.HQCINE);
     if (!hasSeenOnboarding()) setShowOnboarding(true);
+    // Cobre cadastro, login com e-mail/senha e login com Google — os três chegam
+    // aqui pelo mesmo onLogin do Auth. Não entra no bootstrapSession (restauração
+    // de sessão): ali rodaria em toda abertura do app, e uma vez autenticado o
+    // usuário já lê direto na conta, sem acumular nada novo sob o id anônimo.
+    await migrarProgressoDoVisitante();
   };
 
   const openWebtoonEpisode = (ep: any, series: any) => {
