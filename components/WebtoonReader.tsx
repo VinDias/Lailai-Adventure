@@ -109,8 +109,11 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
 
     (async () => {
       try {
-        const lista = await api.getContinueList();
-        const meu = lista.find((l: any) => String(l.episodeId) === String(episodeIdAtual));
+        // Rota dedicada (não o carrossel "Continuar"): esta pergunta é sobre
+        // UM episódio, e a lista do carrossel é podada (90 dias, 1 linha por
+        // obra, teto de 20 obras) — não serve pra saber se ESTE episódio tem
+        // progresso salvo.
+        const meu = await api.getProgressForEpisode(String(episodeIdAtual));
         const el = scrollRef.current;
         if (cancelado) return;
         // Enquanto a resposta não chegava, o usuário pode ter começado a ler

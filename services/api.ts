@@ -666,8 +666,16 @@ class ApiService {
     return this.request('/me/progress', { method: 'PUT', body: JSON.stringify(dados) });
   }
 
-  async getContinueList() {
-    return this.request<any[]>('/me/continue');
+  async getContinueList(contentType?: 'hqcine' | 'vcine' | 'hiqua') {
+    const path = contentType ? `/me/continue?contentType=${contentType}` : '/me/continue';
+    return this.request<any[]>(path);
+  }
+
+  // Progresso de UM episódio específico, sem as regras de poda/dedupe/teto do
+  // carrossel — usado pela restauração de "onde parei" no leitor/player.
+  // Devolve a linha crua ou null (não lança quando não há progresso).
+  async getProgressForEpisode(episodeId: string) {
+    return this.request<any | null>(`/me/progress/${episodeId}`);
   }
 
   /** Chamado logo após login/cadastro para levar o histórico do visitante à conta. */

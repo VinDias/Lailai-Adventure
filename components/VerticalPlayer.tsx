@@ -69,7 +69,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   // sem progresso salvo, ou erro — todo caminho abre o portão). Sem isso, o
   // primeiro timeupdate do vídeo tocando do zero (antes da restauração
   // aplicar currentTime) já agenda um report(~0, ~0); se a resposta de
-  // getContinueList demorar mais que o debounce de 3s do useProgress e o
+  // getProgressForEpisode demorar mais que o debounce do useProgress e o
   // usuário sair da tela nesse meio-tempo, o flush do cleanup grava esse
   // quase-zero por cima do progresso real que já existia.
   const restauracaoResolvida = useRef(false);
@@ -88,8 +88,11 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     let cancelado = false;
     (async () => {
       try {
-        const lista = await api.getContinueList();
-        const meu = lista.find((l: any) => String(l.episodeId) === String(video.id));
+        // Rota dedicada (não o carrossel "Continuar"): esta pergunta é sobre
+        // UM episódio, e a lista do carrossel é podada (90 dias, 1 linha por
+        // obra, VCine 10-90%, teto de 20 obras) — não serve pra saber se ESTE
+        // vídeo tem progresso salvo.
+        const meu = await api.getProgressForEpisode(String(video.id));
         const v = videoRef.current;
         if (cancelado) return;
         // Enquanto a resposta não chegava, o vídeo pode ter avançado sozinho

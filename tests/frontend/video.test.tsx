@@ -46,6 +46,7 @@ vi.mock('../../services/api', () => ({
     removeVote: vi.fn().mockResolvedValue({}),
     getSignedVideoUrl: vi.fn(),
     getContinueList: vi.fn().mockResolvedValue([]),
+    getProgressForEpisode: vi.fn().mockResolvedValue(null),
     saveProgress: vi.fn().mockResolvedValue({}),
   },
 }));
@@ -99,6 +100,7 @@ beforeEach(() => {
   vi.mocked(api.getMyVote).mockResolvedValue(null);
   vi.mocked(api.getSignedVideoUrl).mockImplementation((id: string) => Promise.resolve(signedUrlFor(id)));
   vi.mocked(api.getContinueList).mockReset().mockResolvedValue([]);
+  vi.mocked(api.getProgressForEpisode).mockReset().mockResolvedValue(null);
   vi.mocked(api.saveProgress).mockReset().mockResolvedValue({} as any);
 });
 
@@ -337,22 +339,23 @@ describe('VerticalPlayer — Votos', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('VerticalPlayer — Restauração de progresso', () => {
-  // Promise controlada: deixa o teste decidir exatamente quando getContinueList
-  // "responde", eliminando a corrida entre o render e a restauração.
-  const controlledContinueList = () => {
+  // Promise controlada: deixa o teste decidir exatamente quando
+  // getProgressForEpisode "responde", eliminando a corrida entre o render e
+  // a restauração.
+  const controlledProgress = () => {
     let liberar: (v: any) => void = () => {};
     const promise = new Promise<any>(resolve => { liberar = resolve; });
-    vi.mocked(api.getContinueList).mockReturnValue(promise as any);
+    vi.mocked(api.getProgressForEpisode).mockReturnValue(promise as any);
     return (valor: any) => liberar(valor);
   };
 
   it('retoma do segundo salvo quando há progresso', async () => {
-    const liberar = controlledContinueList();
+    const liberar = controlledProgress();
     const user = makeUser({ isPremium: true });
     render(<VerticalPlayer video={makeVideo({ id: 'vid-1' })} user={user} onClose={vi.fn()} />);
     await waitFor(() => expect(document.querySelector('video')).toBeInTheDocument());
 
-    liberar([{ episodeId: 'vid-1', percent: 0.4, position: 42 }]);
+    liberar({ episodeId: 'vid-1', percent: 0.4, position: 42 });
 
     await waitFor(() => {
       const v = document.querySelector('video') as HTMLVideoElement;
@@ -361,7 +364,7 @@ describe('VerticalPlayer — Restauração de progresso', () => {
   });
 
   it('não pula por cima de quem já está assistindo', async () => {
-    const liberar = controlledContinueList();
+    const liberar = controlledProgress();
     const user = makeUser({ isPremium: true });
     render(<VerticalPlayer video={makeVideo({ id: 'vid-1' })} user={user} onClose={vi.fn()} />);
     await waitFor(() => expect(document.querySelector('video')).toBeInTheDocument());
@@ -371,7 +374,7 @@ describe('VerticalPlayer — Restauração de progresso', () => {
     v.currentTime = 10;
 
     await act(async () => {
-      liberar([{ episodeId: 'vid-1', percent: 0.4, position: 42 }]);
+      liberar({ episodeId: 'vid-1', percent: 0.4, position: 42 });
       await new Promise(r => setTimeout(r, 0));
     });
 
@@ -379,7 +382,7 @@ describe('VerticalPlayer — Restauração de progresso', () => {
   });
 
   it('não grava progresso antes de a restauração terminar', async () => {
-    const liberar = controlledContinueList();
+    const liberar = controlledProgress();
     const user = makeUser({ isPremium: true });
     const { unmount } = render(<VerticalPlayer video={makeVideo({ id: 'vid-1' })} user={user} onClose={vi.fn()} />);
     await waitFor(() => expect(document.querySelector('video')).toBeInTheDocument());
@@ -387,7 +390,7 @@ describe('VerticalPlayer — Restauração de progresso', () => {
     const v = document.querySelector('video') as HTMLVideoElement;
     Object.defineProperty(v, 'duration', { value: 100, configurable: true });
     v.currentTime = 1; // avança um pouco, simulando autoplay
-    fireEvent.timeUpdate(v); // getContinueList ainda não resolveu — portão fechado
+    fireEvent.timeUpdate(v); // getProgressForEpisode ainda não resolveu — portão fechado
 
     // useProgress descarrega qualquer coisa pendente ao desmontar; se o
     // portão tivesse deixado o timeupdate acima chamar report(), isso
@@ -395,6 +398,6 @@ describe('VerticalPlayer — Restauração de progresso', () => {
     unmount();
     expect(api.saveProgress).not.toHaveBeenCalled();
 
-    liberar([]); // libera a promise pendente para não vazar entre testes
+    liberar(null); // libera a promise pendente para não vazar entre testes
   });
 });

@@ -339,6 +339,29 @@ describe('GET /api/me/continue', () => {
     expect(doVisitante.body.length).toBeGreaterThan(0);
     expect(deOutroVisitante.body).toHaveLength(0);
   });
+
+  // Achado IMPORTANT da revisão final: despublicar é a alavanca de emergência
+  // do cliente (pedido de terceiros, direitos autorais, conteúdo problemático)
+  // — e, ao contrário do catálogo (routes/content.js) e dos favoritos
+  // (routes/favorites.js), o carrossel não filtrava por isPublished.
+  it('some do carrossel quando a obra e despublicada', async () => {
+    const Series = require('../../models/Series');
+    const serieSumindo = await criarSerie('Obra Que Sera Despublicada', 'hiqua');
+    const epSumindo = await criarEpisodio(serieSumindo, 1);
+    await salvar(epSumindo, 0.4, serieSumindo, 'hiqua');
+
+    let res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+    expect(res.body.some(r => String(r.seriesId) === String(serieSumindo))).toBe(true);
+
+    await Series.findByIdAndUpdate(serieSumindo, { isPublished: false });
+
+    res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+    expect(res.body.some(r => String(r.seriesId) === String(serieSumindo))).toBe(false);
+  });
 });
 
 // Regressão dos dois achados "Important" da revisão da Task 4. Massa criada
@@ -442,6 +465,178 @@ describe('GET /api/me/continue — regras de escala (regressão da revisão)', (
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(20);
+  });
+
+  // Achado IMPORTANT da revisão final: o teto de 20 somava os três tipos de
+  // conteúdo juntos. Um usuário com 20 obras hiqua em andamento via o
+  // carrossel do VCine vazio, mesmo tendo 1 obra vcine em dia. Passar
+  // `contentType` filtra e aplica o teto só dentro daquele tipo.
+  it('filtra e aplica o teto por contentType quando a query e passada (nao mistura abas)', async () => {
+    const ANON_ABA = 'dddddddd-1111-4222-8333-888888888888';
+    const QTD_HIQUA = 20; // já ocupa o teto global sozinho
+
+    const seriesHiqua = Array.from({ length: QTD_HIQUA }, (_, i) => ({
+      _id: new mongoose.Types.ObjectId(),
+      title: `Obra Aba Hiqua ${i + 1}`,
+      genre: 'Teste',
+      content_type: 'hiqua',
+      isPublished: true,
+    }));
+    await Series.insertMany(seriesHiqua);
+    const episodiosHiqua = seriesHiqua.map(s => ({
+      _id: new mongoose.Types.ObjectId(), seriesId: s._id, episode_number: 1, title: 'Cap 1',
+    }));
+    await Episode.insertMany(episodiosHiqua);
+
+    const serieVcine = await Series.create({
+      title: 'Obra Aba VCine', genre: 'Teste', content_type: 'vcine', isPublished: true,
+    });
+    const epVcine = await Episode.create({ seriesId: serieVcine._id, episode_number: 1, title: 'Cap 1' });
+
+    const agora = Date.now();
+    const linhasHiqua = seriesHiqua.map((s, i) => ({
+      anonymousId: ANON_ABA,
+      seriesId: s._id,
+      episodeId: episodiosHiqua[i]._id,
+      contentType: 'hiqua',
+      percent: 0.3,
+      updatedAt: new Date(agora - i * 1000), // todas mais recentes que a vcine
+      createdAt: new Date(agora - i * 1000),
+    }));
+    await ReadingProgress.insertMany(linhasHiqua);
+    // A obra vcine é a mais antiga de todas — sem filtro por tipo, o teto
+    // global de 20 (já ocupado pelas 20 hiqua) a deixa de fora.
+    await ReadingProgress.insertMany([{
+      anonymousId: ANON_ABA,
+      seriesId: serieVcine._id,
+      episodeId: epVcine._id,
+      contentType: 'vcine',
+      percent: 0.5,
+      updatedAt: new Date(agora - (QTD_HIQUA + 100) * 1000),
+      createdAt: new Date(agora - (QTD_HIQUA + 100) * 1000),
+    }]);
+
+    const semFiltro = await request(app).get('/api/me/continue').set('X-Anonymous-Id', ANON_ABA);
+    expect(semFiltro.body.some(r => String(r.seriesId) === String(serieVcine._id))).toBe(false);
+
+    const abaVcine = await request(app)
+      .get('/api/me/continue?contentType=vcine')
+      .set('X-Anonymous-Id', ANON_ABA);
+    expect(abaVcine.status).toBe(200);
+    expect(abaVcine.body).toHaveLength(1);
+    expect(String(abaVcine.body[0].seriesId)).toBe(String(serieVcine._id));
+
+    const abaHiqua = await request(app)
+      .get('/api/me/continue?contentType=hiqua')
+      .set('X-Anonymous-Id', ANON_ABA);
+    expect(abaHiqua.body).toHaveLength(20);
+    expect(abaHiqua.body.every(r => r.contentType === 'hiqua')).toBe(true);
+  });
+});
+
+// Achado CRITICAL da revisão final: a restauração de "onde parei" (leitor e
+// player) usava GET /api/me/continue e procurava o episódio na lista — mas
+// essa lista é podada (90 dias, 1 linha por obra, VCine 10-90%, teto de 20,
+// obra concluída removida). Uma rota dedicada devolve a linha crua de UM
+// episódio, sem nenhuma dessas regras de carrossel.
+describe('GET /api/me/progress/:episodeId', () => {
+  let serie, episodio, outroEpisodio;
+
+  beforeAll(async () => {
+    const s = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ title: 'Obra da Rota Unica', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+    serie = s.body._id || s.body.id;
+
+    const e = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ seriesId: serie, episode_number: 1, title: 'Capitulo 1' });
+    episodio = e.body._id || e.body.id;
+
+    const e2 = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ seriesId: serie, episode_number: 2, title: 'Capitulo 2' });
+    outroEpisodio = e2.body._id || e2.body.id;
+  });
+
+  it('devolve a linha crua do episodio quando ha progresso salvo', async () => {
+    await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ seriesId: serie, episodeId: episodio, contentType: 'hiqua', percent: 0.42, position: 7 });
+
+    const res = await request(app)
+      .get(`/api/me/progress/${episodio}`)
+      .set('Authorization', `Bearer ${auth.getToken('user')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.percent).toBeCloseTo(0.42);
+    expect(res.body.position).toBe(7);
+    expect(String(res.body.episodeId)).toBe(String(episodio));
+  });
+
+  it('devolve null quando nao ha progresso salvo para o episodio', async () => {
+    const res = await request(app)
+      .get(`/api/me/progress/${outroEpisodio}`)
+      .set('Authorization', `Bearer ${auth.getToken('user')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toBeNull();
+  });
+
+  // Prova o ponto central do achado: o episódio não é o mais recente da obra
+  // (o usuário voltou ao capítulo 1 depois de já ter lido o 2), então
+  // GET /api/me/continue nunca devolveria essa linha — mas a rota dedicada
+  // devolve, porque não aplica a regra "uma linha por obra".
+  it('devolve o progresso mesmo quando nao e o episodio mais recente da obra (sem a poda do carrossel)', async () => {
+    await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ seriesId: serie, episodeId: episodio, contentType: 'hiqua', percent: 0.55 });
+    await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ seriesId: serie, episodeId: outroEpisodio, contentType: 'hiqua', percent: 0.3 });
+
+    // O carrossel só mostraria o capítulo 2 (mais recente) — a rota dedicada
+    // ainda devolve o capítulo 1 corretamente.
+    const carrossel = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`);
+    expect(carrossel.body.every(r => String(r.episodeId) !== String(episodio))).toBe(true);
+
+    const res = await request(app)
+      .get(`/api/me/progress/${episodio}`)
+      .set('Authorization', `Bearer ${auth.getToken('user')}`);
+    expect(res.status).toBe(200);
+    expect(res.body.percent).toBeCloseTo(0.55);
+  });
+
+  it('nunca mistura o progresso de identidades diferentes', async () => {
+    await request(app)
+      .put('/api/me/progress')
+      .set('X-Anonymous-Id', ANON)
+      .send({ seriesId: serie, episodeId: outroEpisodio, contentType: 'hiqua', percent: 0.6 });
+
+    const doVisitante = await request(app)
+      .get(`/api/me/progress/${outroEpisodio}`)
+      .set('X-Anonymous-Id', ANON);
+    expect(doVisitante.body.percent).toBeCloseTo(0.6);
+
+    // A conta 'user' não gravou progresso nesse episódio (só o visitante) —
+    // não pode enxergar a linha do visitante.
+    const daConta = await request(app)
+      .get(`/api/me/progress/${outroEpisodio}`)
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+    expect(daConta.body).toBeNull();
+  });
+
+  it('recusa quem nao traz conta nem identificador de visitante', async () => {
+    const res = await request(app).get(`/api/me/progress/${episodio}`);
+    expect(res.status).toBe(400);
   });
 });
 
@@ -611,6 +806,44 @@ describe('POST /api/me/progress/claim', () => {
       .set('X-Anonymous-Id', VISITANTE)
       .send({ anonymousId: VISITANTE });
     expect(res.status).toBe(401);
+  });
+
+  // Achado IMPORTANT da revisão final: o `updateOne` da migração usa o
+  // schema com `{ timestamps: true }`, que por padrão carimba `updatedAt:
+  // now` em TODO updateOne — sobrescrevendo a data original de cada linha
+  // migrada. Como `buildContinueList` ordena por `updatedAt` pra escolher a
+  // linha mais recente de cada obra, todas as linhas migradas empatando na
+  // mesma "agora" quebra essa ordenação (o Mongo escolhe arbitrariamente
+  // entre as empatadas). `{ timestamps: false }` no updateOne preserva a
+  // data original.
+  it('a migracao preserva o updatedAt original da linha (nao embaralha a ordem do carrossel)', async () => {
+    const bcrypt = require('bcrypt');
+    const User = require('../../models/User');
+    const VISITANTE_ORDEM = '44444444-1111-4222-8333-999999999999';
+
+    const antigo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000); // 5 dias atrás
+    const [linha] = await ReadingProgress.insertMany([{
+      anonymousId: VISITANTE_ORDEM,
+      seriesId: new mongoose.Types.ObjectId(),
+      episodeId: new mongoose.Types.ObjectId(),
+      contentType: 'hiqua',
+      percent: 0.5,
+      updatedAt: antigo,
+      createdAt: antigo,
+    }]);
+
+    const contaNova = await User.create({
+      email: `ordem-migracao-${Date.now()}@lorflux.test`,
+      passwordHash: await bcrypt.hash('OrdemMigracao@123', 10),
+      nome: 'Conta da Migração',
+    });
+
+    const progressService = require('../../services/progressService');
+    const resumo = await progressService.claimAnonymousProgress(contaNova._id.toString(), VISITANTE_ORDEM);
+    expect(resumo.movidos).toBe(1);
+
+    const migrada = await ReadingProgress.findById(linha._id);
+    expect(migrada.updatedAt.getTime()).toBe(antigo.getTime());
   });
 });
 

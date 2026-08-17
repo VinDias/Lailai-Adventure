@@ -66,6 +66,22 @@ async function saveProgress(identity, dados) {
   }
 }
 
+/**
+ * Progresso de UM episódio específico, sem nenhuma das regras do carrossel
+ * "Continuar" (poda de 90 dias, uma linha por obra, filtro de VCine, teto de
+ * 20 obras, remoção de obra concluída). Usado pela restauração de "onde
+ * parei" no leitor/player: `buildContinueList` é deliberadamente lossy — pra
+ * caber num carrossel — e por isso não serve para essa pergunta, que é sobre
+ * um episódio só.
+ *
+ * Devolve a linha crua (`.lean()`) ou `null` quando não há progresso salvo.
+ */
+async function getProgressForEpisode(identity, episodeId) {
+  if (!mongoose.Types.ObjectId.isValid(episodeId)) return null;
+  const doc = await ReadingProgress.findOne({ ...identity, episodeId }).lean();
+  return doc || null;
+}
+
 const DIAS_DE_PODA = 90;
 const TETO_DO_CARROSSEL = 20;
 const VCINE_MIN = 0.1;
@@ -78,8 +94,14 @@ const VCINE_MAX = 0.9;
  *  3. no VCine, só o que está entre 10% e 90% (vídeo curto é consumo de rolagem)
  *  4. remove a obra cujo último episódio publicado já foi concluído
  *  5. corta em 20 obras
+ *
+ * `contentType`, se informado, filtra por aba ANTES do agrupamento — o teto
+ * de 20 (regra 5) passa a valer só dentro daquele tipo. Sem isso, um usuário
+ * com 20+ obras em andamento numa aba via as outras abas vazias: o teto
+ * global era ocupado inteiro por um só tipo de conteúdo antes do cliente
+ * filtrar (o que ele fazia depois, localmente).
  */
-async function buildContinueList(identity) {
+async function buildContinueList(identity, contentType) {
   const corte = new Date(Date.now() - DIAS_DE_PODA * 24 * 60 * 60 * 1000);
 
   // aggregate() não faz cast automático de string para ObjectId como find()
@@ -89,6 +111,7 @@ async function buildContinueList(identity) {
   const filtroIdentidade = identity.userId
     ? { userId: new mongoose.Types.ObjectId(String(identity.userId)) }
     : { anonymousId: identity.anonymousId };
+  const filtroTipo = contentType ? { contentType } : {};
 
   // Uma linha por obra — a mais recente —, deduplicada dentro do próprio
   // Mongo antes de qualquer limite. Feito em JS depois de um find().limit(N),
@@ -97,7 +120,7 @@ async function buildContinueList(identity) {
   // empurrar para fora uma segunda obra com só 1 linha, porém ainda dentro da
   // janela de poda. Agrupando antes de limitar, o teto passa a contar obras.
   const porObra = await ReadingProgress.aggregate([
-    { $match: { ...filtroIdentidade, updatedAt: { $gte: corte } } },
+    { $match: { ...filtroIdentidade, ...filtroTipo, updatedAt: { $gte: corte } } },
     { $sort: { updatedAt: -1 } },
     { $group: { _id: '$seriesId', linha: { $first: '$$ROOT' } } },
     { $replaceRoot: { newRoot: '$linha' } },
@@ -121,7 +144,12 @@ async function buildContinueList(identity) {
   ]);
   const ultimoPorObra = new Map(ultimos.map(u => [String(u._id), String(u.ultimoId)]));
 
-  const series = await Series.find({ _id: { $in: idsDasObras } })
+  // isPublished: true — despublicar é a alavanca de emergência do cliente
+  // (pedido de terceiros, direitos, conteúdo problemático); sem esse filtro
+  // a obra continuava aparecendo (e abrindo de verdade) no "Continuar",
+  // inconsistente com o catálogo (routes/content.js) e os favoritos
+  // (routes/favorites.js), que já filtram por isPublished.
+  const series = await Series.find({ _id: { $in: idsDasObras }, isPublished: true })
     .select('title cover_image content_type')
     .lean();
   const obraPorId = new Map(series.map(s => [String(s._id), s]));
@@ -190,9 +218,17 @@ async function claimAnonymousProgress(userId, anonymousId) {
     }
 
     try {
+      // { timestamps: false }: sem isso, o schema (`{ timestamps: true }`)
+      // carimba `updatedAt: now` em TODA linha migrada, apagando a data
+      // original de cada uma. Como `buildContinueList` ordena por
+      // `updatedAt` pra escolher a linha mais recente de cada obra, todas as
+      // linhas migradas empatando na mesma "agora" faz o Mongo escolher
+      // arbitrariamente entre elas — o "Continuar" podia apontar pro
+      // capítulo 1 de quem já tinha lido até o 7 antes de criar a conta.
       await ReadingProgress.updateOne(
         { _id: visitante._id },
         { $set: { userId }, $unset: { anonymousId: '' } },
+        { timestamps: false },
       );
       movidos++;
     } catch (err) {
@@ -219,4 +255,4 @@ async function claimAnonymousProgress(userId, anonymousId) {
   return { movidos, fundidos };
 }
 
-module.exports = { saveProgress, buildContinueList, claimAnonymousProgress };
+module.exports = { saveProgress, getProgressForEpisode, buildContinueList, claimAnonymousProgress };

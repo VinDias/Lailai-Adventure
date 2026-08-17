@@ -35,13 +35,31 @@ router.put('/progress', async (req, res) => {
   }
 });
 
-// GET /api/me/continue — o carrossel "Continuar"
-router.get('/continue', async (req, res) => {
+// GET /api/me/progress/:episodeId — progresso de UM episódio, sem as regras
+// do carrossel (poda/dedupe/teto) — usado pela restauração de "onde parei"
+// no leitor/player, que precisa da linha exata, não de uma versão podada.
+router.get('/progress/:episodeId', async (req, res) => {
   const identity = exigirIdentidade(req, res);
   if (!identity) return;
 
   try {
-    res.json(await progressService.buildContinueList(identity));
+    res.json(await progressService.getProgressForEpisode(identity, req.params.episodeId));
+  } catch (err) {
+    logger.error('[Progresso] GET /progress/:episodeId', err);
+    res.status(500).json({ error: 'Erro ao buscar o progresso.' });
+  }
+});
+
+// GET /api/me/continue — o carrossel "Continuar". `?contentType=` filtra por
+// aba e aplica o teto de 20 só dentro dela (ver docstring de buildContinueList).
+router.get('/continue', async (req, res) => {
+  const identity = exigirIdentidade(req, res);
+  if (!identity) return;
+
+  const { contentType } = req.query;
+
+  try {
+    res.json(await progressService.buildContinueList(identity, contentType));
   } catch (err) {
     logger.error('[Progresso] GET /continue', err);
     res.status(500).json({ error: 'Erro ao montar a lista de continuar.' });
