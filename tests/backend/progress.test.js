@@ -340,3 +340,107 @@ describe('GET /api/me/continue', () => {
     expect(deOutroVisitante.body).toHaveLength(0);
   });
 });
+
+// Regressão dos dois achados "Important" da revisão da Task 4. Massa criada
+// direto pelos models (sem passar pelas rotas de conteúdo) — mais rápido, e
+// o que testamos aqui é a regra de agrupamento/corte, não as rotas em si.
+describe('GET /api/me/continue — regras de escala (regressão da revisão)', () => {
+  const ReadingProgress = require('../../models/ReadingProgress');
+  const Series = require('../../models/Series');
+  const Episode = require('../../models/Episode');
+  const mongoose = require('mongoose');
+
+  it('uma obra com muitas linhas recentes nao empurra outra obra (com so 1 linha, mais antiga) para fora', async () => {
+    const ANON_LINHAS = 'bbbbbbbb-1111-4222-8333-555555555555';
+    const QTD = 210; // mais que o antigo `.limit(200)` sobre linhas brutas
+
+    const serieCheia = await Series.create({
+      title: 'Obra Relida Muitas Vezes', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+    });
+    const serieRara = await Series.create({
+      title: 'Obra Rara', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+    });
+
+    const episodios = Array.from({ length: QTD }, (_, i) => ({
+      _id: new mongoose.Types.ObjectId(),
+      seriesId: serieCheia._id,
+      episode_number: i + 1,
+      title: `Cap ${i + 1}`,
+    }));
+    await Episode.insertMany(episodios);
+
+    const agora = Date.now();
+    // 210 linhas de progresso recentes, todas da mesma obra (releitura em
+    // massa). insertMany não passa por save(), então o `updatedAt` explícito
+    // aqui é respeitado (diferente de create()/save(), que sempre sobrescreve
+    // em documento novo).
+    const linhasCheia = episodios.map((ep, i) => ({
+      anonymousId: ANON_LINHAS,
+      seriesId: serieCheia._id,
+      episodeId: ep._id,
+      contentType: 'hiqua',
+      percent: 0.3,
+      updatedAt: new Date(agora - i * 1000),
+      createdAt: new Date(agora - i * 1000),
+    }));
+    await ReadingProgress.insertMany(linhasCheia);
+
+    const epRara = await Episode.create({ seriesId: serieRara._id, episode_number: 1, title: 'Cap 1' });
+    // Mais antiga que as 210 linhas acima, mas ainda dentro da janela de
+    // poda de 90 dias — é a linha que o antigo `.limit(200)` sobre linhas
+    // (em vez de obras) engolia.
+    await ReadingProgress.insertMany([{
+      anonymousId: ANON_LINHAS,
+      seriesId: serieRara._id,
+      episodeId: epRara._id,
+      contentType: 'hiqua',
+      percent: 0.2,
+      updatedAt: new Date(agora - (QTD + 100) * 1000),
+      createdAt: new Date(agora - (QTD + 100) * 1000),
+    }]);
+
+    const res = await request(app).get('/api/me/continue').set('X-Anonymous-Id', ANON_LINHAS);
+
+    expect(res.status).toBe(200);
+    expect(res.body.some(r => String(r.seriesId) === String(serieRara._id))).toBe(true);
+  });
+
+  it('corta em 20 obras mesmo havendo mais candidatas dentro da janela (regra 5)', async () => {
+    const ANON_TETO = 'cccccccc-1111-4222-8333-666666666666';
+    const QTD_OBRAS = 25; // mais que o teto de 20
+
+    const series = Array.from({ length: QTD_OBRAS }, (_, i) => ({
+      _id: new mongoose.Types.ObjectId(),
+      title: `Obra Teto ${i + 1}`,
+      genre: 'Teste',
+      content_type: 'hiqua',
+      isPublished: true,
+    }));
+    await Series.insertMany(series);
+
+    const episodios = series.map(s => ({
+      _id: new mongoose.Types.ObjectId(),
+      seriesId: s._id,
+      episode_number: 1,
+      title: 'Cap 1',
+    }));
+    await Episode.insertMany(episodios);
+
+    const agora = Date.now();
+    const linhas = series.map((s, i) => ({
+      anonymousId: ANON_TETO,
+      seriesId: s._id,
+      episodeId: episodios[i]._id,
+      contentType: 'hiqua',
+      percent: 0.3,
+      updatedAt: new Date(agora - i * 1000),
+      createdAt: new Date(agora - i * 1000),
+    }));
+    await ReadingProgress.insertMany(linhas);
+
+    const res = await request(app).get('/api/me/continue').set('X-Anonymous-Id', ANON_TETO);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(20);
+  });
+});

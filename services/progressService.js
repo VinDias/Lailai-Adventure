@@ -82,18 +82,30 @@ const VCINE_MAX = 0.9;
 async function buildContinueList(identity) {
   const corte = new Date(Date.now() - DIAS_DE_PODA * 24 * 60 * 60 * 1000);
 
-  const linhas = await ReadingProgress.find({ ...identity, updatedAt: { $gte: corte } })
-    .sort({ updatedAt: -1 })
-    .limit(200) // teto de segurança antes do agrupamento
-    .lean();
+  // aggregate() não faz cast automático de string para ObjectId como find()
+  // faz. O userId chega como string do JWT (req.user.id) — sem converter, o
+  // $match abaixo não casaria com nada e a lista voltaria vazia, em
+  // silêncio. O anonymousId já é string por natureza e vai direto.
+  const filtroIdentidade = identity.userId
+    ? { userId: new mongoose.Types.ObjectId(String(identity.userId)) }
+    : { anonymousId: identity.anonymousId };
 
-  const porObra = new Map();
-  for (const linha of linhas) {
-    const chave = String(linha.seriesId);
-    if (!porObra.has(chave)) porObra.set(chave, linha);
-  }
+  // Uma linha por obra — a mais recente —, deduplicada dentro do próprio
+  // Mongo antes de qualquer limite. Feito em JS depois de um find().limit(N),
+  // o limite contaria linhas de progresso, não obras: um usuário que releu
+  // dezenas de capítulos de uma única série (muitas linhas recentes) podia
+  // empurrar para fora uma segunda obra com só 1 linha, porém ainda dentro da
+  // janela de poda. Agrupando antes de limitar, o teto passa a contar obras.
+  const porObra = await ReadingProgress.aggregate([
+    { $match: { ...filtroIdentidade, updatedAt: { $gte: corte } } },
+    { $sort: { updatedAt: -1 } },
+    { $group: { _id: '$seriesId', linha: { $first: '$$ROOT' } } },
+    { $replaceRoot: { newRoot: '$linha' } },
+    { $sort: { updatedAt: -1 } },
+    { $limit: 100 }, // folga confortável sobre o teto de 20 (regra 5)
+  ]);
 
-  const candidatas = [...porObra.values()].filter(linha => {
+  const candidatas = porObra.filter(linha => {
     if (linha.contentType !== 'vcine') return true;
     return linha.percent >= VCINE_MIN && linha.percent <= VCINE_MAX;
   });
