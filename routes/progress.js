@@ -48,4 +48,25 @@ router.get('/continue', async (req, res) => {
   }
 });
 
+// POST /api/me/progress/claim — leva o histórico do visitante para a conta
+router.post('/progress/claim', async (req, res) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ error: 'Só uma conta pode reivindicar progresso.' });
+  }
+
+  const { anonymousId } = req.body || {};
+  const identidadeVisitante = getIdentity({ headers: { 'x-anonymous-id': anonymousId } });
+  if (!identidadeVisitante) {
+    return res.status(400).json({ error: 'anonymousId inválido.' });
+  }
+
+  try {
+    const resumo = await progressService.claimAnonymousProgress(req.user.id, anonymousId);
+    res.json(resumo);
+  } catch (err) {
+    logger.error('[Progresso] POST /progress/claim', err);
+    res.status(500).json({ error: 'Erro ao migrar o progresso.' });
+  }
+});
+
 module.exports = router;

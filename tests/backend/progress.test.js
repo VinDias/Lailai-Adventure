@@ -444,3 +444,93 @@ describe('GET /api/me/continue — regras de escala (regressão da revisão)', (
     expect(res.body).toHaveLength(20);
   });
 });
+
+describe('POST /api/me/progress/claim', () => {
+  const ReadingProgress = require('../../models/ReadingProgress');
+  const VISITANTE = '22222222-3333-4444-8555-666666666666';
+  let serie, ep1, ep2;
+
+  beforeAll(async () => {
+    await ReadingProgress.deleteMany({ userId: auth.getId('user') });
+    await ReadingProgress.deleteMany({ anonymousId: VISITANTE });
+
+    const s = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ title: 'Serie da Migracao', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+    serie = s.body._id || s.body.id;
+
+    for (const n of [1, 2]) {
+      const e = await request(app)
+        .post('/api/content/episodes')
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ seriesId: serie, episode_number: n, title: `Capitulo ${n}` });
+      if (n === 1) ep1 = e.body._id || e.body.id;
+      else ep2 = e.body._id || e.body.id;
+    }
+  });
+
+  it('move o progresso do visitante para a conta', async () => {
+    await request(app)
+      .put('/api/me/progress')
+      .set('X-Anonymous-Id', VISITANTE)
+      .send({ seriesId: serie, episodeId: ep1, contentType: 'hiqua', percent: 0.6 });
+
+    const res = await request(app)
+      .post('/api/me/progress/claim')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ anonymousId: VISITANTE });
+
+    expect(res.status).toBe(200);
+    expect(res.body.movidos).toBe(1);
+
+    const naConta = await ReadingProgress.findOne({ userId: auth.getId('user'), episodeId: ep1 });
+    expect(naConta.percent).toBeCloseTo(0.6);
+
+    const sobrou = await ReadingProgress.findOne({ anonymousId: VISITANTE, episodeId: ep1 });
+    expect(sobrou).toBeNull();
+  });
+
+  it('quando os dois lados tem o mesmo episodio, vence o maior percentual', async () => {
+    await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ seriesId: serie, episodeId: ep2, contentType: 'hiqua', percent: 0.8 });
+
+    await request(app)
+      .put('/api/me/progress')
+      .set('X-Anonymous-Id', VISITANTE)
+      .send({ seriesId: serie, episodeId: ep2, contentType: 'hiqua', percent: 0.3 });
+
+    const res = await request(app)
+      .post('/api/me/progress/claim')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ anonymousId: VISITANTE });
+
+    expect(res.status).toBe(200);
+    expect(res.body.fundidos).toBe(1);
+
+    const naConta = await ReadingProgress.findOne({ userId: auth.getId('user'), episodeId: ep2 });
+    expect(naConta.percent).toBeCloseTo(0.8); // o da conta era maior e prevalece
+  });
+
+  it('e idempotente: chamar de novo nao duplica nem regride', async () => {
+    const antes = await ReadingProgress.countDocuments({ userId: auth.getId('user') });
+    const res = await request(app)
+      .post('/api/me/progress/claim')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ anonymousId: VISITANTE });
+
+    expect(res.status).toBe(200);
+    expect(res.body.movidos).toBe(0);
+    expect(await ReadingProgress.countDocuments({ userId: auth.getId('user') })).toBe(antes);
+  });
+
+  it('exige conta: visitante nao pode reivindicar', async () => {
+    const res = await request(app)
+      .post('/api/me/progress/claim')
+      .set('X-Anonymous-Id', VISITANTE)
+      .send({ anonymousId: VISITANTE });
+    expect(res.status).toBe(401);
+  });
+});

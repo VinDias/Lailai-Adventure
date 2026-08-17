@@ -142,4 +142,51 @@ async function buildContinueList(identity) {
   return resultado;
 }
 
-module.exports = { saveProgress, buildContinueList };
+/**
+ * Transfere o histórico do visitante para a conta, no cadastro ou no login.
+ *
+ * Episódio que só o visitante tem é reatribuído (não duplicado). Episódio que os
+ * dois têm é fundido pelo MAIOR percentual — e não pela data mais recente: quem
+ * leu bastante no celular ontem e abriu o app no computador hoje sem ler nada não
+ * pode perder o avanço.
+ *
+ * Idempotente: rodar de novo com o mesmo identificador não muda mais nada.
+ */
+async function claimAnonymousProgress(userId, anonymousId) {
+  const doVisitante = await ReadingProgress.find({ anonymousId }).lean();
+  if (doVisitante.length === 0) return { movidos: 0, fundidos: 0 };
+
+  const daConta = await ReadingProgress.find({
+    userId,
+    episodeId: { $in: doVisitante.map(d => d.episodeId) },
+  });
+  const contaPorEpisodio = new Map(daConta.map(d => [String(d.episodeId), d]));
+
+  let movidos = 0;
+  let fundidos = 0;
+
+  for (const visitante of doVisitante) {
+    const existente = contaPorEpisodio.get(String(visitante.episodeId));
+
+    if (!existente) {
+      await ReadingProgress.updateOne(
+        { _id: visitante._id },
+        { $set: { userId }, $unset: { anonymousId: '' } },
+      );
+      movidos++;
+      continue;
+    }
+
+    if (visitante.percent > existente.percent) {
+      existente.percent = visitante.percent;
+      existente.position = visitante.position;
+      await existente.save(); // recalcula `completed` no hook
+    }
+    await ReadingProgress.deleteOne({ _id: visitante._id });
+    fundidos++;
+  }
+
+  return { movidos, fundidos };
+}
+
+module.exports = { saveProgress, buildContinueList, claimAnonymousProgress };
