@@ -447,6 +447,7 @@ describe('GET /api/me/continue — regras de escala (regressão da revisão)', (
 
 describe('POST /api/me/progress/claim', () => {
   const ReadingProgress = require('../../models/ReadingProgress');
+  const mongoose = require('mongoose');
   const VISITANTE = '22222222-3333-4444-8555-666666666666';
   let serie, ep1, ep2;
 
@@ -512,6 +513,84 @@ describe('POST /api/me/progress/claim', () => {
 
     const naConta = await ReadingProgress.findOne({ userId: auth.getId('user'), episodeId: ep2 });
     expect(naConta.percent).toBeCloseTo(0.8); // o da conta era maior e prevalece
+  });
+
+  it('quando o visitante tem percentual maior, vence o visitante (percent, position e completed atualizam)', async () => {
+    const ep3 = new mongoose.Types.ObjectId().toString();
+
+    await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ seriesId: serie, episodeId: ep3, contentType: 'hiqua', percent: 0.2, position: 10 });
+
+    await request(app)
+      .put('/api/me/progress')
+      .set('X-Anonymous-Id', VISITANTE)
+      .send({ seriesId: serie, episodeId: ep3, contentType: 'hiqua', percent: 0.95, position: 500 });
+
+    const res = await request(app)
+      .post('/api/me/progress/claim')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ anonymousId: VISITANTE });
+
+    expect(res.status).toBe(200);
+    expect(res.body.fundidos).toBe(1);
+
+    const naConta = await ReadingProgress.findOne({ userId: auth.getId('user'), episodeId: ep3 });
+    expect(naConta.percent).toBeCloseTo(0.95); // o do visitante era maior e prevalece
+    expect(naConta.position).toBe(500);
+    expect(naConta.completed).toBe(true); // prova que o .save() rodou e o hook recalculou
+
+    const sobrou = await ReadingProgress.findOne({ anonymousId: VISITANTE, episodeId: ep3 });
+    expect(sobrou).toBeNull();
+  });
+
+  it('recupera de corrida quando um documento da conta surge entre o snapshot e a escrita (E11000)', async () => {
+    const epCorrida = new mongoose.Types.ObjectId().toString();
+
+    await request(app)
+      .put('/api/me/progress')
+      .set('X-Anonymous-Id', VISITANTE)
+      .send({ seriesId: serie, episodeId: epCorrida, contentType: 'hiqua', percent: 0.4 });
+
+    // Simula o concorrente: um PUT da própria conta que cria o documento
+    // {userId, episodeId} bem entre o snapshot de `daConta` (que não via esse
+    // documento) e o updateOne que reatribuiria o documento do visitante — o
+    // índice único parcial barra a reatribuição com E11000, a mesma classe de
+    // corrida que saveProgress já trata para o seu próprio índice.
+    const spy = vi.spyOn(ReadingProgress, 'updateOne').mockImplementationOnce(async () => {
+      await ReadingProgress.create({
+        userId: auth.getId('user'),
+        seriesId: serie,
+        episodeId: epCorrida,
+        contentType: 'hiqua',
+        percent: 0.1,
+        position: 0,
+      });
+      const err = new Error('E11000 duplicate key error collection');
+      err.code = 11000;
+      throw err;
+    });
+
+    try {
+      const res = await request(app)
+        .post('/api/me/progress/claim')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ anonymousId: VISITANTE });
+
+      // 200, não 500: o item que colidiu é tratado como fusão genuína, não
+      // aborta a chamada nem descarta os contadores já acumulados.
+      expect(res.status).toBe(200);
+      expect(res.body.fundidos).toBe(1);
+
+      const naConta = await ReadingProgress.findOne({ userId: auth.getId('user'), episodeId: epCorrida });
+      expect(naConta.percent).toBeCloseTo(0.4); // visitante (0.4) venceu o concorrente (0.1)
+
+      const sobrou = await ReadingProgress.findOne({ anonymousId: VISITANTE, episodeId: epCorrida });
+      expect(sobrou).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('e idempotente: chamar de novo nao duplica nem regride', async () => {

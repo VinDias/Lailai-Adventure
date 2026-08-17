@@ -143,6 +143,21 @@ async function buildContinueList(identity) {
 }
 
 /**
+ * Funde o documento do visitante com o da conta que já existe para o mesmo
+ * episódio: vence o MAIOR percentual (ver docstring de claimAnonymousProgress).
+ * Quando o visitante vence, `.save()` roda para o hook recalcular `completed`.
+ * O documento do visitante é sempre removido ao final, tenha vencido ou não.
+ */
+async function fundirNoExistente(visitante, existente) {
+  if (visitante.percent > existente.percent) {
+    existente.percent = visitante.percent;
+    existente.position = visitante.position;
+    await existente.save(); // recalcula `completed` no hook
+  }
+  await ReadingProgress.deleteOne({ _id: visitante._id });
+}
+
+/**
  * Transfere o histórico do visitante para a conta, no cadastro ou no login.
  *
  * Episódio que só o visitante tem é reatribuído (não duplicado). Episódio que os
@@ -168,22 +183,37 @@ async function claimAnonymousProgress(userId, anonymousId) {
   for (const visitante of doVisitante) {
     const existente = contaPorEpisodio.get(String(visitante.episodeId));
 
-    if (!existente) {
+    if (existente) {
+      await fundirNoExistente(visitante, existente);
+      fundidos++;
+      continue;
+    }
+
+    try {
       await ReadingProgress.updateOne(
         { _id: visitante._id },
         { $set: { userId }, $unset: { anonymousId: '' } },
       );
       movidos++;
-      continue;
+    } catch (err) {
+      // Corrida: `daConta` foi lido de uma vez no início, mas a escrita de cada
+      // item acontece depois, num laço — se entre o snapshot e este updateOne
+      // um concorrente (ex.: um PUT /api/me/progress da própria conta quase ao
+      // mesmo tempo do cadastro) criar o documento {userId, episodeId} para
+      // este mesmo episódio, o índice único parcial barra a reatribuição com
+      // E11000. Mesma classe de corrida que saveProgress já trata: buscamos o
+      // concorrente e tratamos como fusão genuína, sem abortar os itens já
+      // processados nem devolver 500 com contadores perdidos.
+      if (err.code === 11000) {
+        const concorrente = await ReadingProgress.findOne({ userId, episodeId: visitante.episodeId });
+        if (concorrente) {
+          await fundirNoExistente(visitante, concorrente);
+          fundidos++;
+          continue;
+        }
+      }
+      throw err;
     }
-
-    if (visitante.percent > existente.percent) {
-      existente.percent = visitante.percent;
-      existente.position = visitante.position;
-      await existente.save(); // recalcula `completed` no hook
-    }
-    await ReadingProgress.deleteOne({ _id: visitante._id });
-    fundidos++;
   }
 
   return { movidos, fundidos };
