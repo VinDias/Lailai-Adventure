@@ -1,5 +1,6 @@
 
 import API_URL from '../config/api';
+import { getAnonymousId } from '../utils/anonymousId';
 
 class ApiService {
   private static instance: ApiService;
@@ -132,6 +133,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           ...(this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {}),
+          'X-Anonymous-Id': getAnonymousId(),
           ...options.headers,
         },
         credentials: 'include'
@@ -645,6 +647,27 @@ class ApiService {
       throw new Error(err.error || `Erro ao fazer upload do vídeo: ${response.status}`);
     }
     return response.json();
+  }
+
+  // ─── Fase 4: progresso de leitura ───────────────────────────────────────────
+  async saveProgress(dados: {
+    seriesId: string; episodeId: string;
+    contentType: 'hqcine' | 'vcine' | 'hiqua';
+    percent: number; position?: number;
+  }) {
+    return this.request('/me/progress', { method: 'PUT', body: JSON.stringify(dados) });
+  }
+
+  async getContinueList() {
+    return this.request<any[]>('/me/continue');
+  }
+
+  /** Chamado logo após login/cadastro para levar o histórico do visitante à conta. */
+  async claimProgress(anonymousId: string) {
+    return this.request<{ movidos: number; fundidos: number }>('/me/progress/claim', {
+      method: 'POST',
+      body: JSON.stringify({ anonymousId }),
+    });
   }
 }
 
