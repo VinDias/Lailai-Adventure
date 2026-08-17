@@ -100,12 +100,19 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     if (jaRestaurou.current || loading || paineis.length === 0 || showAd) return;
     jaRestaurou.current = true;
     const episodeIdAtual = webtoon?.episodeId ?? webtoon?.id;
+    // A navegação entre capítulos (onNavigate) não desmonta o componente — só
+    // troca `webtoon.id`/`episodeId` e reseta os dois refs acima (ver efeito
+    // logo abaixo). Sem essa flag, uma resposta atrasada do capítulo ANTERIOR
+    // chegaria depois da troca e mexeria no scroll/portão do capítulo NOVO,
+    // que já está com o mesmo `scrollRef.current` (mesmo DOM node).
+    let cancelado = false;
 
     (async () => {
       try {
         const lista = await api.getContinueList();
         const meu = lista.find((l: any) => String(l.episodeId) === String(episodeIdAtual));
         const el = scrollRef.current;
+        if (cancelado) return;
         // Enquanto a resposta não chegava, o usuário pode ter começado a ler
         // por conta própria — nesse caso não pula por cima da leitura já em
         // andamento (pior perder a restauração do que puxar a tela dele).
@@ -116,10 +123,13 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
       } catch {
         /* sem progresso salvo: começa do início mesmo */
       } finally {
-        // Todo caminho — sucesso, sem progresso, erro — libera a gravação.
-        restauracaoResolvida.current = true;
+        // Todo caminho — sucesso, sem progresso, erro — libera a gravação,
+        // desde que essa ainda seja a restauração do capítulo atual.
+        if (!cancelado) restauracaoResolvida.current = true;
       }
     })();
+
+    return () => { cancelado = true; };
   }, [loading, paineis.length, webtoon?.episodeId, webtoon?.id, showAd]);
 
   useEffect(() => {

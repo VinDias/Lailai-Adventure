@@ -250,4 +250,41 @@ describe('WebtoonReader — Restauração de progresso', () => {
 
     liberar([]); // libera a promise pendente para não vazar entre testes
   });
+
+  it('ignora resposta atrasada do capítulo anterior ao trocar de capítulo', async () => {
+    // Capítulo 1: getContinueList fica pendente (rede lenta).
+    let liberarCap1: (v: any) => void = () => {};
+    const promiseCap1 = new Promise<any>(resolve => { liberarCap1 = resolve; });
+    vi.mocked(api.getContinueList)
+      .mockReturnValueOnce(promiseCap1 as any) // restauração do capítulo 1
+      .mockResolvedValueOnce([]); // restauração do capítulo 2 (sem progresso salvo)
+
+    const user = makeUser({ isPremium: true });
+    const { rerender } = render(
+      <WebtoonReader webtoon={makeWebtoon({ id: 'wt-1', episodeId: 'ep-1' })} user={user} onClose={vi.fn()} />
+    );
+    await waitFor(() => expect(screen.getByAltText('Página 1')).toBeInTheDocument());
+
+    const el = getScrollContainer();
+    stubScroll(el, 2000, 800);
+
+    // Usuário navega para o capítulo 2 ANTES da resposta do capítulo 1 chegar —
+    // onNavigate troca o webtoon sem desmontar o reader (mesmo scrollRef).
+    rerender(
+      <WebtoonReader webtoon={makeWebtoon({ id: 'wt-2', episodeId: 'ep-2' })} user={user} onClose={vi.fn()} />
+    );
+    await waitFor(() => expect(api.getEpisode).toHaveBeenCalledWith('ep-2'));
+    // Restauração do capítulo 2 já rodou e resolveu (sem progresso salvo).
+    await waitFor(() => expect(api.getContinueList).toHaveBeenCalledTimes(2));
+
+    // A resposta atrasada do capítulo 1 finalmente chega — com progresso que,
+    // se aplicado por engano, pularia o scroll do capítulo 2 para 600px.
+    await act(async () => {
+      liberarCap1([{ episodeId: 'ep-1', percent: 0.5 }]);
+      await new Promise(r => setTimeout(r, 0));
+    });
+
+    // O scroll do capítulo 2 não foi mexido pela resposta do capítulo 1.
+    expect(el.scrollTop).toBe(0);
+  });
 });
