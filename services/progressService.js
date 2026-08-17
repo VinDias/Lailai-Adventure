@@ -86,6 +86,7 @@ const DIAS_DE_PODA = 90;
 const TETO_DO_CARROSSEL = 20;
 const VCINE_MIN = 0.1;
 const VCINE_MAX = 0.9;
+const TIPOS_VALIDOS = ['hqcine', 'vcine', 'hiqua'];
 
 /**
  * Monta o carrossel "Continuar" aplicando, nesta ordem:
@@ -111,7 +112,18 @@ async function buildContinueList(identity, contentType) {
   const filtroIdentidade = identity.userId
     ? { userId: new mongoose.Types.ObjectId(String(identity.userId)) }
     : { anonymousId: identity.anonymousId };
-  const filtroTipo = contentType ? { contentType } : {};
+  // Achado da re-revisão (segurança): `contentType` vem cru de req.query e ia
+  // direto para dentro do $match. Com o query parser 'extended' do Express
+  // (padrão, não trocado em server.js), `?contentType[$ne]=hiqua` chega como
+  // OBJETO — {'$ne': 'hiqua'} — e um valor assim, sem checagem, vira operador
+  // Mongo dentro do aggregate (o `sanitizeMongo` global cobre req.query, mas
+  // uma whitelist aqui não depende disso: mesmo sem ele, `.includes()` contra
+  // um objeto nunca dá match). Só os 3 tipos válidos passam; qualquer outra
+  // coisa (string sem sentido, objeto, array) é tratada como "sem filtro" —
+  // mesmo comportamento de contentType ausente, em vez de devolver lista
+  // vazia em silêncio (valor de string inválida) ou, pior, repassar um
+  // operador ao banco.
+  const filtroTipo = TIPOS_VALIDOS.includes(contentType) ? { contentType } : {};
 
   // Uma linha por obra — a mais recente —, deduplicada dentro do próprio
   // Mongo antes de qualquer limite. Feito em JS depois de um find().limit(N),

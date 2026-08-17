@@ -534,6 +534,85 @@ describe('GET /api/me/continue — regras de escala (regressão da revisão)', (
   });
 });
 
+// Achado da re-revisão final (Menor-Importante, segurança): `contentType` ia
+// cru de req.query para dentro do $match do aggregate. O parser 'extended'
+// do Express (padrão, sem app.set('query parser') em server.js) transforma
+// `?contentType[$ne]=hiqua` num OBJETO — {'$ne': 'hiqua'} — que sem checagem
+// vira operador Mongo dentro da consulta. Não vaza entre identidades
+// (filtroTipo nunca sobrescreve filtroIdentidade), mas dá pra injetar
+// operador (ex.: $regex, ReDoS) numa rota que só exige um header forjável.
+describe('GET /api/me/continue — contentType validado contra injecao (regressao da re-revisao)', () => {
+  const Series = require('../../models/Series');
+  const Episode = require('../../models/Episode');
+  const ANON_INJECAO = 'eeeeeeee-1111-4222-8333-999999999999';
+  let serieHiqua, epHiqua, serieVcine, epVcine;
+
+  beforeAll(async () => {
+    serieHiqua = await Series.create({
+      title: 'Obra Injecao Hiqua', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+    });
+    epHiqua = await Episode.create({ seriesId: serieHiqua._id, episode_number: 1, title: 'Cap 1' });
+    serieVcine = await Series.create({
+      title: 'Obra Injecao Vcine', genre: 'Teste', content_type: 'vcine', isPublished: true,
+    });
+    epVcine = await Episode.create({ seriesId: serieVcine._id, episode_number: 1, title: 'Cap 1' });
+
+    await request(app)
+      .put('/api/me/progress')
+      .set('X-Anonymous-Id', ANON_INJECAO)
+      .send({ seriesId: serieHiqua._id, episodeId: epHiqua._id, contentType: 'hiqua', percent: 0.4 });
+    // 0.5 cai dentro da faixa 10-90% exigida para VCine aparecer no carrossel.
+    await request(app)
+      .put('/api/me/progress')
+      .set('X-Anonymous-Id', ANON_INJECAO)
+      .send({ seriesId: serieVcine._id, episodeId: epVcine._id, contentType: 'vcine', percent: 0.5 });
+  });
+
+  it('tipo valido filtra corretamente', async () => {
+    const res = await request(app)
+      .get('/api/me/continue?contentType=hiqua')
+      .set('X-Anonymous-Id', ANON_INJECAO);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].contentType).toBe('hiqua');
+  });
+
+  it('tipo invalido (string sem sentido) nao derruba a rota — tratado como sem filtro', async () => {
+    const res = await request(app)
+      .get('/api/me/continue?contentType=lixo')
+      .set('X-Anonymous-Id', ANON_INJECAO);
+
+    expect(res.status).toBe(200);
+    // Sem filtro válido, volta ao comportamento de contentType ausente — as
+    // duas obras aparecem — em vez de silenciosamente devolver [].
+    expect(res.body.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('tentativa de injecao de operador (contentType[$ne]) nao e repassada ao banco', async () => {
+    // Se o operador chegasse vivo ao $match, contentType:{$ne:'hiqua'}
+    // EXCLUIRIA a obra hiqua da resposta. A whitelist precisa neutralizar
+    // isso e tratar como "sem filtro" — as duas obras continuam aparecendo.
+    const res = await request(app)
+      .get('/api/me/continue?contentType[$ne]=hiqua')
+      .set('X-Anonymous-Id', ANON_INJECAO);
+
+    expect(res.status).toBe(200);
+    expect(res.body.some(r => String(r.seriesId) === String(serieHiqua._id))).toBe(true);
+    expect(res.body.some(r => String(r.seriesId) === String(serieVcine._id))).toBe(true);
+  });
+
+  it('tentativa de injecao de operador (contentType[$regex]) tambem nao e repassada ao banco', async () => {
+    const res = await request(app)
+      .get('/api/me/continue?contentType[$regex]=.*')
+      .set('X-Anonymous-Id', ANON_INJECAO);
+
+    expect(res.status).toBe(200);
+    expect(res.body.some(r => String(r.seriesId) === String(serieHiqua._id))).toBe(true);
+    expect(res.body.some(r => String(r.seriesId) === String(serieVcine._id))).toBe(true);
+  });
+});
+
 // Achado CRITICAL da revisão final: a restauração de "onde parei" (leitor e
 // player) usava GET /api/me/continue e procurava o episódio na lista — mas
 // essa lista é podada (90 dias, 1 linha por obra, VCine 10-90%, teto de 20,
