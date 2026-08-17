@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { Check, ThumbsUp } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 import Ads from './Ads';
+import ContinueCarousel from './ContinueCarousel';
 import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
@@ -67,6 +68,20 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
       setMyVote(v.myVote);
       setLikes(v.likes);
     }).catch(() => {});
+  };
+
+  // Abre direto no episódio indicado pelo carrossel "Continuar" — pula a
+  // tela de seleção da série e vai direto ao player, como um clique no episódio.
+  const handleContinuar = async (seriesId: string, episodeId: string) => {
+    const s = series.find(x => String(x._id) === seriesId);
+    if (!s) return;
+    try {
+      const data = await api.getSeriesContent(s._id);
+      const ep = data.episodes.find((e: any) => String(e._id || e.id) === episodeId);
+      if (ep) onOpen(ep, s);
+    } catch (e) {
+      console.error('Erro ao continuar assistindo', e);
+    }
   };
 
   const toggleFavorite = async () => {
@@ -133,6 +148,8 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
           onChange={e => setFilter(e.target.value)}
         />
       </div>
+
+      <ContinueCarousel contentType="vcine" onOpen={handleContinuar} />
 
       <section className="px-8">
         {/* Banner de feed para usuário free — substitui o antigo overlay flutuante */}

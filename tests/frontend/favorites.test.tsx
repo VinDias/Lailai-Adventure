@@ -15,6 +15,7 @@ vi.mock('../../services/api', () => ({
     getSeries: vi.fn(),
     getSeriesContent: vi.fn(),
     getEpisodesBySeries: vi.fn(),
+    getContinueList: vi.fn().mockResolvedValue([]),
     getRandomAd: vi.fn().mockResolvedValue(null),
     getFavorites: vi.fn().mockResolvedValue([]),
     addFavorite: vi.fn().mockResolvedValue({ favorited: true }),

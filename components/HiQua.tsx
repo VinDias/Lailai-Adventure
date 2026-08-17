@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { Check, ThumbsUp } from 'lucide-react';
 import Ads from './Ads';
 import ImageWithFallback from './ImageWithFallback';
+import ContinueCarousel from './ContinueCarousel';
 import { useSettings } from '../contexts/SettingsContext';
 import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
@@ -71,6 +72,20 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
     }).catch(() => {});
   };
 
+  // Abre direto no episódio indicado pelo carrossel "Continuar" — pula a
+  // tela de seleção da série e vai direto ao leitor, como um clique no episódio.
+  const handleContinuar = async (seriesId: string, episodeId: string) => {
+    const s = series.find(x => String(x._id) === seriesId);
+    if (!s) return;
+    try {
+      const data = await api.getSeriesContent(s._id);
+      const ep = data.episodes.find((e: any) => String(e._id || e.id) === episodeId);
+      if (ep) onOpen(ep, s, data.episodes);
+    } catch (e) {
+      console.error('Erro ao continuar leitura', e);
+    }
+  };
+
   const toggleFavorite = async () => {
     if (!selectedSeries || !user || favBusy) return;
     setFavBusy(true);
@@ -135,6 +150,8 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
           onChange={e => setFilter(e.target.value)}
         />
       </div>
+
+      <ContinueCarousel contentType="hiqua" onOpen={handleContinuar} />
 
       <section className="px-8">
         {!isPremiumActive(user) && <Ads />}

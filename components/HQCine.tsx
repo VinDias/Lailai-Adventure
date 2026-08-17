@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { Play, Check, ThumbsUp } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 import Ads from './Ads';
+import ContinueCarousel from './ContinueCarousel';
 import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
@@ -57,6 +58,20 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
       setMyVote(v.myVote);
       setLikes(v.likes);
     }).catch(() => {});
+  };
+
+  // Abre direto no episódio indicado pelo carrossel "Continuar" — pula a
+  // tela de seleção da série e vai direto ao player, como um clique no episódio.
+  const handleContinuar = async (seriesId: string, episodeId: string) => {
+    const s = series.find(x => String(x._id) === seriesId);
+    if (!s) return;
+    try {
+      const data = await api.getEpisodesBySeries(s._id);
+      const ep = data.find((e: any) => String(e._id || e.id) === episodeId);
+      if (ep) onOpen(ep, s);
+    } catch (e) {
+      console.error('Erro ao continuar assistindo', e);
+    }
   };
 
   const toggleFavorite = async () => {
@@ -124,6 +139,8 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
 
       {/* Banner de feed para usuário free — substitui o antigo overlay flutuante */}
       {!isPremiumActive(user) && <div className="px-8"><Ads /></div>}
+
+      <ContinueCarousel contentType="hqcine" onOpen={handleContinuar} />
 
       <section className="px-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
         {series.filter(s => s.title.toLowerCase().includes(filter.toLowerCase()) || s.genre.toLowerCase().includes(filter.toLowerCase())).map(s => (

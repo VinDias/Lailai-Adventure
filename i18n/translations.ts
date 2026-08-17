@@ -61,6 +61,7 @@ const pt = {
   'feed.chapter': 'Capítulo',
   'feed.addToList': 'ADICIONAR À LISTA',
   'feed.inMyList': 'NA MINHA LISTA',
+  continue_reading: 'Continuar',
 
   // Leitor (Hi-Qua)
   'reader.noPanels': 'Nenhum painel disponível',
@@ -162,6 +163,7 @@ const en: Record<keyof typeof pt, string> = {
   'feed.chapter': 'Chapter',
   'feed.addToList': 'ADD TO LIST',
   'feed.inMyList': 'IN MY LIST',
+  continue_reading: 'Continue',
 
   'reader.noPanels': 'No panels available',
   'reader.panels': 'PANELS',
@@ -257,6 +259,7 @@ const es: Record<keyof typeof pt, string> = {
   'feed.chapter': 'Capítulo',
   'feed.addToList': 'AGREGAR A LA LISTA',
   'feed.inMyList': 'EN MI LISTA',
+  continue_reading: 'Continuar',
 
   'reader.noPanels': 'Ningún panel disponible',
   'reader.panels': 'PANELES',
@@ -352,6 +355,7 @@ const zh: Record<keyof typeof pt, string> = {
   'feed.chapter': '章节',
   'feed.addToList': '加入列表',
   'feed.inMyList': '已在列表中',
+  continue_reading: '继续观看',
 
   'reader.noPanels': '暂无画格',
   'reader.panels': '画格',
