@@ -105,13 +105,20 @@ const App: React.FC = () => {
     if (tok) api.setToken(tok);
     const rtok = (u as any).refreshToken;
     if (rtok) api.setRefreshToken(rtok);
-    setView(ViewMode.HQCINE);
-    if (!hasSeenOnboarding()) setShowOnboarding(true);
     // Cobre cadastro, login com e-mail/senha e login com Google — os três chegam
     // aqui pelo mesmo onLogin do Auth. Não entra no bootstrapSession (restauração
     // de sessão): ali rodaria em toda abertura do app, e uma vez autenticado o
     // usuário já lê direto na conta, sem acumular nada novo sob o id anônimo.
+    //
+    // Roda ANTES da troca de tela (de propósito): assim que view vira HQCINE, o
+    // ContinueCarousel monta e busca a lista imediatamente — se a troca viesse
+    // primeiro, essa busca podia vencer a corrida contra a migração (que no
+    // backend processa episódio por episódio) e mostrar a lista vazia bem no
+    // momento em que a funcionalidade mais precisa se provar. O prazo interno da
+    // própria função evita travar o login numa rede lenta.
     await migrarProgressoDoVisitante();
+    setView(ViewMode.HQCINE);
+    if (!hasSeenOnboarding()) setShowOnboarding(true);
   };
 
   const openWebtoonEpisode = (ep: any, series: any) => {

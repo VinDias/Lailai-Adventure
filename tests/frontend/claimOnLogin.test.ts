@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { migrarProgressoDoVisitante } from '../../utils/claimProgress';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { migrarProgressoDoVisitante, PRAZO_MIGRACAO_MS } from '../../utils/claimProgress';
 import { api } from '../../services/api';
 import { ANON_STORAGE_KEY } from '../../utils/anonymousId';
 
@@ -28,5 +28,27 @@ describe('migração do progresso ao entrar', () => {
     localStorage.setItem(ANON_STORAGE_KEY, '11111111-2222-4333-8444-555555555555');
     vi.spyOn(api, 'claimProgress').mockRejectedValue(new Error('rede'));
     await expect(migrarProgressoDoVisitante()).resolves.toBeUndefined();
+  });
+
+  describe('prazo contra rede lenta (achado da revisao da Task 11)', () => {
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('nao trava o login indefinidamente: desiste apos o prazo se a chamada nunca responder', async () => {
+      vi.useFakeTimers();
+      localStorage.setItem(ANON_STORAGE_KEY, '11111111-2222-4333-8444-555555555555');
+      // Simula uma chamada de rede que nunca resolve nem rejeita.
+      vi.spyOn(api, 'claimProgress').mockReturnValue(new Promise(() => {}));
+
+      const promessa = migrarProgressoDoVisitante();
+      let resolvida = false;
+      promessa.then(() => { resolvida = true; });
+
+      await vi.advanceTimersByTimeAsync(PRAZO_MIGRACAO_MS - 1);
+      expect(resolvida).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(resolvida).toBe(true);
+      await expect(promessa).resolves.toBeUndefined();
+    });
   });
 });
