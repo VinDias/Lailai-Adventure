@@ -68,13 +68,24 @@ const ContinueCarousel: React.FC<Props> = ({ contentType, items, onOpen }) => {
   return (
     <section className="px-8 mb-8">
       <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3">
-        {t('continue_reading')}
+        {t('continue.reading')}
       </h2>
       <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-2">
         {itens.map(item => {
           const episodeId = String(item.episodeId);
           const estaAbrindo = abrindoId === episodeId;
           const deuErro = erroId === episodeId;
+          // "Cap. 2 · 62%" no webtoon, "Ep. 2 · 62%" em vídeo — número do
+          // episódio (episode_number), não o título: os títulos cadastrados
+          // pelo cliente são inconsistentes (ex.: "The Nears Ones  EP2"),
+          // então exibi-los produziria rótulos bagunçados. Dado órfão
+          // (episódio apagado depois do progresso salvo) não quebra a
+          // linha — o rótulo simplesmente omite o capítulo.
+          const numeroEpisodio = item.episode?.episode_number;
+          const percentual = `${Math.round(item.percent * 100)}%`;
+          const rotuloProgresso = numeroEpisodio != null
+            ? `${item.contentType === 'hiqua' ? t('reader.chapterShort') : t('player.episodeShort')} ${numeroEpisodio} · ${percentual}`
+            : percentual;
           return (
             <button
               key={episodeId}
@@ -96,11 +107,11 @@ const ContinueCarousel: React.FC<Props> = ({ contentType, items, onOpen }) => {
               </div>
               <p className="text-xs font-bold truncate">{item.series?.title}</p>
               {deuErro ? (
-                <p className="text-[10px] text-rose-500 font-bold mb-1">{t('continue_open_error')}</p>
+                <p className="text-[10px] text-rose-500 font-bold mb-1">{t('continue.openError')}</p>
               ) : (
                 <>
-                  <p className="text-[10px] text-zinc-500 font-bold mb-1">
-                    {Math.round(item.percent * 100)}%
+                  <p className="text-[10px] text-zinc-500 font-bold mb-1 truncate">
+                    {rotuloProgresso}
                   </p>
                   <ProgressBar percent={item.percent} />
                 </>

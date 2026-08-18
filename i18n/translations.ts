@@ -61,8 +61,8 @@ const pt = {
   'feed.chapter': 'Capítulo',
   'feed.addToList': 'ADICIONAR À LISTA',
   'feed.inMyList': 'NA MINHA LISTA',
-  continue_reading: 'Continuar',
-  continue_open_error: 'Não foi possível abrir. Toque para tentar de novo.',
+  'continue.reading': 'Continuar',
+  'continue.openError': 'Não foi possível abrir. Toque para tentar de novo.',
 
   // Leitor (Hi-Qua)
   'reader.noPanels': 'Nenhum painel disponível',
@@ -81,6 +81,7 @@ const pt = {
   'player.quality': 'Qualidade',
   'player.auto': 'Auto',
   'player.track': 'Faixa',
+  'player.episodeShort': 'Ep.',
 
   // Anúncios
   'ads.sponsored': 'PATROCINADO',
@@ -164,8 +165,8 @@ const en: Record<keyof typeof pt, string> = {
   'feed.chapter': 'Chapter',
   'feed.addToList': 'ADD TO LIST',
   'feed.inMyList': 'IN MY LIST',
-  continue_reading: 'Continue',
-  continue_open_error: "Couldn't open. Tap to try again.",
+  'continue.reading': 'Continue',
+  'continue.openError': "Couldn't open. Tap to try again.",
 
   'reader.noPanels': 'No panels available',
   'reader.panels': 'PANELS',
@@ -182,6 +183,7 @@ const en: Record<keyof typeof pt, string> = {
   'player.quality': 'Quality',
   'player.auto': 'Auto',
   'player.track': 'Track',
+  'player.episodeShort': 'Ep.',
 
   'ads.sponsored': 'SPONSORED',
   'ads.learnMore': 'Learn more',
@@ -261,8 +263,8 @@ const es: Record<keyof typeof pt, string> = {
   'feed.chapter': 'Capítulo',
   'feed.addToList': 'AGREGAR A LA LISTA',
   'feed.inMyList': 'EN MI LISTA',
-  continue_reading: 'Continuar',
-  continue_open_error: 'No se pudo abrir. Toca para intentar de nuevo.',
+  'continue.reading': 'Continuar',
+  'continue.openError': 'No se pudo abrir. Toca para intentar de nuevo.',
 
   'reader.noPanels': 'Ningún panel disponible',
   'reader.panels': 'PANELES',
@@ -279,6 +281,7 @@ const es: Record<keyof typeof pt, string> = {
   'player.quality': 'Calidad',
   'player.auto': 'Auto',
   'player.track': 'Pista',
+  'player.episodeShort': 'Ep.',
 
   'ads.sponsored': 'PATROCINADO',
   'ads.learnMore': 'Saber más',
@@ -358,8 +361,8 @@ const zh: Record<keyof typeof pt, string> = {
   'feed.chapter': '章节',
   'feed.addToList': '加入列表',
   'feed.inMyList': '已在列表中',
-  continue_reading: '继续观看',
-  continue_open_error: '无法打开，点击重试。',
+  'continue.reading': '继续观看',
+  'continue.openError': '无法打开，点击重试。',
 
   'reader.noPanels': '暂无画格',
   'reader.panels': '画格',
@@ -376,6 +379,7 @@ const zh: Record<keyof typeof pt, string> = {
   'player.quality': '画质',
   'player.auto': '自动',
   'player.track': '音轨',
+  'player.episodeShort': '第',
 
   'ads.sponsored': '赞助内容',
   'ads.learnMore': '了解更多',

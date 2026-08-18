@@ -8,6 +8,7 @@ const item = {
   episodeId: 'e1',
   contentType: 'hiqua',
   percent: 0.62,
+  episode: { episode_number: 2 },
   series: { title: 'The Near Ones', cover_image: '/capa.jpg' },
 };
 
@@ -25,7 +26,42 @@ describe('ContinueCarousel', () => {
     vi.spyOn(api, 'getContinueList').mockResolvedValue([item] as any);
     render(<ContinueCarousel contentType="hiqua" onOpen={() => {}} />);
     expect(await screen.findByText('The Near Ones')).toBeInTheDocument();
+    expect(screen.getByText('Cap. 2 · 62%')).toBeInTheDocument();
+  });
+
+  // Achado do bloco de conformidade: o spec pede "nome do capítulo" no
+  // rótulo — decidido como número (episode_number) por causa de títulos
+  // inconsistentes cadastrados pelo cliente (ex.: "The Nears Ones  EP2").
+  it('webtoon (hiqua) mostra "Cap. N · P%"', async () => {
+    const itemWebtoon = { ...item, contentType: 'hiqua', episode: { episode_number: 2 }, percent: 0.62 };
+    vi.spyOn(api, 'getContinueList').mockResolvedValue([itemWebtoon] as any);
+    render(<ContinueCarousel contentType="hiqua" onOpen={() => {}} />);
+    expect(await screen.findByText('Cap. 2 · 62%')).toBeInTheDocument();
+  });
+
+  it('video (hqcine/vcine) mostra "Ep. N · P%"', async () => {
+    const itemVideo = {
+      ...item,
+      seriesId: 's2',
+      episodeId: 'e2',
+      contentType: 'hqcine',
+      episode: { episode_number: 2 },
+      percent: 0.62,
+    };
+    vi.spyOn(api, 'getContinueList').mockResolvedValue([itemVideo] as any);
+    render(<ContinueCarousel contentType="hqcine" onOpen={() => {}} />);
+    expect(await screen.findByText('Ep. 2 · 62%')).toBeInTheDocument();
+  });
+
+  // Dado órfão (episódio apagado no backend depois do progresso salvo): o
+  // carrossel não pode quebrar — só omite o capítulo do rótulo.
+  it('sem episode (dado orfao) mostra so o percentual, sem quebrar a renderizacao', async () => {
+    const itemSemEpisodio = { ...item, episode: null };
+    vi.spyOn(api, 'getContinueList').mockResolvedValue([itemSemEpisodio] as any);
+    render(<ContinueCarousel contentType="hiqua" onOpen={() => {}} />);
+    expect(await screen.findByText('The Near Ones')).toBeInTheDocument();
     expect(screen.getByText('62%')).toBeInTheDocument();
+    expect(screen.queryByText(/Cap\./)).not.toBeInTheDocument();
   });
 
   it('busca a lista ja filtrada pelo tipo da aba (contentType vai na propria chamada)', async () => {
