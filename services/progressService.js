@@ -156,6 +156,18 @@ async function buildContinueList(identity, contentType) {
   ]);
   const ultimoPorObra = new Map(ultimos.map(u => [String(u._id), String(u.ultimoId)]));
 
+  // Episódio DA PRÓPRIA linha (não o último da obra, que é a consulta acima):
+  // é o que alimenta o rótulo "Cap. 2" / "Ep. 2" do carrossel. Em uma consulta
+  // só para todas as candidatas (evita N+1 dentro do laço abaixo, mesmo padrão
+  // da consulta de `ultimos`). find() casta string para ObjectId sozinho, ao
+  // contrário do aggregate() usado acima.
+  const episodiosDasLinhas = await Episode.find({ _id: { $in: candidatas.map(l => l.episodeId) } })
+    .select('episode_number')
+    .lean();
+  const episodioPorId = new Map(
+    episodiosDasLinhas.map(e => [String(e._id), { episode_number: e.episode_number }]),
+  );
+
   // isPublished: true — despublicar é a alavanca de emergência do cliente
   // (pedido de terceiros, direitos, conteúdo problemático); sem esse filtro
   // a obra continuava aparecendo (e abrindo de verdade) no "Continuar",
@@ -169,13 +181,19 @@ async function buildContinueList(identity, contentType) {
   const resultado = [];
   for (const linha of candidatas) {
     const chave = String(linha.seriesId);
-    const terminouOUltimo = linha.completed && ultimoPorObra.get(chave) === String(linha.episodeId);
+    const chaveEpisodio = String(linha.episodeId);
+    const terminouOUltimo = linha.completed && ultimoPorObra.get(chave) === chaveEpisodio;
     if (terminouOUltimo) continue;
 
     const obra = obraPorId.get(chave);
     if (!obra) continue; // obra removida do catálogo
 
-    resultado.push({ ...linha, series: obra });
+    // Dado órfão (episódio apagado depois do progresso salvo): a linha
+    // continua no carrossel — só o rótulo omite o capítulo, em vez de a obra
+    // inteira sumir por causa de um episódio que não existe mais.
+    const episodio = episodioPorId.get(chaveEpisodio) || null;
+
+    resultado.push({ ...linha, series: obra, episode: episodio });
     if (resultado.length >= TETO_DO_CARROSSEL) break;
   }
 

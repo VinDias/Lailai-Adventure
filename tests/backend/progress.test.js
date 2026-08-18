@@ -362,6 +362,47 @@ describe('GET /api/me/continue', () => {
       .set('Authorization', `Bearer ${auth.getToken('premium')}`);
     expect(res.body.some(r => String(r.seriesId) === String(serieSumindo))).toBe(false);
   });
+
+  // Achado do bloco de conformidade: o spec pede "nome do capítulo" no
+  // carrossel — decidido como número (`episode_number`), não o título (títulos
+  // cadastrados pelo cliente são inconsistentes). O carrossel precisa do
+  // episódio da PRÓPRIA linha (não do último da obra, que já existe para a
+  // regra de saída). Fica no fim do describe (depois dos testes que checam
+  // `toHaveLength` do corpo inteiro) para não somar obras à lista do
+  // 'premium' e mexer nessas contagens.
+  it('traz o episode_number do episodio da linha, para o rotulo do carrossel', async () => {
+    const serieNumero = await criarSerie('Serie Numero Episodio', 'hiqua');
+    const epNumero = await criarEpisodio(serieNumero, 7);
+    await salvar(epNumero, 0.4, serieNumero, 'hiqua');
+
+    const res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+
+    const linha = res.body.find(r => String(r.seriesId) === String(serieNumero));
+    expect(linha).toBeTruthy();
+    expect(linha.episode).toBeTruthy();
+    expect(linha.episode.episode_number).toBe(7);
+  });
+
+  // O episódio pode ter sido apagado depois que o progresso foi salvo (dado
+  // órfão) — o carrossel não pode sumir com a obra por causa disso; só omite
+  // o capítulo do rótulo.
+  it('mantem a linha no carrossel quando o episodio foi apagado, so sem o campo episode', async () => {
+    const Episode = require('../../models/Episode');
+    const serieOrfao = await criarSerie('Serie Episodio Orfao', 'hiqua');
+    const epOrfao = await criarEpisodio(serieOrfao, 1);
+    await salvar(epOrfao, 0.4, serieOrfao, 'hiqua');
+    await Episode.deleteOne({ _id: epOrfao });
+
+    const res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+
+    const linha = res.body.find(r => String(r.seriesId) === String(serieOrfao));
+    expect(linha).toBeTruthy(); // a linha continua aparecendo
+    expect(linha.episode).toBeFalsy(); // sem capítulo pra mostrar, mas nao quebra
+  });
 });
 
 // Regressão dos dois achados "Important" da revisão da Task 4. Massa criada
