@@ -15,6 +15,7 @@ vi.mock('../../services/api', () => ({
     getSeries: vi.fn(),
     getSeriesContent: vi.fn(),
     getEpisodesBySeries: vi.fn(),
+    getContinueList: vi.fn().mockResolvedValue([]),
     getRandomAd: vi.fn().mockResolvedValue(null),
     login: vi.fn(),
     register: vi.fn(),
@@ -95,6 +96,27 @@ describe('Auth — Login', () => {
     fireEvent.change(screen.getByPlaceholderText(/senha/i), { target: { value: '123' } });
     fireEvent.submit(document.querySelector('form')!);
     await waitFor(() => expect(onLogin).toHaveBeenCalled());
+  });
+
+  it('mantém o indicador de carregamento ativo até onLogin terminar (achado da revisão da Task 11)', async () => {
+    // onLogin pode migrar o progresso do visitante antes de trocar de tela (App.tsx);
+    // o spinner precisa continuar girando até essa promessa resolver, senão o botão
+    // reabilita e a tela fica parada — parece travamento em vez de carregamento.
+    let liberarOnLogin: () => void = () => {};
+    const onLoginPendente = vi.fn(() => new Promise<void>(resolve => { liberarOnLogin = resolve; }));
+
+    render(<Auth onLogin={onLoginPendente} />);
+    fireEvent.change(screen.getByPlaceholderText(/e-mail/i), { target: { value: 'a@b.com' } });
+    fireEvent.change(screen.getByPlaceholderText(/senha/i), { target: { value: '123' } });
+    fireEvent.submit(document.querySelector('form')!);
+
+    await waitFor(() => expect(onLoginPendente).toHaveBeenCalled());
+    // onLogin ainda não terminou: o botão de envio continua desabilitado (spinner visível).
+    const botaoEnviar = () => document.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(botaoEnviar()).toBeDisabled();
+
+    liberarOnLogin();
+    await waitFor(() => expect(botaoEnviar()).not.toBeDisabled());
   });
 
   it('exibe mensagem de erro ao falhar login', async () => {
@@ -256,6 +278,60 @@ describe('HQCine — sem séries', () => {
     vi.mocked(api.getSeries).mockResolvedValue([]);
     render(<HQCine user={null} onOpen={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('HQCINE')).toBeInTheDocument());
+  });
+});
+
+// Achado IMPORTANT da revisão final: o spec pede barra de progresso nos
+// cards do catálogo, "só em obra já iniciada" — o componente ProgressBar só
+// era usado dentro do carrossel, não na grade principal das abas.
+describe('HQCine — barra de progresso nos cards do catálogo', () => {
+  const hqSeriesComEsemProgresso = [
+    makeSeries({ _id: 'hq-progresso', title: 'HQCine Com Progresso', content_type: 'hqcine' }),
+    makeSeries({ _id: 'hq-sem-progresso', title: 'HQCine Sem Progresso', content_type: 'hqcine' }),
+  ];
+
+  beforeEach(() => {
+    vi.mocked(api.getSeries).mockResolvedValue(hqSeriesComEsemProgresso as any);
+    // .mockReset() (não só mockResolvedValue): sem isso, a contagem de
+    // chamadas acumula das outras describes deste arquivo que também
+    // renderizam <HQCine>, e o teste de "uma única requisição" abaixo
+    // falharia por causa de renders anteriores, não do comportamento em si.
+    vi.mocked(api.getContinueList).mockReset().mockResolvedValue([
+      { seriesId: 'hq-progresso', episodeId: 'hq-progresso-ep1', contentType: 'hqcine', percent: 0.35,
+        series: { title: 'HQCine Com Progresso' } },
+    ] as any);
+  });
+
+  // "HQCine Com Progresso" aparece duas vezes de propósito (card da grade E
+  // card do carrossel "Continuar" acima dela, que também mostra o título da
+  // obra) — por isso as buscas abaixo pegam especificamente o <h3> da grade.
+  const getCardDaGrade = async (titulo: string) => {
+    await waitFor(() => expect(screen.getAllByText(titulo).length).toBeGreaterThan(0));
+    const h3 = screen.getAllByText(titulo).find(el => el.tagName === 'H3')!;
+    expect(h3).toBeTruthy();
+    return h3.closest('.group')!;
+  };
+
+  it('mostra a barra de progresso so no card da obra com progresso salvo', async () => {
+    const { container } = render(<HQCine user={null} onOpen={vi.fn()} />);
+
+    const cardComProgresso = await getCardDaGrade('HQCine Com Progresso');
+    const cardSemProgresso = await getCardDaGrade('HQCine Sem Progresso');
+
+    expect(cardComProgresso.querySelector('[data-testid="progress-bar"]')).toBeInTheDocument();
+    expect(cardSemProgresso.querySelector('[data-testid="progress-bar"]')).not.toBeInTheDocument();
+    // Só uma barra de progresso na grade do catálogo propriamente dita (o
+    // carrossel "Continuar", acima da grade, também usa .group nos seus
+    // cards e tem a sua própria barra — não é o que este teste cobre).
+    const grade = container.querySelector('.grid.grid-cols-2')!;
+    expect(grade.querySelectorAll('[data-testid="progress-bar"]')).toHaveLength(1);
+  });
+
+  it('busca a lista de progresso uma unica vez, reaproveitada pelo carrossel e pelos cards (sem 2a requisicao)', async () => {
+    render(<HQCine user={null} onOpen={vi.fn()} />);
+    await getCardDaGrade('HQCine Com Progresso');
+    expect(api.getContinueList).toHaveBeenCalledWith('hqcine');
+    expect(api.getContinueList).toHaveBeenCalledTimes(1);
   });
 });
 

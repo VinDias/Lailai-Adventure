@@ -66,9 +66,16 @@ Montado em `/api/favorites` (todas com `verifyToken`).
 ### `account.js` — Conta e LGPD
 Montado em `/api/account`.
 - `PUT /me/consent` — consentimento de marketing
-- `GET /me/export` — export de dados (LGPD)
-- `DELETE /me` — exclusão de conta com limpeza de engajamento
+- `GET /me/export` — export de dados (LGPD; inclui `readingProgress` com `percent` e `position`)
+- `DELETE /me` — exclusão de conta com limpeza de engajamento (inclui `ReadingProgress`)
 - `POST /me/avatar` — upload de foto de perfil (multer memória → sharp 512×512 webp → Bunny Storage `lorflux/avatars/`)
+
+### `progress.js` — Progresso de Leitura e "Continuar" (Fase 4)
+Montado em `/api/me`. Todas as rotas aceitam conta OU visitante (`optionalAuth` + `utils/requestIdentity.js`).
+- `PUT /progress` — grava (upsert) onde o usuário parou
+- `GET /progress/:episodeId` — progresso de UM episódio específico, sem as regras de poda/dedupe/teto do carrossel — devolve a linha crua ou `null`. Usado pela restauração de "onde parei" no `WebtoonReader`/`VerticalPlayer` (a lista de `/continue` é lossy demais para essa pergunta)
+- `GET /continue` — carrossel "Continuar"; aceita `?contentType=hqcine|vcine|hiqua` para filtrar e aplicar o teto de 20 obras só dentro daquele tipo
+- `POST /progress/claim` — migra o histórico do visitante (`anonymousId`) para a conta no login/cadastro
 
 ### `settings.js` — Configurações
 - `GET /public` — settings públicas (tagline, anúncios, `google_client_id` vindo do env quando configurado)

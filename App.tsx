@@ -22,6 +22,7 @@ import { getLocalizedPrice } from './utils/localizedPrice';
 import { initConsent } from './utils/consent';
 import { useI18n, useT } from './contexts/I18nContext';
 import { LANG_OPTIONS } from './i18n/translations';
+import { migrarProgressoDoVisitante } from './utils/claimProgress';
 
 const App: React.FC = () => {
   const t = useT();
@@ -98,12 +99,24 @@ const App: React.FC = () => {
     })();
   }, []);
 
-  const handleLogin = (u: User) => {
+  const handleLogin = async (u: User) => {
     setUser(u);
     const tok = (u as any).accessToken;
     if (tok) api.setToken(tok);
     const rtok = (u as any).refreshToken;
     if (rtok) api.setRefreshToken(rtok);
+    // Cobre cadastro, login com e-mail/senha e login com Google — os três chegam
+    // aqui pelo mesmo onLogin do Auth. Não entra no bootstrapSession (restauração
+    // de sessão): ali rodaria em toda abertura do app, e uma vez autenticado o
+    // usuário já lê direto na conta, sem acumular nada novo sob o id anônimo.
+    //
+    // Roda ANTES da troca de tela (de propósito): assim que view vira HQCINE, o
+    // ContinueCarousel monta e busca a lista imediatamente — se a troca viesse
+    // primeiro, essa busca podia vencer a corrida contra a migração (que no
+    // backend processa episódio por episódio) e mostrar a lista vazia bem no
+    // momento em que a funcionalidade mais precisa se provar. O prazo interno da
+    // própria função evita travar o login numa rede lenta.
+    await migrarProgressoDoVisitante();
     setView(ViewMode.HQCINE);
     if (!hasSeenOnboarding()) setShowOnboarding(true);
   };
@@ -113,6 +126,8 @@ const App: React.FC = () => {
     setActiveWebtoon({
       id: epId,
       episodeId: epId,
+      // Fase 4 (progresso): id real da série/obra, separado do id do episódio acima.
+      seriesId: (series?._id || series?.id)?.toString(),
       titulo: ep.title,
       categoria: series.genre,
       descricao: ep.description,
@@ -195,6 +210,8 @@ const App: React.FC = () => {
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
+                // Fase 4 (progresso): id real da série/obra, separado do id do episódio acima.
+                seriesId: series._id,
                 titulo: ep.title,
                 categoria: series.genre,
                 descricao: ep.description,
@@ -220,6 +237,8 @@ const App: React.FC = () => {
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
+                // Fase 4 (progresso): id real da série/obra, separado do id do episódio acima.
+                seriesId: series._id,
                 titulo: ep.title,
                 categoria: series.genre,
                 descricao: ep.description,

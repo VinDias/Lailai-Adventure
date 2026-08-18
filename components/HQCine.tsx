@@ -5,6 +5,8 @@ import { api } from '../services/api';
 import { Play, Check, ThumbsUp } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 import Ads from './Ads';
+import ContinueCarousel from './ContinueCarousel';
+import ProgressBar from './ProgressBar';
 import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
@@ -30,10 +32,22 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
   const [likes, setLikes] = useState(0);
   // Guarda a série aberta para descartar respostas atrasadas de uma série anterior
   const openSeriesIdRef = React.useRef<string | null>(null);
+  // Lista do carrossel "Continuar", buscada aqui e reaproveitada nos cards do
+  // catálogo (barra de progresso) — evita uma segunda requisição idêntica.
+  const [continueItems, setContinueItems] = useState<any[]>([]);
 
   useEffect(() => {
     api.getSeries().then(data => setSeries(data.filter(s => s.content_type === 'hqcine')));
   }, []);
+
+  useEffect(() => {
+    api.getContinueList('hqcine').then(setContinueItems).catch(() => {});
+  }, []);
+
+  const progressoPorObra = React.useMemo(
+    () => new Map(continueItems.map((i: any) => [String(i.seriesId), i.percent])),
+    [continueItems],
+  );
 
   const handleOpenSeries = async (s: Series) => {
     const sid = String(s._id);
@@ -57,6 +71,21 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
       setMyVote(v.myVote);
       setLikes(v.likes);
     }).catch(() => {});
+  };
+
+  // Abre direto no episódio indicado pelo carrossel "Continuar" — pula a
+  // tela de seleção da série e vai direto ao player, como um clique no episódio.
+  // Busca a série direto na API (não usa o array `series` já carregado pela
+  // aba): esta aba não tem gate de loading, então esse array podia estar
+  // vazio quando o usuário clica — procurar nele fazia o clique não fazer
+  // nada em silêncio. Se a série ou o episódio não forem encontrados, lança —
+  // o carrossel mostra o erro em vez de esconder a falha.
+  const handleContinuar = async (seriesId: string, episodeId: string) => {
+    const s = await api.getSeriesById(seriesId);
+    const data = await api.getEpisodesBySeries(s._id);
+    const ep = data.find((e: any) => String(e._id || e.id) === episodeId);
+    if (!ep) throw new Error(`Episódio ${episodeId} não encontrado na série ${seriesId}`);
+    onOpen(ep, s);
   };
 
   const toggleFavorite = async () => {
@@ -125,18 +154,26 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
       {/* Banner de feed para usuário free — substitui o antigo overlay flutuante */}
       {!isPremiumActive(user) && <div className="px-8"><Ads /></div>}
 
+      <ContinueCarousel contentType="hqcine" items={continueItems} onOpen={handleContinuar} />
+
       <section className="px-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-        {series.filter(s => s.title.toLowerCase().includes(filter.toLowerCase()) || s.genre.toLowerCase().includes(filter.toLowerCase())).map(s => (
+        {series.filter(s => s.title.toLowerCase().includes(filter.toLowerCase()) || s.genre.toLowerCase().includes(filter.toLowerCase())).map(s => {
+          const progresso = progressoPorObra.get(String(s._id));
+          return (
           <div key={s._id} onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
             <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[1.02] shadow-2xl">
               <ImageWithFallback src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
               <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
               <div className="absolute bottom-6 left-6 right-6">
                 <h3 className="text-lg font-black text-white leading-tight drop-shadow-lg">{s.title}</h3>
+                {progresso !== undefined && (
+                  <div className="mt-2"><ProgressBar percent={progresso} /></div>
+                )}
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </section>
 
       {selectedSeries && (

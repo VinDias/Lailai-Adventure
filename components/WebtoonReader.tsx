@@ -7,6 +7,8 @@ import { api } from '../services/api';
 import { isPremiumActive } from '../utils/premium';
 import { useI18n, useT } from '../contexts/I18nContext';
 import type { Lang } from '../i18n/translations';
+import { useProgress } from '../hooks/useProgress';
+import { posicaoDeVolta, percentualLido } from '../utils/progressPosition';
 
 const UI_LANGS: Lang[] = ['pt', 'en', 'es', 'zh'];
 
@@ -36,6 +38,10 @@ const DEFAULT_LANG_LABELS: Record<string, string> = {
   ja: 'JA', ko: 'KO', fr: 'FR', de: 'DE', it: 'IT',
 };
 
+// Abaixo disso, uma rolagem é ruído de layout (imagem carregando etc.), não
+// leitura de verdade — usado para decidir se o usuário já começou sozinho.
+const LIMIAR_SCROLL_PROPRIO = 40;
+
 const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate }) => {
   const [paineis, setPaineis] = useState<PanelItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +60,24 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastScrollY = useRef(0);
 
+  // webtoon.id é tratado como id de episódio em vários pontos deste app (ex.:
+  // navegação de capítulo em App.tsx) — o id real da série vem em
+  // webtoon.seriesId. Fallback para webtoon.id cobre chamadores antigos/testes
+  // que ainda não preenchem seriesId.
+  const { report } = useProgress({
+    seriesId: String(webtoon?.seriesId ?? webtoon?.id ?? ''),
+    episodeId: String(webtoon?.episodeId ?? webtoon?.id ?? ''),
+    contentType: 'hiqua',
+  });
+  const jaRestaurou = useRef(false);
+  // Portão: só grava progresso depois que a restauração terminou (sucesso,
+  // sem progresso salvo, ou erro — todo caminho abre o portão). Sem isso, um
+  // report() disparado por um scroll que aconteça ANTES da restauração
+  // resolver pode gravar um valor quase-zero e, na saída, sobrescrever no
+  // banco um progresso real que já existia (ver useProgress: o flush do
+  // cleanup ignora o limiar de 2%).
+  const restauracaoResolvida = useRef(false);
+
   const handleScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
@@ -61,12 +85,64 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     if (y > lastScrollY.current + 20 && y > 80) setShowHeader(false);
     else if (y < lastScrollY.current - 20) setShowHeader(true);
     lastScrollY.current = y;
+    if (restauracaoResolvida.current) {
+      report(percentualLido(el.scrollTop, el.scrollHeight, el.clientHeight));
+    }
   };
+
+  // Restaura a posição de leitura assim que os painéis terminam de carregar —
+  // só uma vez por capítulo, e só se ainda não há rolagem manual do usuário.
+  // Também espera o anúncio fechar: enquanto `showAd` é true o componente
+  // retorna só o <AdComponent> (ver `if (showAd) return ...` abaixo) e o
+  // container rolável (scrollRef) nem existe no DOM ainda — restaurar antes
+  // disso marcaria "já restaurei" sem nunca ter restaurado de fato.
+  useEffect(() => {
+    if (jaRestaurou.current || loading || paineis.length === 0 || showAd) return;
+    jaRestaurou.current = true;
+    const episodeIdAtual = webtoon?.episodeId ?? webtoon?.id;
+    // A navegação entre capítulos (onNavigate) não desmonta o componente — só
+    // troca `webtoon.id`/`episodeId` e reseta os dois refs acima (ver efeito
+    // logo abaixo). Sem essa flag, uma resposta atrasada do capítulo ANTERIOR
+    // chegaria depois da troca e mexeria no scroll/portão do capítulo NOVO,
+    // que já está com o mesmo `scrollRef.current` (mesmo DOM node).
+    let cancelado = false;
+
+    (async () => {
+      try {
+        // Rota dedicada (não o carrossel "Continuar"): esta pergunta é sobre
+        // UM episódio, e a lista do carrossel é podada (90 dias, 1 linha por
+        // obra, teto de 20 obras) — não serve pra saber se ESTE episódio tem
+        // progresso salvo.
+        const meu = await api.getProgressForEpisode(String(episodeIdAtual));
+        const el = scrollRef.current;
+        if (cancelado) return;
+        // Enquanto a resposta não chegava, o usuário pode ter começado a ler
+        // por conta própria — nesse caso não pula por cima da leitura já em
+        // andamento (pior perder a restauração do que puxar a tela dele).
+        const jaComecouSozinho = !!el && el.scrollTop > LIMIAR_SCROLL_PROPRIO;
+        if (meu && el && meu.percent >= 0.02 && !jaComecouSozinho) {
+          el.scrollTop = posicaoDeVolta(meu.percent, el.scrollHeight, el.clientHeight);
+        }
+      } catch {
+        /* sem progresso salvo: começa do início mesmo */
+      } finally {
+        // Todo caminho — sucesso, sem progresso, erro — libera a gravação,
+        // desde que essa ainda seja a restauração do capítulo atual.
+        if (!cancelado) restauracaoResolvida.current = true;
+      }
+    })();
+
+    return () => { cancelado = true; };
+  }, [loading, paineis.length, webtoon?.episodeId, webtoon?.id, showAd]);
 
   useEffect(() => {
     const episodeId = webtoon.episodeId || webtoon.id;
     // Navegação entre capítulos (onNavigate) não desmonta o reader:
-    // reexibe o anúncio para usuário free a cada capítulo
+    // reexibe o anúncio para usuário free a cada capítulo, e libera a
+    // restauração de posição para rodar de novo no capítulo novo — o portão
+    // de gravação fecha de novo até a restauração do capítulo novo resolver.
+    jaRestaurou.current = false;
+    restauracaoResolvida.current = false;
     setShowAd(!isPremiumActive(user));
     loadPanels(episodeId);
   }, [webtoon.id]);

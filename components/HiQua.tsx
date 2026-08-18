@@ -5,6 +5,8 @@ import { api } from '../services/api';
 import { Check, ThumbsUp } from 'lucide-react';
 import Ads from './Ads';
 import ImageWithFallback from './ImageWithFallback';
+import ContinueCarousel from './ContinueCarousel';
+import ProgressBar from './ProgressBar';
 import { useSettings } from '../contexts/SettingsContext';
 import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
@@ -33,6 +35,9 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
   const [likes, setLikes] = useState(0);
   // Guarda a série aberta para descartar respostas atrasadas de uma série anterior
   const openSeriesIdRef = React.useRef<string | null>(null);
+  // Lista do carrossel "Continuar", buscada aqui e reaproveitada nos cards do
+  // catálogo (barra de progresso) — evita uma segunda requisição idêntica.
+  const [continueItems, setContinueItems] = useState<any[]>([]);
 
   useEffect(() => {
     api.getSeries()
@@ -42,6 +47,15 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
       })
       .catch(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    api.getContinueList('hiqua').then(setContinueItems).catch(() => {});
+  }, []);
+
+  const progressoPorObra = React.useMemo(
+    () => new Map(continueItems.map((i: any) => [String(i.seriesId), i.percent])),
+    [continueItems],
+  );
 
   const handleOpenSeries = async (s: Series) => {
     const sid = String(s._id);
@@ -69,6 +83,21 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
       setMyVote(v.myVote);
       setLikes(v.likes);
     }).catch(() => {});
+  };
+
+  // Abre direto no episódio indicado pelo carrossel "Continuar" — pula a
+  // tela de seleção da série e vai direto ao leitor, como um clique no episódio.
+  // Busca a série direto na API (não usa o array `series` já carregado pela
+  // aba): esse array pode ainda não ter chegado quando o usuário clica, e
+  // procurar nele fazia o clique não fazer nada em silêncio. Se a série ou o
+  // episódio não forem encontrados, lança — o carrossel mostra o erro em vez
+  // de esconder a falha.
+  const handleContinuar = async (seriesId: string, episodeId: string) => {
+    const s = await api.getSeriesById(seriesId);
+    const data = await api.getSeriesContent(s._id);
+    const ep = data.episodes.find((e: any) => String(e._id || e.id) === episodeId);
+    if (!ep) throw new Error(`Episódio ${episodeId} não encontrado na série ${seriesId}`);
+    onOpen(ep, s, data.episodes);
   };
 
   const toggleFavorite = async () => {
@@ -136,6 +165,8 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
         />
       </div>
 
+      <ContinueCarousel contentType="hiqua" items={continueItems} onOpen={handleContinuar} />
+
       <section className="px-8">
         {!isPremiumActive(user) && <Ads />}
         {series.length === 0 ? (
@@ -144,7 +175,9 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-            {series.filter(s => s.title.toLowerCase().includes(filter.toLowerCase()) || s.genre.toLowerCase().includes(filter.toLowerCase())).map((s, idx) => (
+            {series.filter(s => s.title.toLowerCase().includes(filter.toLowerCase()) || s.genre.toLowerCase().includes(filter.toLowerCase())).map((s, idx) => {
+              const progresso = progressoPorObra.get(String(s._id));
+              return (
               <React.Fragment key={s._id}>
                 <div onClick={() => handleOpenSeries(s)} className="group cursor-pointer">
                   <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[0.98] group-hover:ring-rose-500/50">
@@ -152,13 +185,17 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent" />
                     <div className="absolute bottom-6 left-6 right-6">
                        <h3 className="text-lg font-black text-white leading-tight">{s.title}</h3>
+                       {progresso !== undefined && (
+                         <div className="mt-2"><ProgressBar percent={progresso} /></div>
+                       )}
                     </div>
                   </div>
                 </div>
                 {/* Intercalar anúncios a cada 4 itens no feed se não for premium */}
                 {!isPremiumActive(user) && (idx + 1) % ad_frequency_feed === 0 && <div className="col-span-2 md:col-span-4 lg:col-span-5"><Ads /></div>}
               </React.Fragment>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

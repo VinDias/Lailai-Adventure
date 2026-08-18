@@ -86,6 +86,15 @@ Auditoria de ações administrativas.
 - Registra qual admin fez qual ação e quando
 - Usado por `adminManagement.js`
 
+### `ReadingProgress.js` (Fase 4)
+Progresso de leitura/reprodução — um documento por (identidade, episódio).
+- Identidade é `userId` OU `anonymousId`, nunca os dois (hook `pre('validate')` recusa os dois ou nenhum)
+- `seriesId`, `episodeId`, `contentType` (`hqcine`|`vcine`|`hiqua`), `position` (segundos, vídeo), `percent` (0..1)
+- `completed` — calculado automaticamente no hook a partir de `percent >= 0.9`
+- Índices únicos parciais `{userId, episodeId}` e `{anonymousId, episodeId}` (nunca sparse — o índice é composto)
+- Índice TTL (`expireAfterSeconds: 180 dias`, `partialFilterExpression: anonymousId exists`) — só visitante expira; conta não expira (LGPD: quem apaga é o usuário, pelo Centro de Privacidade)
+- Ver `services/progressService.js` para as regras de gravação e do carrossel "Continuar"
+
 ---
 
 ## Observações

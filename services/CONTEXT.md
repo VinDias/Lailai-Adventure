@@ -12,7 +12,7 @@ Lógica de negócio e integrações com APIs e serviços externos. Separa as reg
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `api.ts` | Cliente HTTP centralizado do frontend — wrapper sobre `fetch` com gerenciamento de JWT, detecção de offline, e métodos para todas as chamadas à API (auth — incluindo `googleLogin` —, séries, episódios, votação, favoritos, avatar, métricas de anúncio, admin, checkout) |
+| `api.ts` | Cliente HTTP centralizado do frontend — wrapper sobre `fetch` com gerenciamento de JWT, detecção de offline, e métodos para todas as chamadas à API (auth — incluindo `googleLogin` —, séries, episódios, votação, favoritos, avatar, métricas de anúncio, admin, checkout, progresso de leitura — `saveProgress`/`getContinueList`/`getProgressForEpisode`/`claimProgress`) |
 | `subscription.service.ts` | Helpers de gerenciamento de status de assinatura premium no frontend |
 | `media.service.ts` | Extração de metadados de mídia e validação de formatos de vídeo/imagem |
 | `mockData.ts` | Dados fictícios para desenvolvimento local — canais, episódios, anúncios, quadrinhos e aulas com interfaces tipadas |
@@ -31,6 +31,7 @@ Lógica de negócio e integrações com APIs e serviços externos. Separa as reg
 | `mobilePaymentService.js` | Integração com processador de pagamento alternativo para mobile |
 | `translationService.js` | Tradução automática de conteúdo do catálogo (genre/description de Series, description de Episode) para EN/ES/ZH via `@google/genai` (`GEMINI_API_KEY`). Fire-and-forget no create/update; sem chave → no-op silencioso (UI cai no PT). Título NUNCA é traduzido. |
 | `engagementLogger.js` | Fase 3 — grava `EngagementEvent` com cadeia de hash e anti-fraude (dedupe 6h, burst 60s). Append serializado por fila de promessas em processo (requer app em instância única no PM2). Chamado fire-and-forget pelas rotas de conteúdo/anúncio; falha de log NUNCA afeta a resposta. |
+| `progressService.js` | Fase 4 — regras de progresso de leitura/reprodução e do carrossel "Continuar", isoladas do Express (`routes/progress.js`) para testar direto. `saveProgress` (upsert com tratamento de corrida E11000), `getProgressForEpisode` (linha crua de 1 episódio, sem as regras do carrossel), `buildContinueList` (poda de 90 dias, 1 linha por obra, VCine 10-90%, remove obra concluída/despublicada, teto de 20 — opcionalmente filtrado por `contentType`), `claimAnonymousProgress` (migra visitante→conta no login/cadastro, funde pelo MAIOR percentual, idempotente) |
 
 ---
 

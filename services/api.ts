@@ -1,5 +1,6 @@
 
 import API_URL from '../config/api';
+import { getAnonymousId } from '../utils/anonymousId';
 
 class ApiService {
   private static instance: ApiService;
@@ -132,6 +133,7 @@ class ApiService {
         headers: {
           'Content-Type': 'application/json',
           ...(this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {}),
+          'X-Anonymous-Id': getAnonymousId(),
           ...options.headers,
         },
         credentials: 'include'
@@ -225,6 +227,14 @@ class ApiService {
   async getSeries(type?: string) {
     const path = type ? `/content/series?type=${type}` : '/content/series';
     return this.request<any[]>(path);
+  }
+
+  // Busca uma série específica direto na API — ao contrário de procurar num
+  // array já carregado pela tela, não depende de nenhum estado local ter
+  // chegado antes (usado pelo carrossel "Continuar", que pode aparecer antes
+  // da listagem normal da aba terminar de carregar).
+  async getSeriesById(id: string | number) {
+    return this.request<any>(`/content/series/${id}`);
   }
 
   // Retorna { seasons: [], episodes } para compatibilidade com VFilm e HiQua
@@ -645,6 +655,35 @@ class ApiService {
       throw new Error(err.error || `Erro ao fazer upload do vídeo: ${response.status}`);
     }
     return response.json();
+  }
+
+  // ─── Fase 4: progresso de leitura ───────────────────────────────────────────
+  async saveProgress(dados: {
+    seriesId: string; episodeId: string;
+    contentType: 'hqcine' | 'vcine' | 'hiqua';
+    percent: number; position?: number;
+  }) {
+    return this.request('/me/progress', { method: 'PUT', body: JSON.stringify(dados) });
+  }
+
+  async getContinueList(contentType?: 'hqcine' | 'vcine' | 'hiqua') {
+    const path = contentType ? `/me/continue?contentType=${contentType}` : '/me/continue';
+    return this.request<any[]>(path);
+  }
+
+  // Progresso de UM episódio específico, sem as regras de poda/dedupe/teto do
+  // carrossel — usado pela restauração de "onde parei" no leitor/player.
+  // Devolve a linha crua ou null (não lança quando não há progresso).
+  async getProgressForEpisode(episodeId: string) {
+    return this.request<any | null>(`/me/progress/${episodeId}`);
+  }
+
+  /** Chamado logo após login/cadastro para levar o histórico do visitante à conta. */
+  async claimProgress(anonymousId: string) {
+    return this.request<{ movidos: number; fundidos: number }>('/me/progress/claim', {
+      method: 'POST',
+      body: JSON.stringify({ anonymousId }),
+    });
   }
 }
 

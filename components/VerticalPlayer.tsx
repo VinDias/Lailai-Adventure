@@ -7,6 +7,7 @@ import AdComponent from './AdComponent';
 import { api } from '../services/api';
 import { isPremiumActive } from '../utils/premium';
 import { useT } from '../contexts/I18nContext';
+import { useProgress } from '../hooks/useProgress';
 
 interface PlayerProps {
   video: Video;
@@ -26,6 +27,10 @@ const LANG_LABELS: Record<string, string> = {
   'ja': '日本語', 'zh': '中文', 'ko': '한국어',
   'fr': 'Français', 'de': 'Deutsch', 'it': 'Italiano',
 };
+
+// Acima disso, o vídeo já avançou por conta própria (autoplay ou interação) —
+// usado para decidir se ainda vale a pena pular para o segundo salvo.
+const LIMIAR_SEGUNDOS_PROPRIO = 2;
 
 const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const t = useT();
@@ -52,10 +57,61 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const [showControls, setShowControls] = useState(true);
   const [showQuality, setShowQuality] = useState(false);
 
+  // video.id é o id do episódio/vídeo em si; o id da série/obra vem em
+  // video.seriesId (ver App.tsx). Fallback para video.id cobre chamadores
+  // antigos/testes que ainda não preenchem seriesId.
+  const { report } = useProgress({
+    seriesId: String(video.seriesId ?? video.id ?? ''),
+    episodeId: String(video.id ?? ''),
+    contentType: video.type,
+  });
+  // Portão: só grava progresso depois que a restauração terminou (sucesso,
+  // sem progresso salvo, ou erro — todo caminho abre o portão). Sem isso, o
+  // primeiro timeupdate do vídeo tocando do zero (antes da restauração
+  // aplicar currentTime) já agenda um report(~0, ~0); se a resposta de
+  // getProgressForEpisode demorar mais que o debounce do useProgress e o
+  // usuário sair da tela nesse meio-tempo, o flush do cleanup grava esse
+  // quase-zero por cima do progresso real que já existia.
+  const restauracaoResolvida = useRef(false);
+
   useEffect(() => {
     if (!user || !video.id) return;
     api.getMyVote(video.id).then(v => setMyVote(v?.type ?? null));
   }, [video.id, user]);
+
+  // Retoma do segundo salvo assim que o vídeo troca — perto do fim, recomeça:
+  // ninguém quer voltar nos créditos. Espera o anúncio fechar: enquanto
+  // `showAd` é true o componente retorna só o <AdComponent> (ver
+  // `if (showAd) return ...` abaixo) e o <video> nem existe no DOM ainda.
+  useEffect(() => {
+    if (showAd) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        // Rota dedicada (não o carrossel "Continuar"): esta pergunta é sobre
+        // UM episódio, e a lista do carrossel é podada (90 dias, 1 linha por
+        // obra, VCine 10-90%, teto de 20 obras) — não serve pra saber se ESTE
+        // vídeo tem progresso salvo.
+        const meu = await api.getProgressForEpisode(String(video.id));
+        const v = videoRef.current;
+        if (cancelado) return;
+        // Enquanto a resposta não chegava, o vídeo pode ter avançado sozinho
+        // (autoplay) ou por interação — nesse caso não pula por cima do que
+        // já está tocando (pior perder a restauração do que puxar o vídeo).
+        const jaComecouSozinho = !!v && v.currentTime > LIMIAR_SEGUNDOS_PROPRIO;
+        if (meu && v && meu.percent < 0.95 && !jaComecouSozinho) {
+          v.currentTime = meu.position || 0;
+        }
+      } catch {
+        /* sem progresso salvo */
+      } finally {
+        // Todo caminho — sucesso, sem progresso, erro — libera a gravação,
+        // desde que o componente ainda esteja montado.
+        if (!cancelado) restauracaoResolvida.current = true;
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [video.id, showAd]);
 
   useEffect(() => {
     if (showAd) return;
@@ -82,7 +138,10 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     const onPause = () => setIsPlaying(false);
     const onWaiting = () => setIsBuffering(true);
     const onCanPlay = () => setIsBuffering(false);
-    const onTimeUpdate = () => setCurrentTime(v.currentTime);
+    const onTimeUpdate = () => {
+      setCurrentTime(v.currentTime);
+      if (restauracaoResolvida.current && v.duration > 0) report(v.currentTime / v.duration, v.currentTime);
+    };
     const onLoaded = () => setDuration(v.duration);
     const onVolume = () => setIsMuted(v.muted);
     v.addEventListener('playing', onPlaying);
