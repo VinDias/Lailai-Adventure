@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { pushManager } from '../utils/pushManager';
 import { useT } from '../contexts/I18nContext';
@@ -20,6 +20,11 @@ const PushAccountToggle: React.FC = () => {
   const suportado = pushManager.isSupported();
   const [estado, setEstado] = useState<Estado>('carregando');
   const [processando, setProcessando] = useState(false);
+  // Lock síncrono (não é state): dois cliques no mesmo tick, antes do React
+  // commitar `setProcessando(true)`, ainda leriam `travado === false` no
+  // closure e disparariam subscribe/unsubscribe duas vezes. Um ref muda de
+  // valor imediatamente, sem esperar o próximo render.
+  const lockRef = useRef(false);
 
   const carregar = useCallback(async () => {
     if (!suportado) return;
@@ -44,12 +49,14 @@ const PushAccountToggle: React.FC = () => {
   const travado = processando || estado === 'negado' || estado === 'indisponivel' || estado === 'carregando';
 
   const handleToggle = async () => {
-    if (travado) return;
+    if (lockRef.current || travado) return;
+    lockRef.current = true;
     setProcessando(true);
     try {
       if (estado === 'ligado') await pushManager.unsubscribeThisDevice();
       else await pushManager.subscribeThisDevice();
     } finally {
+      lockRef.current = false;
       setProcessando(false);
       await carregar();
     }

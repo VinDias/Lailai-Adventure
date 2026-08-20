@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { pushManager } from '../utils/pushManager';
 import { useT } from '../contexts/I18nContext';
 
@@ -33,10 +33,19 @@ const PushPrompt: React.FC = () => {
   const t = useT();
   const [visible, setVisible] = useState(false);
   const [ativando, setAtivando] = useState(false);
+  // Lock síncrono (não é state): dois cliques em "Ativar" no mesmo tick, antes
+  // do React commitar o `setAtivando(true)`, ainda leriam `ativando === false`
+  // no closure e disparariam subscribeThisDevice() duas vezes. Um ref muda de
+  // valor imediatamente, sem esperar o próximo render.
+  const lockRef = useRef(false);
 
   useEffect(() => {
     const onFavorited = () => {
-      if (pushManager.getPermission() === 'default' && !jaPerguntou()) {
+      // Achado de revisão: sem checar isSupported(), um navegador com
+      // Notification mas sem PushManager mostraria o cartão com "Ativar"
+      // silenciosamente inócuo (subscribeThisDevice resolveria false sem
+      // motivo aparente para quem clicou).
+      if (pushManager.isSupported() && pushManager.getPermission() === 'default' && !jaPerguntou()) {
         setVisible(true);
       }
     };
@@ -50,12 +59,15 @@ const PushPrompt: React.FC = () => {
   };
 
   const handleEnable = async () => {
+    if (lockRef.current) return;
+    lockRef.current = true;
     setAtivando(true);
     try {
       // subscribeThisDevice nunca lança (contrato de utils/pushManager) — sucesso
       // ou falha, o resultado é o mesmo aqui: grava a flag e fecha o cartão.
       await pushManager.subscribeThisDevice();
     } finally {
+      lockRef.current = false;
       setAtivando(false);
       fechar();
     }
@@ -65,7 +77,15 @@ const PushPrompt: React.FC = () => {
 
   return (
     <div
-      className="fixed left-0 right-0 z-[850] p-4 animate-apple"
+      data-testid="push-prompt"
+      // Achado de revisão: favoritar só acontece dentro do modal de detalhe de
+      // série (z-[1500], fullscreen, nos três feeds — único ponto de entrada
+      // de favoritar no app). Com z-[850] o cartão nascia atrás desse overlay
+      // e só aparecia depois que o usuário já tinha fechado o modal, fora de
+      // contexto. z-[1600] fica acima do modal (1500) e abaixo do leitor
+      // (2000, que não é gatilho de favoritar) — aparece por cima da tela
+      // onde o usuário acabou de favoritar.
+      className="fixed left-0 right-0 z-[1600] p-4 animate-apple"
       style={{ bottom: 'calc(7rem + env(safe-area-inset-bottom, 0px))' }}
     >
       <div className="max-w-md mx-auto bg-[#141416] border border-white/10 rounded-3xl p-5 shadow-2xl">

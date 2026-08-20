@@ -7,7 +7,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, cleanup, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 vi.mock('../../utils/pushManager', () => ({
@@ -31,6 +31,9 @@ const dispararFavoritado = () => {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  // Default: navegador com suporte completo. Os testes que exercitam "sem
+  // suporte" sobrescrevem explicitamente.
+  (pushManager.isSupported as any).mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -127,6 +130,49 @@ describe('PushPrompt', () => {
     await waitFor(() => expect(screen.queryByText('ATIVAR')).not.toBeInTheDocument());
     expect(localStorage.getItem('lorflux_push_asked')).not.toBeNull();
   });
+
+  it('sem suporte no navegador (isSupported false): evento não mostra o cartão', async () => {
+    (pushManager.isSupported as any).mockReturnValue(false);
+    (pushManager.getPermission as any).mockReturnValue('default');
+    render(<PushPrompt />);
+
+    dispararFavoritado();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText('AGORA NÃO')).not.toBeInTheDocument();
+  });
+
+  it('cartão renderiza acima do modal de detalhe de série que dispara o favorito (z-[1600])', async () => {
+    (pushManager.getPermission as any).mockReturnValue('default');
+    render(<PushPrompt />);
+
+    dispararFavoritado();
+    const wrapper = await screen.findByTestId('push-prompt');
+    expect(wrapper.className).toContain('z-[1600]');
+  });
+
+  it('clique duplo em "Ativar" no mesmo tick chama subscribeThisDevice uma única vez', async () => {
+    (pushManager.getPermission as any).mockReturnValue('default');
+    (pushManager.subscribeThisDevice as any).mockResolvedValue(true);
+    render(<PushPrompt />);
+
+    dispararFavoritado();
+    await waitFor(() => expect(screen.getByText('ATIVAR')).toBeInTheDocument());
+
+    const botao = screen.getByText('ATIVAR');
+    // Os dois cliques precisam ficar dentro do MESMO `act()` síncrono: um
+    // `fireEvent.click` isolado já embute seu próprio `act()` e força o React
+    // a commitar (desabilitando o botão) antes da linha seguinte rodar — o
+    // que mascararia a corrida (o segundo clique nem chegaria a disparar o
+    // handler). Agrupando os dois num único `act()`, nenhum commit acontece
+    // entre eles, reproduzindo de fato "dois cliques antes do state travar".
+    act(() => {
+      fireEvent.click(botao);
+      fireEvent.click(botao);
+    });
+
+    await waitFor(() => expect(screen.queryByText('ATIVAR')).not.toBeInTheDocument());
+    expect(pushManager.subscribeThisDevice).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -209,5 +255,29 @@ describe('PushAccountToggle', () => {
     fireEvent.click(botao);
     expect(pushManager.subscribeThisDevice).not.toHaveBeenCalled();
     expect(pushManager.unsubscribeThisDevice).not.toHaveBeenCalled();
+  });
+
+  it('clique duplo no mesmo tick chama a operação uma única vez', async () => {
+    (pushManager.isSupported as any).mockReturnValue(true);
+    (pushManager.getPermission as any).mockReturnValue('default');
+    (pushManager.getStatus as any).mockResolvedValue({ thisDevice: false, anyDevice: false });
+    (pushManager.subscribeThisDevice as any).mockResolvedValue(true);
+
+    render(<PushAccountToggle />);
+
+    const botao = await screen.findByRole('button', { name: /notificações de capítulos novos/i });
+    await waitFor(() => expect(botao).toHaveAttribute('aria-pressed', 'false'));
+
+    // Mesma técnica do teste equivalente em PushPrompt: os dois cliques
+    // precisam ficar dentro do MESMO `act()` síncrono, senão o primeiro
+    // `fireEvent.click` isolado já commitaria `processando=true` (desabilitando
+    // o botão) antes do segundo clique — mascarando a corrida em vez de
+    // reproduzi-la.
+    act(() => {
+      fireEvent.click(botao);
+      fireEvent.click(botao);
+    });
+
+    await waitFor(() => expect(pushManager.subscribeThisDevice).toHaveBeenCalledTimes(1));
   });
 });
