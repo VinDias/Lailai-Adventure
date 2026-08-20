@@ -102,11 +102,17 @@ async function notifyEpisodePublished(episodeId) {
       }
       const sub = lote[idx];
       const statusCode = resultado.reason && resultado.reason.statusCode;
-      if (DEAD_STATUS_CODES.includes(statusCode)) {
-        await PushSubscription.deleteOne({ _id: sub._id });
-        removidos += 1;
-      } else {
-        logger.error(`[Push] Falha ao enviar para subscription ${sub._id}: ${resultado.reason && resultado.reason.message}`);
+      try {
+        if (DEAD_STATUS_CODES.includes(statusCode)) {
+          await PushSubscription.deleteOne({ _id: sub._id });
+          removidos += 1;
+        } else {
+          logger.error(`[Push] Falha ao enviar para subscription ${sub._id}: ${resultado.reason && resultado.reason.message}`);
+        }
+      } catch (erroPoda) {
+        // Falha ao PODAR (ex.: erro transitório de banco) não pode travar o
+        // restante do lote — é melhor esforço, igual à falha de envio em si.
+        logger.error(`[Push] Falha ao remover subscription morta ${sub._id}: ${erroPoda && erroPoda.message}`);
       }
     }));
   }

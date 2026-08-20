@@ -344,6 +344,51 @@ describe('notificationService', () => {
     expect(await PushSubscription.findById(sub1._id)).toBeNull();
   });
 
+  it('PushSubscription.deleteOne lançando (falha transitória de banco na poda) não aborta o lote — as demais subscriptions recebem e a função resolve', async () => {
+    const serie = await Series.create({ title: 'Obra Poda Falha', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+    const episodio = await Episode.create({ seriesId: serie._id, episode_number: 3, title: 'Cap 3' });
+
+    const userAntes = new mongoose.Types.ObjectId();
+    const userMorta = new mongoose.Types.ObjectId();
+    const userDepois = new mongoose.Types.ObjectId();
+    await Favorite.create({ userId: userAntes, seriesId: serie._id });
+    await Favorite.create({ userId: userMorta, seriesId: serie._id });
+    await Favorite.create({ userId: userDepois, seriesId: serie._id });
+
+    const subAntes = await criarSubscription(userAntes, 'antes');
+    const subMorta = await criarSubscription(userMorta, 'morta'); // vai receber 410 no meio do lote
+    const subDepois = await criarSubscription(userDepois, 'depois');
+
+    notificationService.__setTransportForTests(async (sub) => {
+      if (String(sub._id) === String(subMorta._id)) {
+        const err = new Error('gone');
+        err.statusCode = 410;
+        throw err;
+      }
+    });
+
+    // Simula falha transitória de banco especificamente na exclusão da subscription morta.
+    const deleteOneSpy = vi.spyOn(PushSubscription, 'deleteOne').mockImplementationOnce(async () => {
+      throw new Error('falha transitória de banco');
+    });
+
+    let resultado;
+    try {
+      resultado = await notificationService.notifyEpisodePublished(episodio._id);
+    } finally {
+      deleteOneSpy.mockRestore();
+    }
+
+    // A função resolve normalmente (não propaga o erro da poda) e as demais
+    // subscriptions do lote recebem — a falha ao podar não trava o restante.
+    expect(resultado).toEqual({ enviados: 2, removidos: 0 });
+    expect(await PushSubscription.findById(subAntes._id)).not.toBeNull();
+    expect(await PushSubscription.findById(subDepois._id)).not.toBeNull();
+    // A subscription morta continua no banco: a exclusão falhou (erro transitório),
+    // não foi de fato removida — não conta em "removidos".
+    expect(await PushSubscription.findById(subMorta._id)).not.toBeNull();
+  });
+
   it('transporte lançando erro comum (sem statusCode 404/410) → loga, mantém a subscription e as demais recebem (a função resolve)', async () => {
     const { episodio, sub1, sub2 } = await montarCena();
     notificationService.__setTransportForTests(async (sub) => {
