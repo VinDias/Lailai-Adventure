@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
-import { Check, ThumbsUp } from 'lucide-react';
+import { Check, ThumbsUp, Calendar } from 'lucide-react';
 import Ads from './Ads';
 import ImageWithFallback from './ImageWithFallback';
 import ContinueCarousel from './ContinueCarousel';
@@ -17,9 +17,10 @@ interface HiQuaProps {
   onOpen: (ep: Episode, s: Series, episodes: any[]) => void;
   focusSeriesId?: string | null;
   onFocusConsumed?: () => void;
+  onOpenAgenda?: () => void;
 }
 
-const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed }) => {
+const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed, onOpenAgenda }) => {
   const t = useT();
   const { lang } = useI18n();
   const { ad_frequency_feed } = useSettings();
@@ -150,9 +151,18 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
 
   return (
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
-      <header className="p-8 pt-16 md:p-12">
-        <h1 className="text-5xl font-black premium-text tracking-tighter mb-2 italic">HI-QUA</h1>
-        <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Webtoons & Digital Stories</p>
+      <header className="p-8 pt-16 md:p-12 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-5xl font-black premium-text tracking-tighter mb-2 italic">HI-QUA</h1>
+          <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Webtoons & Digital Stories</p>
+        </div>
+        <button
+          onClick={onOpenAgenda}
+          aria-label={t('agenda.open')}
+          className="p-3 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-[var(--text-color)] hover:bg-white/10 transition-all shrink-0"
+        >
+          <Calendar size={20} />
+        </button>
       </header>
 
       <div className="px-8 mb-6">

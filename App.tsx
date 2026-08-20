@@ -14,15 +14,19 @@ import Onboarding, { hasSeenOnboarding } from './components/Onboarding';
 import ThemeToggle from './components/ThemeToggle';
 import ImageWithFallback from './components/ImageWithFallback';
 import SearchOverlay from './components/SearchOverlay';
+import AgendaView from './components/AgendaView';
 import ConsentBanner from './components/ConsentBanner';
 import LegalPolicy from './components/LegalPolicy';
 import PrivacyCenter from './components/PrivacyCenter';
+import PushPrompt from './components/PushPrompt';
+import PushAccountToggle from './components/PushAccountToggle';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search, Heart, Star, Pencil } from 'lucide-react';
 import { getLocalizedPrice } from './utils/localizedPrice';
 import { initConsent } from './utils/consent';
 import { useI18n, useT } from './contexts/I18nContext';
 import { LANG_OPTIONS } from './i18n/translations';
 import { migrarProgressoDoVisitante } from './utils/claimProgress';
+import { parseDeepLink, DeepLink } from './utils/deepLink';
 
 const App: React.FC = () => {
   const t = useT();
@@ -35,6 +39,7 @@ const App: React.FC = () => {
   const [seriesEpisodes, setSeriesEpisodes] = useState<any[]>([]);
   const [isOffline, setIsOffline] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [agendaOpen, setAgendaOpen] = useState(false);
   const [pendingSeriesFocus, setPendingSeriesFocus] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
   const [legalOpen, setLegalOpen] = useState(false);
@@ -42,6 +47,10 @@ const App: React.FC = () => {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
+  // Deep link de notificação push (?abrir=<seriesId>&tipo=<tipo>): parseado e
+  // removido da URL logo no boot (ver useEffect abaixo); fica guardado aqui
+  // até existir um `user` para consumir (login OU sessão já restaurada).
+  const deepLinkRef = React.useRef<DeepLink | null>(null);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -85,13 +94,34 @@ const App: React.FC = () => {
       setView(ViewMode.AUTH);
     });
 
+    // Deep link de push (clique na notificação de capítulo novo): parseia
+    // ?abrir=&tipo= e já limpa a URL (history.replaceState) para um reload
+    // não reabrir a mesma série. O consumo real (trocar de aba + focar a
+    // série) só acontece no useEffect abaixo, quando houver `user`.
+    const deepLink = parseDeepLink(window.location.search);
+    if (deepLink) {
+      deepLinkRef.current = deepLink;
+      const url = new URL(window.location.href);
+      url.search = '';
+      window.history.replaceState({}, '', url.pathname + url.hash);
+    }
+
     // Restaura a sessão usando o cookie httpOnly de refresh — sem tokens no localStorage.
+    //
+    // O mesmo guard do handleLogin, pelo mesmo motivo em outra roupagem: com
+    // StrictMode (dev), este efeito roda duas vezes — a 1ª execução limpa a
+    // URL e o useEffect([user]) consome o deep link (troca para a aba certa),
+    // mas o bootstrap da 2ª execução resolvia depois e clobrava com o
+    // setView(HQCINE) default. Capturar o pendente ANTES do await decide
+    // certo nas duas execuções: o ref sobrevive ao remount do StrictMode,
+    // então a 2ª leitura ainda o vê. Em produção (mount único) é inócuo.
+    const tinhaDeepLinkPendente = deepLinkRef.current !== null;
     (async () => {
       try {
         const restored = await api.bootstrapSession();
         if (restored) {
           setUser(restored);
-          setView(ViewMode.HQCINE);
+          if (!tinhaDeepLinkPendente) setView(ViewMode.HQCINE);
           if (!hasSeenOnboarding()) setShowOnboarding(true);
         }
       } catch { /* segue para tela de login */ }
@@ -99,7 +129,44 @@ const App: React.FC = () => {
     })();
   }, []);
 
+  // Consome o deep link de push quando `user` vira truthy — cobre tanto o
+  // login feito nesta mesma sessão quanto o boot já logado (bootstrapSession
+  // acima). Os DOIS caminhos que setam a aba default (bootstrap e handleLogin)
+  // capturam `tinhaDeepLinkPendente` de forma síncrona antes dos seus awaits e
+  // pulam o setView(HQCINE) default quando havia deep link — sem isso, um
+  // setView tardio (StrictMode dobra o bootstrap em dev; a migração atrasa o
+  // handleLogin) rodava por cima da aba que este efeito escolheu.
+  //
+  // Já handleLogin (abaixo) tem um `await` (migração do progresso do
+  // visitante) entre o setUser e o setView(HQCINE) default — esse await cede
+  // o controle ao event loop, e este efeito pode rodar E CONSUMIR o deep link
+  // NESSA janela; quando o await resolve, o setView(HQCINE) default rodaria
+  // por cima, perdendo a aba do deep link. handleLogin se protege capturando
+  // um flag síncrono (tinhaDeepLinkPendente) ANTES do await, já que checar
+  // deepLinkRef.current DEPOIS não distingue "nunca teve deep link" de
+  // "efeito já consumiu" — os dois deixam o ref null.
+  //
+  // Lógica inline (não chama handleSearchSelect, definida mais abaixo no
+  // componente, depois dos retornos condicionais de boot/AUTH — referenciá-la
+  // aqui quebraria em renders que retornam cedo, antes dela ser atribuída).
+  useEffect(() => {
+    const deepLink = deepLinkRef.current;
+    if (!user || !deepLink) return;
+    deepLinkRef.current = null;
+    if (deepLink.tipo === 'hiqua') setView(ViewMode.HIQUA);
+    else if (deepLink.tipo === 'vcine') setView(ViewMode.VCINE);
+    else if (deepLink.tipo === 'hqcine') setView(ViewMode.HQCINE);
+    setPendingSeriesFocus(deepLink.seriesId);
+  }, [user]);
+
   const handleLogin = async (u: User) => {
+    // Capturado ANTES do setUser e de qualquer await: se havia deep link
+    // pendente, o useEffect([user]) acima pode consumi-lo (zerando o ref)
+    // durante o await da migração logo abaixo — ler o ref DEPOIS do await não
+    // distingue "nunca teve deep link" de "efeito já consumiu" (os dois
+    // deixam null). A leitura síncrona aqui resolve isso, e não depende de
+    // quando exatamente o efeito dispara.
+    const tinhaDeepLinkPendente = deepLinkRef.current !== null;
     setUser(u);
     const tok = (u as any).accessToken;
     if (tok) api.setToken(tok);
@@ -117,7 +184,10 @@ const App: React.FC = () => {
     // momento em que a funcionalidade mais precisa se provar. O prazo interno da
     // própria função evita travar o login numa rede lenta.
     await migrarProgressoDoVisitante();
-    setView(ViewMode.HQCINE);
+    // Deep link pendente vence: o useEffect([user]) já trocou de aba pelo tipo
+    // certo (e chamou setPendingSeriesFocus) enquanto aguardávamos a migração —
+    // não sobrescreve com a aba default.
+    if (!tinhaDeepLinkPendente) setView(ViewMode.HQCINE);
     if (!hasSeenOnboarding()) setShowOnboarding(true);
   };
 
@@ -198,6 +268,8 @@ const App: React.FC = () => {
 
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onSelectSeries={handleSearchSelect} />
 
+      <AgendaView open={agendaOpen} onClose={() => setAgendaOpen(false)} onOpenSeries={handleSearchSelect} />
+
       {/* O banner flutuante no topo foi removido a pedido do cliente: sobrepunha o
           conteúdo e ficava pequeno/cortado. A publicidade para usuário free fica nos
           banners de feed (HQCine/VCine/Hi-Qua) e nos interstitials de vídeo/leitura. */}
@@ -207,6 +279,7 @@ const App: React.FC = () => {
             user={user}
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
+            onOpenAgenda={() => setAgendaOpen(true)}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -234,6 +307,7 @@ const App: React.FC = () => {
             user={user}
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
+            onOpenAgenda={() => setAgendaOpen(true)}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -261,6 +335,7 @@ const App: React.FC = () => {
             user={user}
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
+            onOpenAgenda={() => setAgendaOpen(true)}
             onOpen={(ep, series, episodes) => {
               setActiveSeries(series);
               setSeriesEpisodes(episodes);
@@ -302,6 +377,7 @@ const App: React.FC = () => {
                 <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')} ({getLocalizedPrice()})</button>
               )}
               <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> {t('account.myFavorites')}</button>
+              <PushAccountToggle />
               <button
                 onClick={() => window.open('https://play.google.com/store/apps/details?id=com.lorflux.twa', '_blank', 'noopener,noreferrer')}
                 className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"
@@ -372,6 +448,7 @@ const App: React.FC = () => {
       </nav>
 
       {showOnboarding && <Onboarding onFinish={() => setShowOnboarding(false)} />}
+      {user && <PushPrompt />}
       <ConsentBanner onOpenPolicy={() => openPolicy('privacy')} />
       <LegalPolicy open={legalOpen} onClose={() => setLegalOpen(false)} initialTab={legalTab} />
     </div>

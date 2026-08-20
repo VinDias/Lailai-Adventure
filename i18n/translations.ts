@@ -100,6 +100,15 @@ const pt = {
   'account.photoError': 'Não foi possível trocar a foto. Tente novamente.',
   'account.language': 'Idioma',
 
+  // Notificações push
+  'push.promptTitle': 'Quer ser avisado quando sair capítulo novo?',
+  'push.promptBody': 'Ative as notificações para saber assim que uma série que você favoritou tiver um capítulo novo.',
+  'push.enable': 'ATIVAR',
+  'push.notNow': 'AGORA NÃO',
+  'push.accountToggle': 'Notificações de capítulos novos',
+  'push.deniedHint': 'Notificações bloqueadas no navegador. Para reativar, permita notificações para o Lorflux nas configurações do seu navegador ou aparelho.',
+  'push.unavailable': 'Não foi possível verificar o status das notificações agora.',
+
   // Meus Favoritos
   'favorites.title': 'MEUS FAVORITOS',
   'favorites.subtitle': 'Minha Lista',
@@ -111,6 +120,12 @@ const pt = {
   'search.noResults': 'Nenhum resultado para',
   'search.series': 'Séries',
   'search.episodes': 'Episódios',
+
+  // Agenda de lançamentos
+  'agenda.title': 'AGENDA',
+  'agenda.empty': 'Nenhum lançamento programado para este dia',
+  'agenda.open': 'Abrir agenda de lançamentos',
+  'agenda.error': 'Não foi possível carregar a agenda agora.',
 };
 
 const en: Record<keyof typeof pt, string> = {
@@ -200,6 +215,14 @@ const en: Record<keyof typeof pt, string> = {
   'account.photoError': "Couldn't change the photo. Please try again.",
   'account.language': 'Language',
 
+  'push.promptTitle': 'Want to be notified when a new chapter drops?',
+  'push.promptBody': 'Turn on notifications to know as soon as a series you favorited has a new chapter.',
+  'push.enable': 'ENABLE',
+  'push.notNow': 'NOT NOW',
+  'push.accountToggle': 'New chapter notifications',
+  'push.deniedHint': 'Notifications are blocked in your browser. To turn them back on, allow notifications for Lorflux in your browser or device settings.',
+  'push.unavailable': 'Could not check notification status right now.',
+
   'favorites.title': 'MY FAVORITES',
   'favorites.subtitle': 'My List',
   'favorites.empty': "You haven't added anything to your list yet",
@@ -209,6 +232,11 @@ const en: Record<keyof typeof pt, string> = {
   'search.noResults': 'No results for',
   'search.series': 'Series',
   'search.episodes': 'Episodes',
+
+  'agenda.title': 'SCHEDULE',
+  'agenda.empty': 'No releases scheduled for this day',
+  'agenda.open': 'Open release schedule',
+  'agenda.error': 'Could not load the schedule right now.',
 };
 
 const es: Record<keyof typeof pt, string> = {
@@ -298,6 +326,14 @@ const es: Record<keyof typeof pt, string> = {
   'account.photoError': 'No se pudo cambiar la foto. Inténtalo de nuevo.',
   'account.language': 'Idioma',
 
+  'push.promptTitle': '¿Quieres que te avisemos cuando salga un capítulo nuevo?',
+  'push.promptBody': 'Activa las notificaciones para saber en cuanto una serie que marcaste como favorita tenga un capítulo nuevo.',
+  'push.enable': 'ACTIVAR',
+  'push.notNow': 'AHORA NO',
+  'push.accountToggle': 'Notificaciones de capítulos nuevos',
+  'push.deniedHint': 'Las notificaciones están bloqueadas en tu navegador. Para reactivarlas, permite las notificaciones para Lorflux en la configuración de tu navegador o dispositivo.',
+  'push.unavailable': 'No fue posible verificar el estado de las notificaciones ahora.',
+
   'favorites.title': 'MIS FAVORITOS',
   'favorites.subtitle': 'Mi Lista',
   'favorites.empty': 'Aún no has agregado nada a tu lista',
@@ -307,6 +343,11 @@ const es: Record<keyof typeof pt, string> = {
   'search.noResults': 'Sin resultados para',
   'search.series': 'Series',
   'search.episodes': 'Episodios',
+
+  'agenda.title': 'AGENDA',
+  'agenda.empty': 'No hay estrenos programados para este día',
+  'agenda.open': 'Abrir agenda de estrenos',
+  'agenda.error': 'No fue posible cargar la agenda ahora.',
 };
 
 const zh: Record<keyof typeof pt, string> = {
@@ -396,6 +437,14 @@ const zh: Record<keyof typeof pt, string> = {
   'account.photoError': '无法更换头像，请重试。',
   'account.language': '语言',
 
+  'push.promptTitle': '想在有新章节时收到通知吗？',
+  'push.promptBody': '开启通知，第一时间知道你收藏的作品更新了新章节。',
+  'push.enable': '开启',
+  'push.notNow': '暂不开启',
+  'push.accountToggle': '新章节通知',
+  'push.deniedHint': '浏览器已阻止通知。要重新开启，请在浏览器或设备设置中允许 Lorflux 发送通知。',
+  'push.unavailable': '暂时无法查看通知状态。',
+
   'favorites.title': '我的收藏',
   'favorites.subtitle': '我的列表',
   'favorites.empty': '你还没有添加任何内容',
@@ -405,6 +454,11 @@ const zh: Record<keyof typeof pt, string> = {
   'search.noResults': '没有找到相关结果：',
   'search.series': '剧集',
   'search.episodes': '章节',
+
+  'agenda.title': '更新日程',
+  'agenda.empty': '当天没有安排更新',
+  'agenda.open': '打开更新日程',
+  'agenda.error': '暂时无法加载日程。',
 };
 
 export type Lang = 'pt' | 'en' | 'es' | 'zh';

@@ -84,6 +84,15 @@ router.post('/webhook', express.json(), verifyBunnyWebhook, async (req, res) => 
 
     if (episode) {
       logger.info(`[Bunny Webhook] Episódio "${episode.title}" atualizado para status: ${mongoStatus}`);
+
+      // Bunny terminou o encoding (Status 4) e o episódio ficou publicado →
+      // dispara o push de capítulo novo. Fire-and-forget: o webhook nunca
+      // espera o envio terminar.
+      if (mongoStatus === 'published') {
+        require('../services/notificationService')
+          .notifyEpisodePublished(episode._id)
+          .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+      }
     } else {
       logger.warn(`[Bunny Webhook] Nenhum episódio encontrado com bunnyVideoId: ${VideoGuid}`);
     }
@@ -449,6 +458,17 @@ router.get('/video-status/:videoId', (req, res) => {
         );
 
         logger.info(`[Bunny Status] ${videoId} → Bunny:${video.status} DB:${mongoStatus}`);
+
+        // 6º caminho de disparo: sincronização manual (admin consulta o Bunny
+        // direto quando o webhook automático se perde) também pode publicar
+        // o episódio. Fire-and-forget, igual aos demais — claim + guarda de
+        // conteúdo em notifyEpisodePublished tornam seguro repetir a sync.
+        if (episode && mongoStatus === 'published') {
+          require('../services/notificationService')
+            .notifyEpisodePublished(episode._id)
+            .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+        }
+
         res.json({ bunnyStatus: video.status, mongoStatus, episode });
       } catch (err) {
         logger.error('[Bunny Status Check]', err);

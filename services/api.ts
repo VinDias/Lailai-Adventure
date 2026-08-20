@@ -2,6 +2,22 @@
 import API_URL from '../config/api';
 import { getAnonymousId } from '../utils/anonymousId';
 
+// Formato de PushSubscription.toJSON() (Web Push API) — o que POST /me/push/subscribe espera.
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  expirationTime?: number | null;
+}
+
+// Item de GET /api/content/agenda — ver routes/content.js.
+export interface AgendaItem {
+  _id: string;
+  title: string;
+  cover_image?: string;
+  content_type?: string;
+  releaseDay: number;
+}
+
 class ApiService {
   private static instance: ApiService;
   private accessToken: string | null = null;
@@ -390,7 +406,7 @@ class ApiService {
     });
   }
 
-  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean }>) {
+  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean; releaseDay: number | null }>) {
     return this.request<any>(`/content/series/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
@@ -495,7 +511,14 @@ class ApiService {
   }
 
   async addFavorite(seriesId: string | number) {
-    return this.request<{ favorited: boolean }>(`/favorites/${seriesId}`, { method: 'POST' });
+    const result = await this.request<{ favorited: boolean }>(`/favorites/${seriesId}`, { method: 'POST' });
+    // Ponto único de integração do prompt contextual de push (Fase 4 Bloco 2,
+    // Task 8): PushPrompt escuta este evento — nenhuma das três abas (HQCine/
+    // VCine/Hi-Qua) precisa saber de push.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('lorflux:favorited'));
+    }
+    return result;
   }
 
   async removeFavorite(seriesId: string | number) {
@@ -638,6 +661,13 @@ class ApiService {
     }
   }
 
+  // Agenda de lançamentos — público, sem auth. Chaves "0".."6" sempre
+  // presentes (0=domingo..6=sábado, igual a Date.getDay()); erro de rede
+  // propaga (this.request lança) para o AgendaView mostrar seu próprio aviso.
+  async getAgenda(): Promise<Record<string, AgendaItem[]>> {
+    return this.request<Record<string, AgendaItem[]>>('/content/agenda');
+  }
+
   async uploadVideoToBunny(file: File, episodeId: string, title: string): Promise<{ bunnyVideoId: string; videoUrl?: string }> {
     const formData = new FormData();
     formData.append('video', file);
@@ -684,6 +714,33 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ anonymousId }),
     });
+  }
+
+  // ─── Fase 4 Bloco 2: push (notificação de capítulo novo) ───────────────────
+  /** Sem auth — chave pública VAPID usada por pushManager para assinar o push deste aparelho. */
+  async getPushPublicKey() {
+    return this.request<{ publicKey: string | null }>('/push/public-key');
+  }
+
+  // Shape real de routes/push.js: 200/201 com { subscribed: true } (upsert por endpoint).
+  async subscribePush(sub: PushSubscriptionPayload) {
+    return this.request<{ subscribed: true }>('/me/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(sub),
+    });
+  }
+
+  // Shape real de routes/push.js: { removed: <deletedCount> } (0 ou 1).
+  async unsubscribePush(endpoint: string) {
+    return this.request<{ removed: number }>('/me/push/subscribe', {
+      method: 'DELETE',
+      body: JSON.stringify({ endpoint }),
+    });
+  }
+
+  /** endpoint vazio ainda é uma consulta válida (aparelho sem subscription local). */
+  async getPushStatus(endpoint: string) {
+    return this.request<{ thisDevice: boolean; anyDevice: boolean }>(`/me/push/status?endpoint=${encodeURIComponent(endpoint)}`);
   }
 }
 

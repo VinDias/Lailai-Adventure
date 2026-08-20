@@ -28,6 +28,11 @@ Script Bash para backup automático do banco de dados MongoDB.
 - Pode ser agendado via cron para execução periódica
 - Executar: `npm run backup`
 
+### `backfillNotificationSentAt.js` (Fase 4, Bloco 2)
+Marca episódios legados (`status: 'published'` sem `notificationSentAt`) como já notificados, para o push de capítulo novo não disparar falso na primeira edição pós-deploy de um episódio antigo.
+- Idempotente — pode rodar mais de uma vez sem efeito colateral
+- Executar uma vez no deploy do push (ver `DOCS.md` → "Ativar Notificações Push na VPS"): `node scripts/backfillNotificationSentAt.js`
+
 ---
 
 ## Observações

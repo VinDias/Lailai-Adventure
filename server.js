@@ -244,6 +244,7 @@ app.use("/api/content", require("./routes/content"));
 app.use("/api/channels", require("./routes/channels"));
 app.use("/api/favorites", require("./routes/favorites"));
 app.use("/api/account", require("./routes/account"));
+app.use("/api", require("./routes/push"));
 
 // ADMIN METRICS — likes/dislikes por episódio
 app.get('/api/admin/episodes/:id/metrics', verifyToken, requireAdmin, async (req, res) => {

@@ -38,7 +38,9 @@ const EpisodeSchema = new mongoose.Schema({
   isPremium: { type: Boolean, default: false },
   status: { type: String, enum: ['processing', 'published', 'draft'], default: 'draft' },
   views: { type: Number, default: 0 },
-  order_index: { type: Number, default: 0 }
+  order_index: { type: Number, default: 0 },
+  // Guarda de envio único do push de capítulo novo
+  notificationSentAt: { type: Date, default: null }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Episode', EpisodeSchema);

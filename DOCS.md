@@ -58,6 +58,68 @@ npm run seed:admin
 
 ---
 
+## Ativar Notificações Push na VPS
+
+### Gerar Chaves VAPID (uma única vez)
+
+Chaves VAPID identificam seu servidor aos provedores de push (Firefox, Chrome, etc) e habilitam criptografia de ponta a ponta. **Gere-as uma única vez por instância de produção e guarde com segurança.**
+
+1. **Na VPS (`/var/www/lorflux`)**, execute:
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+   Você receberá:
+   ```
+   Public Key: B3d...xyz
+   Private Key: 2Qw...abc
+   ```
+
+2. **Adicione ao `.env` em produção:**
+   ```env
+   VAPID_PUBLIC_KEY=B3d...xyz
+   VAPID_PRIVATE_KEY=2Qw...abc
+   VAPID_SUBJECT=mailto:contato@lorflux.com
+   ```
+   - `VAPID_SUBJECT` é seu e-mail ou URL (obrigatório; padronizado para o contato da empresa)
+   - A chave privada é sensível — nunca compartilhe em logs ou repositórios
+
+3. **Instale a dependência (se não incluída):**
+   ```bash
+   npm install
+   ```
+
+4. **Rode o backfill de episódios legados (uma vez, idempotente):**
+   ```bash
+   node scripts/backfillNotificationSentAt.js
+   ```
+   Marca o acervo já publicado como notificado, para que o primeiro edit de
+   um episódio antigo (ex.: trocar a thumbnail) não dispare um push falso de
+   "capítulo novo" para quem favoritou. Rodar de novo não faz nada (idempotente).
+
+5. **Reinicie o PM2:**
+   ```bash
+   npm run restart
+   # ou
+   pm2 restart all
+   ```
+
+### Aviso Crítico
+
+**Trocar VAPID_PRIVATE_KEY invalida TODAS as inscrições ativas.** Antes de regerar:
+- Notifique usuários sobre qualquer interrupção de notificações
+- Faça backup do `.env` anterior (caso seja necessário reverter temporariamente)
+- `PushSubscription` não tem TTL nem expira sozinha: o `notificationService` só remove uma inscrição quando o envio falha com 404/410 (endpoint morto), o que uma chave trocada não necessariamente causa. Ou seja, inscrições antigas podem ficar paradas no banco sem receber nada até o usuário reabrir o app e reativar manualmente (o toggle da Conta ou o cartão pós-favorito criam uma inscrição nova)
+
+### Se Push Ficar Desativado
+
+Se as variáveis VAPID não estiverem no `.env`:
+- O app funciona normalmente (todos os recursos disponíveis) — a ausência de push nunca derruba o boot
+- Em produção, `notificationService.notifyEpisodePublished` fica desativado (log de erro, sem lançar) — nada é enviado, mas a publicação do episódio segue normal
+- Em desenvolvimento, um par de chaves efêmero é gerado a cada start (aviso no log) — inscrições não sobrevivem a um restart
+- Reiniciar o PM2 com as chaves corretas reativa o push
+
+---
+
 ## Adicionar Novos Admins
 
 Via MongoDB:

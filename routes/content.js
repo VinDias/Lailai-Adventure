@@ -10,7 +10,7 @@ const optionalAuth = require('../middlewares/optionalAuth');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 
-const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId'];
+const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay'];
 const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
   'audioTrack1Url', 'audioTrack1Lang', 'audioTrack2Url', 'audioTrack2Lang', 'audioTrack3Url', 'audioTrack3Lang', 'audioTrack4Url', 'audioTrack4Lang'];
 
@@ -61,6 +61,38 @@ router.get('/search', optionalAuth, async (req, res) => {
   }
 });
 
+// ─── AGENDA ─────────────────────────────────────────────────────────────────
+
+// GET /api/content/agenda — público. Séries publicadas com dia de lançamento
+// definido, agrupadas por dia da semana (0=domingo..6=sábado, Date.getDay()).
+// Posicionada antes de /series/:id — "agenda" não colide com nenhum padrão
+// de rota deste router (sem catch-all de segmento único aqui).
+router.get('/agenda', async (req, res) => {
+  try {
+    const series = await Series.find({ isPublished: true, releaseDay: { $ne: null } })
+      .select('title cover_image content_type releaseDay order_index')
+      .sort({ order_index: 1, title: 1 })
+      .lean();
+
+    // Todos os 7 grupos presentes, mesmo vazios — o front não precisa checar existência.
+    const agenda = { '0': [], '1': [], '2': [], '3': [], '4': [], '5': [], '6': [] };
+    for (const serie of series) {
+      agenda[String(serie.releaseDay)].push({
+        _id: serie._id,
+        title: serie.title,
+        cover_image: serie.cover_image,
+        content_type: serie.content_type,
+        releaseDay: serie.releaseDay,
+      });
+    }
+
+    res.json(agenda);
+  } catch (err) {
+    logger.error('[Content] GET /agenda', err);
+    res.status(500).json({ error: 'Erro ao buscar agenda de lançamentos.' });
+  }
+});
+
 // ─── SERIES ────────────────────────────────────────────────────────────────
 
 // GET /api/content/series — listar séries publicadas
@@ -96,7 +128,7 @@ router.get('/series/:id', async (req, res) => {
 // POST /api/content/series — criar série (admin)
 router.post('/series', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId } = req.body;
+    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay } = req.body;
     if (!title || !genre || !content_type) {
       return res.status(400).json({ error: 'title, genre e content_type são obrigatórios.' });
     }
@@ -107,7 +139,7 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
     const translations = await translationService.buildTranslationsSafe({ genre, description }, `série "${title}"`);
 
     const series = await Series.create({
-      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished,
+      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay,
       ...(channelId ? { channelId } : {}),
       ...(translations ? { translations } : {})
     });
@@ -137,14 +169,54 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
       if (translations) updates.translations = translations;
     }
 
+    // isPublished está no body → precisamos do valor ANTERIOR (antes do
+    // update) para detectar a transição falso→verdadeiro: série que volta a
+    // publicar "destrava" capítulos que ficaram sem notificar enquanto ela
+    // estava despublicada (o claim de notifyEpisodePublished os poupou).
+    let estavaDespublicada = false;
+    if ('isPublished' in updates) {
+      const antes = await Series.findById(req.params.id).select('isPublished').lean();
+      if (!antes) return res.status(404).json({ error: 'Série não encontrada.' });
+      estavaDespublicada = !antes.isPublished;
+    }
+
     const series = await Series.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
+
+    if (estavaDespublicada && updates.isPublished === true) {
+      redispararNotificacoesDaSerie(series._id);
+    }
+
     res.json(series);
   } catch (err) {
     logger.error('[Content] PUT /series/:id', err);
     res.status(500).json({ error: 'Erro ao atualizar série.' });
   }
 });
+
+/**
+ * Série volta a ser publicada (isPublished falso→verdadeiro): re-dispara o
+ * push dos capítulos que já estavam `status: 'published'` mas ficaram sem
+ * notificar enquanto a obra estava despublicada (notifyEpisodePublished
+ * desfaz o claim nesse caso — ver services/notificationService.js). Episódios
+ * já notificados (notificationSentAt preenchido) ficam naturalmente de fora
+ * do filtro. Fire-and-forget e SEQUENCIAL (sem Promise.all) — pode haver
+ * muitos episódios e publicar a série nunca deve esperar o envio.
+ */
+function redispararNotificacoesDaSerie(seriesId) {
+  (async () => {
+    const notificationService = require('../services/notificationService');
+    const episodios = await Episode.find({
+      seriesId, status: 'published', notificationSentAt: null,
+    }).select('_id').lean();
+
+    for (const episode of episodios) {
+      await notificationService
+        .notifyEpisodePublished(episode._id)
+        .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+    }
+  })().catch(err => logger.error('[Push] Falha ao redisparar notificações da série', err));
+}
 
 // DELETE /api/content/series/:id — remover série (admin)
 router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
@@ -232,7 +304,7 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
 // POST /api/content/episodes — criar episódio (admin)
 router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { seriesId, episode_number, title, description, video_url, bunnyVideoId, thumbnail, duration, isPremium, order_index } = req.body;
+    const { seriesId, episode_number, title, description, video_url, bunnyVideoId, thumbnail, duration, isPremium, order_index, status } = req.body;
     if (!seriesId || !episode_number || !title) {
       return res.status(400).json({ error: 'seriesId, episode_number e title são obrigatórios.' });
     }
@@ -242,10 +314,19 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
     const translations = await translationService.buildTranslationsSafe({ description }, `episódio "${title}"`);
 
     const episode = await Episode.create({
-      seriesId, episode_number, title, description, video_url, bunnyVideoId, thumbnail, duration, isPremium, order_index,
+      seriesId, episode_number, title, description, video_url, bunnyVideoId, thumbnail, duration, isPremium, order_index, status,
       ...(translations ? { translations } : {})
     });
     logger.info(`[Admin] Episódio criado: ${title} (série: ${seriesId})`);
+
+    // Episódio já nasce publicado (ex.: import retroativo) → dispara o push de
+    // capítulo novo. Fire-and-forget: a criação nunca espera o envio terminar.
+    if (episode.status === 'published') {
+      require('../services/notificationService')
+        .notifyEpisodePublished(episode._id)
+        .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+    }
+
     res.status(201).json(episode);
   } catch (err) {
     logger.error('[Content] POST /episodes', err);
@@ -269,6 +350,17 @@ router.put('/episodes/:id', verifyToken, requireAdmin, async (req, res) => {
 
     const episode = await Episode.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+
+    // Edição publicou o episódio (ou ele já estava publicado) → dispara o
+    // push. notifyEpisodePublished tem claim próprio (notificationSentAt):
+    // se já foi enviado, a chamada é um no-op — seguro repetir aqui sempre
+    // que o status resultante for "published".
+    if (episode.status === 'published') {
+      require('../services/notificationService')
+        .notifyEpisodePublished(episode._id)
+        .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+    }
+
     res.json(episode);
   } catch (err) {
     logger.error('[Content] PUT /episodes/:id', err);
@@ -302,6 +394,16 @@ router.post('/episodes/:id/panels', verifyToken, requireAdmin, async (req, res) 
       { new: true }
     );
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+
+    // 5º caminho de disparo: episódio publicado sem conteúdo (esqueleto)
+    // ganha o primeiro painel aqui. O claim + a guarda de conteúdo em
+    // notifyEpisodePublished fazem o resto — este é o único anexo que de
+    // fato envia; os seguintes são no-op (claim já consumido).
+    if (episode.status === 'published') {
+      require('../services/notificationService')
+        .notifyEpisodePublished(episode._id)
+        .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+    }
 
     res.json({ success: true, panelCount: episode.panels.length, episode });
   } catch (err) {

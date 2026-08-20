@@ -26,6 +26,7 @@ Séries de conteúdo (container de episódios).
 - `isPublished` — controla visibilidade pública (default `false`; catálogo exige `true` estrito)
 - `translations` — `{ en|es|zh: { genre, description } }`, preenchido automaticamente pelo `translationService` no save (título NÃO é traduzido — decisão do cliente)
 - `channelId` (Fase 3) — ref ao `Channel` do ilustrador; agrupa a obra no relatório de royalties
+- `releaseDay` (Fase 4, Bloco 2) — dia da semana quando novos episódios são esperados (0–6: Dom–Sáb, ou null); usado pela agenda `GET /api/content/agenda` (não há notificação programada — o push de capítulo novo dispara na publicação, não no releaseDay)
 
 ### `Episode.js`
 Episódios de uma série.
@@ -37,6 +38,7 @@ Episódios de uma série.
 - `isPremium`, `status` (`draft` | `processing` | `published`)
 - `views`, `order_index`, `webtoonLanguageLabels`
 - `translations` — `{ en|es|zh: { description } }`, automático via `translationService`
+- `notificationSentAt` (Fase 4, Bloco 2) — timestamp de quando o push foi disparado; `null` até o primeiro disparo; previne re-envios em reprocessamento
 
 ### `Ad.js`
 Campanhas publicitárias próprias (interstitial + banner de feed).
@@ -94,6 +96,14 @@ Progresso de leitura/reprodução — um documento por (identidade, episódio).
 - Índices únicos parciais `{userId, episodeId}` e `{anonymousId, episodeId}` (nunca sparse — o índice é composto)
 - Índice TTL (`expireAfterSeconds: 180 dias`, `partialFilterExpression: anonymousId exists`) — só visitante expira; conta não expira (LGPD: quem apaga é o usuário, pelo Centro de Privacidade)
 - Ver `services/progressService.js` para as regras de gravação e do carrossel "Continuar"
+
+### `PushSubscription.js` (Fase 4, Bloco 2)
+Inscrição de push de UM aparelho de UM usuário (vários aparelhos = vários documentos).
+- `userId` — ref para `User`
+- `endpoint` — único GLOBAL (não composto com `userId`); reinscrição do mesmo endpoint (`findOneAndUpdate` upsert) troca o dono para quem está logado nele agora (takeover intencional, ver `routes/push.js`)
+- `keys.p256dh`, `keys.auth` (credenciais Web Push API)
+- Sem TTL — não expira por tempo; endpoint morto (404/410 no envio) é removido na hora pelo `notificationService`
+- Índice extra em `userId` (para consultas por usuário)
 
 ---
 

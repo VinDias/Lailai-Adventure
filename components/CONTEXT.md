@@ -47,11 +47,19 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 | `AdComponent.tsx` | Componente individual de exibição de um anúncio em vídeo |
 | `DonateButton.tsx` | Botão de doação integrado ao backend |
 
+## Notificações e Agenda (Fase 4, Bloco 2)
+
+| Arquivo | Propósito |
+|---------|-----------|
+| `PushPrompt.tsx` | Cartão contextual pós-favorito — escuta o evento `lorflux:favorited` (disparado por `services/api.ts::addFavorite`) e aparece uma única vez, de forma não-bloqueante, só quando `pushManager.isSupported()` e a permissão do navegador ainda está em `default` e o usuário nunca respondeu (flag `lorflux_push_asked` no `localStorage`, nunca limpa pelo app). Botão "Ativar" chama `pushManager.subscribeThisDevice()` (nunca lança — sucesso ou falha, o cartão fecha e grava a flag do mesmo jeito); "Agora não" só fecha. Lock síncrono via `useRef` evita duplo clique disparar duas assinaturas. `z-[1600]` — acima do modal de detalhe de série (1500, único ponto de favoritar) e abaixo do leitor (2000). |
+| `PushAccountToggle.tsx` | Toggle "Notificações de capítulos novos" na aba Conta. Cinco estados (`carregando`/`ligado`/`desligado`/`negado`/`indisponivel`): carrega com `pushManager.getStatus()`; sem suporte do navegador (`isSupported() === false`) o componente inteiro não renderiza; permissão `denied` trava o toggle com dica; `getStatus()` retornando `null` (sem suporte residual ou erro) trava com aviso de "indisponível", nunca afirma "desligado" sobre status não confirmado. Clique chama `subscribeThisDevice()`/`unsubscribeThisDevice()` direto (não depende do `PushPrompt`). |
+| `AgendaView.tsx` | Overlay de agenda de lançamentos (`z-[1550]`) — busca `api.getAgenda()` (`GET /api/content/agenda`) ao abrir, agrupado por dia da semana (0=domingo..6=sábado, igual `Date.getDay()`). Seletor horizontal dos 7 dias (nomes via `Intl.DateTimeFormat` na locale do idioma do APP, não do navegador) com o dia de hoje destacado e um dia selecionado (default: hoje); grade de capas (`cover_image` + `title`) do dia selecionado; clique abre a série (`onOpenSeries`) e fecha o overlay. Fecha por Escape ou clique no backdrop. |
+
 ## Admin
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `Admin/AdminDashboard.tsx` | Painel administrativo completo — inclui estatísticas, gerenciamento de séries/episódios, uploads diretos para Bunny CDN, gestão de campanhas de anúncios, gerenciamento de usuários e rastreamento de pagamentos |
+| `Admin/AdminDashboard.tsx` | Painel administrativo completo — inclui estatísticas, gerenciamento de séries/episódios, uploads diretos para Bunny CDN, gestão de campanhas de anúncios, gerenciamento de usuários e rastreamento de pagamentos. Na seção de edição de série, novo campo `releaseDay` (select 0–6 ou null) para agenda e notificações push. |
 
 ## UI Geral
 
