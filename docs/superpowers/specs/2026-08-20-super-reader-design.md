@@ -35,7 +35,7 @@ entregue). Exige login. Quem apoia ganha o selo **Super Reader**.
 | Divisão 80/20 | Calculada e **congelada no registro** (`authorShareCents = Math.round(amountCents * 0.8)`, `platformShareCents = amountCents - authorShareCents`) | Snapshot imutável: mudar a regra no futuro não reescreve o passado. Centavos inteiros, sem float acumulado |
 | Taxas do Stripe | Absorvidas pela plataforma (split sobre o **bruto**) | É o que o cliente descreveu ("80% direto ao autor"); simples de auditar |
 | Mínimo | `Setting` chave `superReaderMinCents` (default **500**), no `PUBLIC_KEYS` | O PDF pede mínimo configurável; o frontend lê o mínimo sem auth para montar os botões de valor |
-| Moedas | `brl`/`usd`/`eur` (mesmo conjunto do Premium); o mínimo em centavos vale **por moeda** (500 = R$5/US$5/€5) | Conversão cambial aqui seria complexidade sem pedido; 5 na moeda forte ≥ R$5 sempre |
+| Moedas | **brl** (decisão da revisão final) | O relatório de repasse (`GET /api/admin/royalties/report`) agrega `authorShareCents` por canal **sem** separar por moeda — um apoio em outra moeda entraria somado como se fosse BRL. O contrato do cliente é em R$; cartão estrangeiro paga em R$ com conversão do próprio cartão. Trancado até existir política cambial; reabrir usd/eur exige agrupar o report por `{channelId, currency}` primeiro |
 | Login | `verifyToken` na criação da sessão | Exigência do PDF ("apoio exige login") — e o selo precisa de dono |
 | Selo Super Reader | **Derivado** (existe ≥1 contribuição paga), sem campo novo em `User` | Sem estado duplicado para dessincronizar; a consulta é barata e cabe numa rota `me` |
 | Relatório | Seção **separada** no `GET /api/admin/royalties/report` (`superReader: { porCanal, totais }`) somando `authorShareCents` do mês por canal | "Direto ao autor, fora do pool": não entra em `poolSuggested`, não entra no `breakdown` do fechamento, não altera `RoyaltyPeriod` |
@@ -109,7 +109,10 @@ A lógica de registro vive em `services/superReaderService.js` com **test seam**
 
 Reembolso/estorno automático · repasse bancário ao autor (o relatório informa;
 o pagamento é manual como no pool) · selo visível fora da Conta (ex. em
-comentários — não existem) · conversão cambial do mínimo.
+comentários — não existem) · conversão cambial do mínimo · **multimoeda**
+(usd/eur): decisão revertida na revisão final — o serviço aceita só `brl`
+até o relatório de repasse agrupar por `{channelId, currency}` em vez de só
+`channelId` (hoje soma `authorShareCents` sem olhar moeda).
 
 ## Testes (antes do código)
 

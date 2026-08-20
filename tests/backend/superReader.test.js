@@ -266,7 +266,7 @@ describe('criarSessaoDeApoio', () => {
     const serie = await criarSerie({ channelId });
 
     const resultado = await superReaderService.criarSessaoDeApoio({
-      userId, seriesId: serie._id, amountCents: 750, currency: 'usd',
+      userId, seriesId: serie._id, amountCents: 750, currency: 'brl',
     });
 
     expect(resultado).toEqual({ url: 'https://checkout.stripe.com/feliz' });
@@ -289,8 +289,20 @@ describe('criarSessaoDeApoio', () => {
     expect(params.line_items).toHaveLength(1);
     const lineItem = params.line_items[0];
     expect(lineItem.quantity).toBe(1);
-    expect(lineItem.price_data.currency).toBe('usd');
+    expect(lineItem.price_data.currency).toBe('brl');
     expect(lineItem.price_data.unit_amount).toBe(750);
+  });
+
+  it('moeda usd é rejeitada (Super Reader trancado em BRL até existir política cambial)', async () => {
+    const { stripe } = fakeStripe();
+    superReaderService.__setStripeForTests(stripe);
+    const serie = await criarSerie();
+
+    await expect(
+      superReaderService.criarSessaoDeApoio({
+        userId: new mongoose.Types.ObjectId(), seriesId: serie._id, amountCents: 750, currency: 'usd',
+      }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it('respeita um mínimo customizado via Setting (não só o default 500)', async () => {
@@ -637,7 +649,7 @@ describe('rotas', () => {
       const res = await request(app)
         .post('/api/superreader/create-session')
         .set('Authorization', `Bearer ${auth.getToken('user')}`)
-        .send({ seriesId: serie._id.toString(), amountCents: 750, currency: 'usd', userId: userIdForjado });
+        .send({ seriesId: serie._id.toString(), amountCents: 750, currency: 'brl', userId: userIdForjado });
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ url: 'https://checkout.stripe.com/rota-feliz' });
@@ -646,6 +658,19 @@ describe('rotas', () => {
       expect(capturados[0].metadata.tipo).toBe('super_reader');
       expect(capturados[0].metadata.userId).toBe(auth.getId('user'));
       expect(capturados[0].metadata.userId).not.toBe(userIdForjado);
+    });
+
+    it('moeda usd → 400 (trancado em BRL até existir política cambial)', async () => {
+      const { stripe } = fakeStripe();
+      superReaderService.__setStripeForTests(stripe);
+      const serie = await criarSerie();
+
+      const res = await request(app)
+        .post('/api/superreader/create-session')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ seriesId: serie._id.toString(), amountCents: 750, currency: 'usd' });
+
+      expect(res.status).toBe(400);
     });
   });
 

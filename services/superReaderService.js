@@ -13,7 +13,12 @@ const Series = require('../models/Series');
 const Setting = require('../models/Setting');
 const SuperReaderContribution = require('../models/SuperReaderContribution');
 
-const MOEDAS_VALIDAS = ['brl', 'usd', 'eur'];
+// Trancado em BRL até existir política cambial (ruling da revisão final,
+// 20/08/2026): o relatório de repasse (routes/royalties.js) agrega
+// authorShareCents por canal SEM separar por moeda — um apoio em outra
+// moeda entraria somado como se fosse BRL. Reabrir usd/eur exige agrupar o
+// report por {channelId, currency} primeiro — dívida registrada na spec.
+const MOEDAS_VALIDAS = ['brl'];
 const MINIMO_PADRAO_CENTS = 500;
 
 let stripeInstance = null;
@@ -63,7 +68,7 @@ async function criarSessaoDeApoio({ userId, seriesId, amountCents, currency }) {
   }
 
   if (!MOEDAS_VALIDAS.includes(currency)) {
-    const e = new Error('Moeda inválida. Use brl, usd ou eur.');
+    const e = new Error('Moeda inválida. Use brl.');
     e.status = 400;
     throw e;
   }

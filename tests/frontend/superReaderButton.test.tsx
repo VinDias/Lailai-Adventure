@@ -30,9 +30,12 @@ const abrirPainel = () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // jsdom expõe navigator.language='en-US' por padrão — fixa pt-BR para
-  // getLocalizedCurrency() cair em 'brl' (mesma técnica de i18n.test.tsx).
-  vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('pt-BR');
+  // Super Reader é BRL fixo (ruling da revisão final) — ao contrário do
+  // Premium, NÃO usa getLocalizedCurrency/navigator.language. Fixa um
+  // locale não-BR aqui de propósito ('en-US', já o default do jsdom) para
+  // provar que a moeda do botão continua 'brl'/R$ mesmo assim (ver teste
+  // "moeda fixa em brl..." abaixo).
+  vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('en-US');
   (api.getSuperReaderMin as any).mockResolvedValue({ minCents: 500 });
   // window.location.href = ... dispararia "not implemented: navigation" no
   // jsdom; troca por um objeto simples só para afirmar o valor atribuído.
@@ -55,6 +58,17 @@ describe('SuperReaderButton', () => {
     await waitFor(() => expect(screen.getByText('R$5')).toBeInTheDocument());
     expect(screen.getByText('R$10')).toBeInTheDocument();
     expect(screen.getByText('R$20')).toBeInTheDocument();
+  });
+
+  it('moeda fixa em brl/R$ mesmo com navigator.language em locale não-BR (ruling: Super Reader trancado em BRL)', async () => {
+    (api.createSuperReaderSession as any).mockResolvedValue({ url: 'https://stripe.example/session-brl-fixo' });
+    render(<SuperReaderButton user={mockUser} seriesId="s1" />);
+    abrirPainel();
+    await waitFor(() => expect(screen.getByText('R$5')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'APOIAR' }));
+
+    await waitFor(() => expect(api.createSuperReaderSession).toHaveBeenCalledWith('s1', 500, 'brl'));
   });
 
   it('clicar num valor rápido e apoiar envia esse valor em centavos', async () => {

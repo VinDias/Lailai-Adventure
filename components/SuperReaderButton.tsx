@@ -2,9 +2,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Gift } from 'lucide-react';
 import { api } from '../services/api';
 import { useT } from '../contexts/I18nContext';
-import { getLocalizedCurrency } from '../utils/localizedPrice';
 import { formatarValorMonetario } from '../utils/currency';
 import { User } from '../types';
+
+// Super Reader é BRL apenas (ruling da revisão final, 20/08/2026): o
+// relatório de repasse agrega por canal sem separar moeda — reabrir
+// multimoeda é dívida registrada na spec. Ao contrário do Premium (que
+// segue usando getLocalizedCurrency por navigator.language), o apoio envia
+// SEMPRE 'brl'/R$, independente do idioma do dispositivo.
+const SUPER_READER_CURRENCY = 'brl';
 
 // Só usado se o fetch do mínimo falhar de verdade (rede fora do ar) — o
 // componente sempre tenta buscar o valor real do backend primeiro; enquanto
@@ -45,7 +51,7 @@ function paraCentavos(valorDigitado: string): number | null {
  */
 const SuperReaderButton: React.FC<SuperReaderButtonProps> = ({ user, seriesId }) => {
   const t = useT();
-  const currency = getLocalizedCurrency();
+  const currency = SUPER_READER_CURRENCY;
 
   const [aberto, setAberto] = useState(false);
   const [minCents, setMinCents] = useState<number | null>(null);
