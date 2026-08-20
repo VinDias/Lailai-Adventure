@@ -101,6 +101,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       // stripeCustomerId. Falha na gravação cai no catch geral (500) —
       // o Stripe reenvia e o upsert do serviço absorve o retry.
       if (session.metadata?.tipo === 'super_reader') {
+        // Guard de payment_status: hoje inalcançável (checkout.session.completed
+        // com cartão só dispara já pago), mas fecha a porta para quando Pix/
+        // boleto entrarem — esses métodos completam a sessão como 'unpaid' e só
+        // confirmam o pagamento depois, de forma assíncrona.
+        if (session.payment_status && session.payment_status !== 'paid') {
+          logger.warn(`[SuperReader] Sessão ${session.id} com payment_status=${session.payment_status} — não registrada (aguardando pagamento).`);
+          return res.json({ received: true });
+        }
         await superReaderService.registrarContribuicao(session);
         logger.info(`[SuperReader] Contribuição registrada: ${session.amount_total} ${session.currency} (canal ${session.metadata.channelId})`);
         return res.json({ received: true });

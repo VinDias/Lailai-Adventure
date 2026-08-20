@@ -402,13 +402,13 @@ describe('registrarContribuicao', () => {
     expect(todos).toHaveLength(1);
   });
 
-  it('period no formato YYYY-MM (mês do webhook, não do metadata)', async () => {
+  it('period no formato YYYY-MM (mês do webhook, não do metadata), em UTC — consistente com o Date.UTC do report', async () => {
     const sessao = montarSessao();
     const doc = await superReaderService.registrarContribuicao(sessao);
 
     expect(doc.period).toMatch(/^\d{4}-\d{2}$/);
     const agora = new Date();
-    const periodoEsperado = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
+    const periodoEsperado = `${agora.getUTCFullYear()}-${String(agora.getUTCMonth() + 1).padStart(2, '0')}`;
     expect(doc.period).toBe(periodoEsperado);
   });
 
@@ -842,7 +842,7 @@ describe('webhook', () => {
     return postWebhookRaw(payload, assinar(payload));
   }
 
-  function montarEventoSR({ sessionId, customer = null, amountTotal = 500, currency = 'brl', userId, seriesId, channelId }) {
+  function montarEventoSR({ sessionId, customer = null, amountTotal = 500, currency = 'brl', paymentStatus, userId, seriesId, channelId }) {
     return {
       id: `evt_sr_${sessionId}`,
       type: 'checkout.session.completed',
@@ -853,6 +853,7 @@ describe('webhook', () => {
           subscription: null,
           amount_total: amountTotal,
           currency,
+          ...(paymentStatus !== undefined ? { payment_status: paymentStatus } : {}),
           metadata: {
             tipo: 'super_reader',
             userId: String(userId),
@@ -1054,6 +1055,44 @@ describe('webhook', () => {
     const depois = await User.findById(inocente._id);
     expect(depois.isPremium).toBe(false);
     expect(depois.stripeSubscriptionId ?? null).toBeNull();
+  });
+
+  it('caso 7: sessão SR com payment_status "unpaid" responde 200 e NÃO grava nada (guard para Pix/boleto, hoje inalcançável via cartão)', async () => {
+    const serie = await criarSerie();
+    const sessionId = `cs_test_sr_unpaid_${new mongoose.Types.ObjectId()}`;
+    const evento = montarEventoSR({
+      sessionId,
+      userId: new mongoose.Types.ObjectId(),
+      seriesId: serie._id,
+      channelId: serie.channelId,
+      paymentStatus: 'unpaid',
+    });
+
+    const res = await postWebhookEvent(evento);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+
+    const doc = await SuperReaderContribution.findOne({ stripeSessionId: sessionId });
+    expect(doc).toBeNull();
+  });
+
+  it('caso 8: sessão SR com payment_status "paid" continua gravando normalmente (não-regressão do guard)', async () => {
+    const serie = await criarSerie();
+    const sessionId = `cs_test_sr_paid_${new mongoose.Types.ObjectId()}`;
+    const evento = montarEventoSR({
+      sessionId,
+      userId: new mongoose.Types.ObjectId(),
+      seriesId: serie._id,
+      channelId: serie.channelId,
+      paymentStatus: 'paid',
+    });
+
+    const res = await postWebhookEvent(evento);
+    expect(res.status).toBe(200);
+
+    const doc = await SuperReaderContribution.findOne({ stripeSessionId: sessionId });
+    expect(doc).not.toBeNull();
+    expect(doc.amountCents).toBe(500);
   });
 });
 

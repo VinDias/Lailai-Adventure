@@ -142,8 +142,11 @@ async function registrarContribuicao(session) {
   const authorShareCents = Math.round(amountCents * 0.8);
   const platformShareCents = amountCents - authorShareCents;
 
+  // UTC (não fuso local): o relatório do mesmo período (routes/royalties.js,
+  // parsePeriod) filtra por Date.UTC — usar hora local aqui desalinharia o
+  // period gravado do period consultado perto da virada do mês.
   const agora = new Date();
-  const period = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
+  const period = `${agora.getUTCFullYear()}-${String(agora.getUTCMonth() + 1).padStart(2, '0')}`;
 
   try {
     return await SuperReaderContribution.findOneAndUpdate(
