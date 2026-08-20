@@ -1238,3 +1238,78 @@ describe('LGPD das inscrições de push', () => {
     expect(await PushSubscription.countDocuments({ userId: descartavel._id })).toBe(0);
   });
 });
+
+/**
+ * Task 6: GET /api/content/agenda — rota pública que agrupa séries publicadas
+ * com releaseDay definido, por dia da semana (0=domingo..6=sábado). Todos os
+ * 7 grupos sempre presentes na resposta, vazios como [].
+ */
+describe('GET /api/content/agenda', () => {
+  let Series;
+
+  beforeAll(() => {
+    Series = require('../../models/Series');
+  });
+
+  it('agrupa séries publicadas por releaseDay e traz os 7 grupos sempre presentes', async () => {
+    const quinta = await Series.create({
+      title: 'Serie Agenda Quinta', genre: 'Teste', content_type: 'hiqua', isPublished: true, releaseDay: 4,
+    });
+    const segunda = await Series.create({
+      title: 'Serie Agenda Segunda', genre: 'Teste', content_type: 'vcine', isPublished: true, releaseDay: 1,
+    });
+    // Sem releaseDay: fica fora de todos os grupos.
+    await Series.create({
+      title: 'Serie Agenda Sem Dia', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+    });
+    // Não publicada: fica fora mesmo com releaseDay.
+    await Series.create({
+      title: 'Serie Agenda Despublicada', genre: 'Teste', content_type: 'hiqua', isPublished: false, releaseDay: 4,
+    });
+
+    const res = await request(app).get('/api/content/agenda');
+
+    expect(res.status).toBe(200);
+    // Todos os 7 grupos existem, mesmo vazios.
+    for (let dia = 0; dia <= 6; dia++) {
+      expect(Array.isArray(res.body[String(dia)])).toBe(true);
+    }
+
+    const idsQuinta = res.body['4'].map(s => s._id);
+    expect(idsQuinta).toContain(String(quinta._id));
+    const idsSegunda = res.body['1'].map(s => s._id);
+    expect(idsSegunda).toContain(String(segunda._id));
+
+    // A série sem releaseDay e a despublicada não aparecem em nenhum grupo.
+    const todosOsIds = Object.values(res.body).flat().map(s => s._id);
+    expect(todosOsIds).not.toContain(String((await Series.findOne({ title: 'Serie Agenda Sem Dia' }))._id));
+    expect(todosOsIds).not.toContain(String((await Series.findOne({ title: 'Serie Agenda Despublicada' }))._id));
+
+    // Grupo sem nenhuma série publicada continua vazio (ex.: domingo=0 e
+    // sábado=6 não foram usados neste teste).
+    expect(res.body['0']).toEqual([]);
+    expect(res.body['6']).toEqual([]);
+
+    const item = res.body['4'].find(s => s._id === String(quinta._id));
+    expect(item).toMatchObject({
+      title: 'Serie Agenda Quinta',
+      content_type: 'hiqua',
+      releaseDay: 4,
+    });
+  });
+
+  it('não exige autenticação', async () => {
+    const res = await request(app).get('/api/content/agenda');
+    expect(res.status).toBe(200);
+  });
+
+  it('série publicada com releaseDay: 0 (domingo) aparece no grupo "0" — não é descartada por truthiness', async () => {
+    const domingo = await Series.create({
+      title: 'Serie Agenda Domingo', genre: 'Teste', content_type: 'hiqua', isPublished: true, releaseDay: 0,
+    });
+
+    const res = await request(app).get('/api/content/agenda');
+    const idsDomingo = res.body['0'].map(s => s._id);
+    expect(idsDomingo).toContain(String(domingo._id));
+  });
+});

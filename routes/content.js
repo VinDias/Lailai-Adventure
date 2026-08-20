@@ -61,6 +61,38 @@ router.get('/search', optionalAuth, async (req, res) => {
   }
 });
 
+// ─── AGENDA ─────────────────────────────────────────────────────────────────
+
+// GET /api/content/agenda — público. Séries publicadas com dia de lançamento
+// definido, agrupadas por dia da semana (0=domingo..6=sábado, Date.getDay()).
+// Posicionada antes de /series/:id — "agenda" não colide com nenhum padrão
+// de rota deste router (sem catch-all de segmento único aqui).
+router.get('/agenda', async (req, res) => {
+  try {
+    const series = await Series.find({ isPublished: true, releaseDay: { $ne: null } })
+      .select('title cover_image content_type releaseDay order_index')
+      .sort({ order_index: 1, title: 1 })
+      .lean();
+
+    // Todos os 7 grupos presentes, mesmo vazios — o front não precisa checar existência.
+    const agenda = { '0': [], '1': [], '2': [], '3': [], '4': [], '5': [], '6': [] };
+    for (const serie of series) {
+      agenda[String(serie.releaseDay)].push({
+        _id: serie._id,
+        title: serie.title,
+        cover_image: serie.cover_image,
+        content_type: serie.content_type,
+        releaseDay: serie.releaseDay,
+      });
+    }
+
+    res.json(agenda);
+  } catch (err) {
+    logger.error('[Content] GET /agenda', err);
+    res.status(500).json({ error: 'Erro ao buscar agenda de lançamentos.' });
+  }
+});
+
 // ─── SERIES ────────────────────────────────────────────────────────────────
 
 // GET /api/content/series — listar séries publicadas
