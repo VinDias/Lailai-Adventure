@@ -998,4 +998,36 @@ describe('webhook', () => {
     const doc = await SuperReaderContribution.findOne({ stripeSessionId: sessionId });
     expect(doc).toBeNull();
   });
+
+  it('caso 6: sessão sem metadata.tipo E sem customer não promove usuário nenhum (guard contra o findOne({stripeCustomerId: null}) casar campo ausente)', async () => {
+    // Achado da revisão da T3 (pré-existente): filtro { stripeCustomerId: null }
+    // no Mongo casa campo null E AUSENTE — uma sessão avulsa sem customer
+    // (doação genérica, "send test webhook" do painel) promovia um usuário
+    // arbitrário a Premium. O guard ignora sessões sem customer.
+    const inocente = await User.create({
+      email: `inocente-sem-customer-${new mongoose.Types.ObjectId()}@lorflux.test`,
+      nome: 'Usuario Sem Customer',
+      role: 'user',
+      isPremium: false,
+      // sem stripeCustomerId de propósito: campo AUSENTE, o alvo do bug
+    });
+
+    // Sem o guard, o findOne devolveria o PRIMEIRO usuário sem o campo (ordem
+    // natural — não necessariamente o inocente acima), então a asserção certa
+    // é global: NENHUM usuário pode ganhar Premium com este evento.
+    const premiumAntes = await User.countDocuments({ isPremium: true });
+
+    const evento = montarEventoPremium({
+      sessionId: `cs_test_sem_customer_${new mongoose.Types.ObjectId()}`,
+      customer: null,
+      subscription: null,
+    });
+    const res = await postWebhookEvent(evento);
+    expect(res.status).toBe(200);
+
+    expect(await User.countDocuments({ isPremium: true })).toBe(premiumAntes);
+    const depois = await User.findById(inocente._id);
+    expect(depois.isPremium).toBe(false);
+    expect(depois.stripeSubscriptionId ?? null).toBeNull();
+  });
 });

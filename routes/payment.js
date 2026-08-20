@@ -108,6 +108,15 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
       const customerId = session.customer;
 
+      // Sessão avulsa sem customer (ex.: doação genérica, "send test webhook"
+      // do painel do Stripe): filtro { stripeCustomerId: null } casaria campo
+      // null E AUSENTE no Mongo — findOne devolveria um usuário arbitrário e
+      // ele viraria Premium de graça. Sem customer, não há o que ativar.
+      if (!customerId) {
+        logger.warn('[Webhook] checkout.session.completed sem customer — ignorado (não é Premium).');
+        return res.json({ received: true });
+      }
+
       const user = await User.findOne({ stripeCustomerId: customerId });
       if (user) {
         user.isPremium = true;
