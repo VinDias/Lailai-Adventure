@@ -128,7 +128,7 @@ self.addEventListener("push", event => {
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
       tag: dados.tag || undefined,
-      renotify: true,
+      renotify: !!dados.tag,
       data: { url: dados.url || "/" },
     })
   );
