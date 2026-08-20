@@ -10,7 +10,7 @@ const optionalAuth = require('../middlewares/optionalAuth');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 
-const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId'];
+const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay'];
 const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
   'audioTrack1Url', 'audioTrack1Lang', 'audioTrack2Url', 'audioTrack2Lang', 'audioTrack3Url', 'audioTrack3Lang', 'audioTrack4Url', 'audioTrack4Lang'];
 
@@ -96,7 +96,7 @@ router.get('/series/:id', async (req, res) => {
 // POST /api/content/series — criar série (admin)
 router.post('/series', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId } = req.body;
+    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay } = req.body;
     if (!title || !genre || !content_type) {
       return res.status(400).json({ error: 'title, genre e content_type são obrigatórios.' });
     }
@@ -107,7 +107,7 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
     const translations = await translationService.buildTranslationsSafe({ genre, description }, `série "${title}"`);
 
     const series = await Series.create({
-      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished,
+      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay,
       ...(channelId ? { channelId } : {}),
       ...(translations ? { translations } : {})
     });
