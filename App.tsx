@@ -466,7 +466,12 @@ const App: React.FC = () => {
       </nav>
 
       {showOnboarding && <Onboarding onFinish={() => setShowOnboarding(false)} />}
-      {user && <PushPrompt />}
+      {/* Exclusão mútua com o agradecimento do Super Reader: os dois cartões
+          usam a MESMA posição fixa e z-[1600] — sobrepostos, o thanks cobriria
+          o prompt por inteiro. Enquanto o thanks está aberto o prompt fica
+          desmontado; se um favorito acontecer nessa janela, o convite fica
+          para o próximo favorito (a flag só é gravada quando o cartão aparece). */}
+      {user && !superReaderThanks && <PushPrompt />}
       {superReaderThanks && <SuperReaderThanks onClose={() => setSuperReaderThanks(false)} />}
       <ConsentBanner onOpenPolicy={() => openPolicy('privacy')} />
       <LegalPolicy open={legalOpen} onClose={() => setLegalOpen(false)} initialTab={legalTab} />
