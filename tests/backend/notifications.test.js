@@ -208,10 +208,15 @@ describe('notificationService', () => {
     });
   }
 
-  /** Série publicada + episódio + 2 favoritos (com subscription) + 1 subscription alheia. */
+  /** Série publicada + episódio (com conteúdo — a guarda de notifyEpisodePublished
+   *  exige video_url ou painéis) + 2 favoritos (com subscription) + 1 subscription
+   *  alheia. */
   async function montarCena({ contentType = 'hiqua', isPublished = true, episodeNumber = 2, title = 'Obra Push' } = {}) {
     const serie = await Series.create({ title, genre: 'Teste', content_type: contentType, isPublished });
-    const episodio = await Episode.create({ seriesId: serie._id, episode_number: episodeNumber, title: 'Capitulo de teste' });
+    const episodio = await Episode.create({
+      seriesId: serie._id, episode_number: episodeNumber, title: 'Capitulo de teste',
+      video_url: 'https://cdn.exemplo.test/conteudo-padrao.m3u8',
+    });
 
     const userFavorito1 = new mongoose.Types.ObjectId();
     const userFavorito2 = new mongoose.Types.ObjectId();
@@ -346,7 +351,9 @@ describe('notificationService', () => {
 
   it('PushSubscription.deleteOne lançando (falha transitória de banco na poda) não aborta o lote — as demais subscriptions recebem e a função resolve', async () => {
     const serie = await Series.create({ title: 'Obra Poda Falha', genre: 'Teste', content_type: 'hiqua', isPublished: true });
-    const episodio = await Episode.create({ seriesId: serie._id, episode_number: 3, title: 'Cap 3' });
+    const episodio = await Episode.create({
+      seriesId: serie._id, episode_number: 3, title: 'Cap 3', video_url: 'https://cdn.exemplo.test/poda-falha.m3u8',
+    });
 
     const userAntes = new mongoose.Types.ObjectId();
     const userMorta = new mongoose.Types.ObjectId();
@@ -409,7 +416,9 @@ describe('notificationService', () => {
     const TOTAL = 23;
 
     const serie = await Series.create({ title: 'Obra Lote Grande', genre: 'Teste', content_type: 'hiqua', isPublished: true });
-    const episodio = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap 1' });
+    const episodio = await Episode.create({
+      seriesId: serie._id, episode_number: 1, title: 'Cap 1', video_url: 'https://cdn.exemplo.test/lote-grande.m3u8',
+    });
 
     const subsCriadas = [];
     for (let i = 0; i < TOTAL; i++) {
@@ -742,7 +751,7 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
   }
 
   describe('caminho 1 — POST /api/content/episodes com status: "published"', () => {
-    it('dispara o push após criar o episódio já publicado', async () => {
+    it('dispara o push após criar o episódio já publicado com conteúdo (video_url)', async () => {
       let chamadas = 0;
       notificationService.__setTransportForTests(async () => { chamadas += 1; });
 
@@ -751,7 +760,10 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
       const res = await request(app)
         .post('/api/content/episodes')
         .set('Authorization', `Bearer ${auth.getToken('admin')}`)
-        .send({ seriesId: serie._id, episode_number: 1, title: 'Capitulo Disparo POST', status: 'published' });
+        .send({
+          seriesId: serie._id, episode_number: 1, title: 'Capitulo Disparo POST', status: 'published',
+          video_url: 'https://cdn.exemplo.test/disparo-post.m3u8',
+        });
 
       expect(res.status).toBe(201);
       expect(res.body.status).toBe('published');
@@ -782,12 +794,33 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
   });
 
   describe('caminho 2 — PUT /api/content/episodes/:id para status: "published"', () => {
-    it('dispara o push quando a edição muda o status para published', async () => {
+    it('dispara o push quando a edição muda o status para published (video_url junto)', async () => {
       let chamadas = 0;
       notificationService.__setTransportForTests(async () => { chamadas += 1; });
 
       const serie = await criarSerieComFavoritoESubscription();
       const episodio = await Episode.create({ seriesId: serie._id, episode_number: 3, title: 'Cap PUT', status: 'draft' });
+
+      const res = await request(app)
+        .put(`/api/content/episodes/${episodio._id}`)
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ status: 'published', video_url: 'https://cdn.exemplo.test/disparo-put.m3u8' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('published');
+
+      await vi.waitFor(() => expect(chamadas).toBe(1), { timeout: 2000, interval: 20 });
+    });
+
+    it('PUT direto para published de episódio que JÁ TEM video_url → envia (a guarda de conteúdo não bloqueia quem já tem conteúdo)', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+      const episodio = await Episode.create({
+        seriesId: serie._id, episode_number: 6, title: 'Cap Com Video Previo', status: 'draft',
+        video_url: 'https://cdn.exemplo.test/ja-tinha-video.m3u8',
+      });
 
       const res = await request(app)
         .put(`/api/content/episodes/${episodio._id}`)
@@ -798,6 +831,9 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
       expect(res.body.status).toBe('published');
 
       await vi.waitFor(() => expect(chamadas).toBe(1), { timeout: 2000, interval: 20 });
+
+      const episodioAtualizado = await Episode.findById(episodio._id);
+      expect(episodioAtualizado.notificationSentAt).not.toBeNull();
     });
 
     it('editar um episódio já publicado (sem mudar o status) não redispara — claim já consumido', async () => {
@@ -822,7 +858,7 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
   });
 
   describe('caminho 3 — webhook do Bunny com Status 4', () => {
-    it('dispara o push quando o Bunny reporta Status 4 (Finished)', async () => {
+    it('dispara o push quando o Bunny reporta Status 4 (Finished) — o vídeo é o conteúdo', async () => {
       let chamadas = 0;
       notificationService.__setTransportForTests(async () => { chamadas += 1; });
 
@@ -832,7 +868,13 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
       });
 
       const segredoAnterior = process.env.BUNNY_WEBHOOK_SECRET;
+      const cdnAnterior = process.env.BUNNY_CDN_HOSTNAME;
       process.env.BUNNY_WEBHOOK_SECRET = 'segredo-teste-notificacoes';
+      // Sem CDN hostname o webhook não preenche video_url — em produção essa
+      // variável está sempre configurada; aqui simulamos isso para que o
+      // episódio tenha conteúdo real (a guarda de notifyEpisodePublished
+      // passa a exigir vídeo ou painéis, não só status: "published").
+      process.env.BUNNY_CDN_HOSTNAME = 'cdn-teste.b-cdn.net';
       try {
         const res = await request(app)
           .post('/api/bunny/webhook')
@@ -842,13 +884,45 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
         expect(res.status).toBe(200);
       } finally {
         process.env.BUNNY_WEBHOOK_SECRET = segredoAnterior;
+        process.env.BUNNY_CDN_HOSTNAME = cdnAnterior;
       }
 
       await vi.waitFor(() => expect(chamadas).toBe(1), { timeout: 2000, interval: 20 });
 
       const episodioAtualizado = await Episode.findById(episodio._id);
       expect(episodioAtualizado.status).toBe('published');
+      expect(episodioAtualizado.video_url).toBe('https://cdn-teste.b-cdn.net/' + episodio.bunnyVideoId + '/playlist.m3u8');
       expect(episodioAtualizado.notificationSentAt).not.toBeNull();
+    });
+
+    it('webhook com Status 2 (Processing) não dispara — episódio não fica published', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+      const episodio = await Episode.create({
+        seriesId: serie._id, episode_number: 7, title: 'Cap Bunny Processando', status: 'draft', bunnyVideoId: `bunny-${new mongoose.Types.ObjectId()}`,
+      });
+
+      const segredoAnterior = process.env.BUNNY_WEBHOOK_SECRET;
+      process.env.BUNNY_WEBHOOK_SECRET = 'segredo-teste-notificacoes';
+      try {
+        const res = await request(app)
+          .post('/api/bunny/webhook')
+          .set('x-webhook-token', 'segredo-teste-notificacoes')
+          .send({ VideoGuid: episodio.bunnyVideoId, Status: 2 });
+
+        expect(res.status).toBe(200);
+      } finally {
+        process.env.BUNNY_WEBHOOK_SECRET = segredoAnterior;
+      }
+
+      await new Promise(r => setTimeout(r, 100));
+      expect(chamadas).toBe(0);
+
+      const episodioAtualizado = await Episode.findById(episodio._id);
+      expect(episodioAtualizado.status).toBe('processing');
+      expect(episodioAtualizado.notificationSentAt).toBeNull();
     });
   });
 
@@ -866,8 +940,16 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
         keys: { p256dh: 'p', auth: 'a' },
       });
 
-      const pendente1 = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Pendente 1', status: 'published' });
-      const pendente2 = await Episode.create({ seriesId: serie._id, episode_number: 2, title: 'Pendente 2', status: 'published' });
+      // published + conteúdo (painéis) — a guarda de notifyEpisodePublished
+      // exige conteúdo consumível, não só status: "published".
+      const pendente1 = await Episode.create({
+        seriesId: serie._id, episode_number: 1, title: 'Pendente 1', status: 'published',
+        panels: [{ image_url: 'https://cdn.exemplo.test/reabertura-1.jpg', order: 1 }],
+      });
+      const pendente2 = await Episode.create({
+        seriesId: serie._id, episode_number: 2, title: 'Pendente 2', status: 'published',
+        panels: [{ image_url: 'https://cdn.exemplo.test/reabertura-2.jpg', order: 1 }],
+      });
       const jaNotificado = await Episode.create({ seriesId: serie._id, episode_number: 3, title: 'Ja Notificado', status: 'published', notificationSentAt: new Date() });
       const rascunho = await Episode.create({ seriesId: serie._id, episode_number: 4, title: 'Rascunho', status: 'draft' });
 
@@ -913,6 +995,79 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
 
       const episodioIntacto = await Episode.findById(episodio._id);
       expect(episodioIntacto.notificationSentAt).toBeNull();
+    });
+  });
+
+  /**
+   * Ruling da revisão: a semântica da notificação é "o capítulo está
+   * consumível" — não só "status: published". notifyEpisodePublished ganhou
+   * uma guarda de conteúdo (painéis ou video_url) que desfaz o claim, no
+   * mesmo padrão da série despublicada, quando o episódio ainda é um
+   * esqueleto (o formulário "Adicionar Episódio" do AdminDashboard sempre
+   * manda status: "published" antes de existir painel ou vídeo). O 5º
+   * caminho de disparo é a rota que anexa painéis: o primeiro anexo a um
+   * episódio publicado sem conteúdo é quem efetivamente dispara.
+   */
+  describe('caminho 5 — POST /api/content/episodes/:id/panels (guarda de conteúdo)', () => {
+    it('(a) episódio published sem conteúdo não dispara e não queima o claim; (b) o primeiro anexo de painéis dispara; (c) anexos seguintes não redisparam', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+      const criado = await request(app)
+        .post('/api/content/episodes')
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ seriesId: serie._id, episode_number: 8, title: 'Cap Esqueleto', status: 'published' });
+      expect(criado.status).toBe(201);
+      const episodioId = criado.body._id;
+
+      // (a) esqueleto publicado sem conteúdo: o disparo da criação (caminho 1)
+      // roda e chama notifyEpisodePublished, mas a guarda de conteúdo desfaz
+      // o claim — nem envia, nem consome o envio único.
+      await new Promise(r => setTimeout(r, 150));
+      expect(chamadas).toBe(0);
+      const antesDosPaineis = await Episode.findById(episodioId);
+      expect(antesDosPaineis.notificationSentAt).toBeNull();
+
+      // (b) primeiro anexo de painéis: agora há conteúdo — dispara de verdade.
+      const primeiroAnexo = await request(app)
+        .post(`/api/content/episodes/${episodioId}/panels`)
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ panels: [{ image_url: 'https://cdn.exemplo.test/painel-1.jpg', order: 1 }] });
+      expect(primeiroAnexo.status).toBe(200);
+
+      await vi.waitFor(() => expect(chamadas).toBe(1), { timeout: 2000, interval: 20 });
+      const depoisDoPrimeiroAnexo = await Episode.findById(episodioId);
+      expect(depoisDoPrimeiroAnexo.notificationSentAt).not.toBeNull();
+
+      // (c) segundo anexo: claim já consumido — não redispara.
+      const segundoAnexo = await request(app)
+        .post(`/api/content/episodes/${episodioId}/panels`)
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ panels: [{ image_url: 'https://cdn.exemplo.test/painel-2.jpg', order: 2 }] });
+      expect(segundoAnexo.status).toBe(200);
+
+      await new Promise(r => setTimeout(r, 150));
+      expect(chamadas).toBe(1); // não incrementou de novo
+      const depoisDoSegundoAnexo = await Episode.findById(episodioId);
+      expect(depoisDoSegundoAnexo.notificationSentAt.getTime()).toBe(depoisDoPrimeiroAnexo.notificationSentAt.getTime());
+    });
+
+    it('anexar painéis a um episódio draft não dispara (status não é published)', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+      const episodio = await Episode.create({ seriesId: serie._id, episode_number: 9, title: 'Cap Draft Paineis', status: 'draft' });
+
+      const res = await request(app)
+        .post(`/api/content/episodes/${episodio._id}/panels`)
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ panels: [{ image_url: 'https://cdn.exemplo.test/painel-draft.jpg', order: 1 }] });
+      expect(res.status).toBe(200);
+
+      await new Promise(r => setTimeout(r, 100));
+      expect(chamadas).toBe(0);
     });
   });
 });

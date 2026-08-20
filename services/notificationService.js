@@ -62,7 +62,9 @@ function montarPayload(series, episode) {
  * Envia o push de "capítulo novo" para quem favoritou a série do episódio.
  * Envio único por episódio (claim atômico via notificationSentAt). Melhor
  * esforço: falha de uma subscription não impede as demais nem derruba a rota
- * que publicou.
+ * que publicou. Semântica: "o capítulo está consumível" — série publicada
+ * *e* conteúdo presente (painéis ou vídeo). Guarda centralizada aqui, não
+ * em cada rota chamadora: todo caminho atual e futuro herda de graça.
  */
 async function notifyEpisodePublished(episodeId) {
   // Sem transporte nenhum (nem teste, nem VAPID configurado): nada a fazer.
@@ -79,6 +81,17 @@ async function notifyEpisodePublished(episodeId) {
   if (!series || !series.isPublished) {
     // Desfaz o claim: obra despublicada não consome o envio único — se for
     // publicada depois, o próximo caminho de publicação pode notificar.
+    await Episode.updateOne({ _id: episodeId }, { $set: { notificationSentAt: null } });
+    return null;
+  }
+
+  // Episódio marcado "published" mas ainda sem conteúdo consumível (esqueleto
+  // criado pelo admin antes de subir painéis/vídeo) não notifica. Mesmo
+  // padrão da série despublicada: desfaz o claim — quando o conteúdo chegar
+  // (painéis anexados ou webhook do Bunny com o vídeo pronto), o próximo
+  // caminho de publicação notifica de verdade.
+  const temConteudo = (episode.panels && episode.panels.length > 0) || !!episode.video_url;
+  if (!temConteudo) {
     await Episode.updateOne({ _id: episodeId }, { $set: { notificationSentAt: null } });
     return null;
   }

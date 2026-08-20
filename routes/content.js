@@ -145,7 +145,7 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
     if ('isPublished' in updates) {
       const antes = await Series.findById(req.params.id).select('isPublished').lean();
       if (!antes) return res.status(404).json({ error: 'Série não encontrada.' });
-      estavaDespublicada = antes.isPublished === false;
+      estavaDespublicada = !antes.isPublished;
     }
 
     const series = await Series.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
@@ -362,6 +362,16 @@ router.post('/episodes/:id/panels', verifyToken, requireAdmin, async (req, res) 
       { new: true }
     );
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+
+    // 5º caminho de disparo: episódio publicado sem conteúdo (esqueleto)
+    // ganha o primeiro painel aqui. O claim + a guarda de conteúdo em
+    // notifyEpisodePublished fazem o resto — este é o único anexo que de
+    // fato envia; os seguintes são no-op (claim já consumido).
+    if (episode.status === 'published') {
+      require('../services/notificationService')
+        .notifyEpisodePublished(episode._id)
+        .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+    }
 
     res.json({ success: true, panelCount: episode.panels.length, episode });
   } catch (err) {
