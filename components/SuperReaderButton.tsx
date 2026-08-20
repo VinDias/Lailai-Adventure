@@ -3,9 +3,9 @@ import { Gift } from 'lucide-react';
 import { api } from '../services/api';
 import { useT } from '../contexts/I18nContext';
 import { getLocalizedCurrency } from '../utils/localizedPrice';
+import { formatarValorMonetario } from '../utils/currency';
 import { User } from '../types';
 
-const CURRENCY_SYMBOL: Record<string, string> = { brl: 'R$', usd: '$', eur: '€' };
 // Só usado se o fetch do mínimo falhar de verdade (rede fora do ar) — o
 // componente sempre tenta buscar o valor real do backend primeiro; enquanto
 // isso não chega, os valores rápidos ficam vazios (ver `valores` abaixo).
@@ -32,16 +32,6 @@ function paraCentavos(valorDigitado: string): number | null {
   return Math.round(unidades * 100);
 }
 
-/** "R$5" para valores redondos, "R$7,50" (ou "$7.50" fora do brl) quando não. */
-function formatarValor(cents: number, symbol: string, currency: string): string {
-  const separadorDecimal = currency === 'brl' ? ',' : '.';
-  const eRedondo = cents % 100 === 0;
-  const valor = eRedondo
-    ? String(Math.trunc(cents / 100))
-    : (cents / 100).toFixed(2).replace('.', separadorDecimal);
-  return `${symbol}${valor}`;
-}
-
 /**
  * Botão de apoio direto ao autor (Fase 4, Bloco 3 — Super Reader). Inserido
  * no modal de detalhe de série dos 3 feeds (HQCine/VFilm/HiQua), junto do
@@ -56,7 +46,6 @@ function formatarValor(cents: number, symbol: string, currency: string): string 
 const SuperReaderButton: React.FC<SuperReaderButtonProps> = ({ user, seriesId }) => {
   const t = useT();
   const currency = getLocalizedCurrency();
-  const symbol = CURRENCY_SYMBOL[currency] || 'R$';
 
   const [aberto, setAberto] = useState(false);
   const [minCents, setMinCents] = useState<number | null>(null);
@@ -144,7 +133,7 @@ const SuperReaderButton: React.FC<SuperReaderButtonProps> = ({ user, seriesId })
                 onClick={() => escolherValor(v)}
                 className={`flex-1 py-3 rounded-xl text-xs font-black transition-all ${selecionado === v && valorLivre.trim() === '' ? 'bg-white text-black' : 'bg-white/5 text-zinc-400 border border-white/5 hover:bg-white/10'}`}
               >
-                {formatarValor(v, symbol, currency)}
+                {formatarValorMonetario(v, currency)}
               </button>
             ))}
           </div>
@@ -160,7 +149,7 @@ const SuperReaderButton: React.FC<SuperReaderButtonProps> = ({ user, seriesId })
 
           {!podeEnviar && minCents !== null && (
             <p className="text-[11px] text-zinc-500 mb-3">
-              {t('superReader.minHint')} {formatarValor(minCents, symbol, currency)}
+              {t('superReader.minHint')} {formatarValorMonetario(minCents, currency)}
             </p>
           )}
 

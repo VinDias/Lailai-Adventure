@@ -121,6 +121,10 @@ const pt = {
   'superReader.thanksTitle': 'Obrigado por ser Super Reader!',
   'superReader.thanksBody': 'Sua contribuição foi enviada direto para quem criou esta obra.',
   'superReader.close': 'FECHAR',
+  'superReader.badgeTitle': 'Super Reader',
+  'superReader.contributionsHeading': 'Suas contribuições',
+  'superReader.removedSeries': 'Obra removida',
+  'superReader.inviteText': 'Apoie uma obra e ganhe o selo Super Reader.',
 
   // Meus Favoritos
   'favorites.title': 'MEUS FAVORITOS',
@@ -247,6 +251,10 @@ const en: Record<keyof typeof pt, string> = {
   'superReader.thanksTitle': 'Thanks for being a Super Reader!',
   'superReader.thanksBody': 'Your contribution went straight to the creator of this work.',
   'superReader.close': 'CLOSE',
+  'superReader.badgeTitle': 'Super Reader',
+  'superReader.contributionsHeading': 'Your contributions',
+  'superReader.removedSeries': 'Removed work',
+  'superReader.inviteText': 'Support a work and earn the Super Reader badge.',
 
   'favorites.title': 'MY FAVORITES',
   'favorites.subtitle': 'My List',
@@ -370,6 +378,10 @@ const es: Record<keyof typeof pt, string> = {
   'superReader.thanksTitle': '¡Gracias por ser Super Reader!',
   'superReader.thanksBody': 'Tu contribución fue directo a quien creó esta obra.',
   'superReader.close': 'CERRAR',
+  'superReader.badgeTitle': 'Super Reader',
+  'superReader.contributionsHeading': 'Tus contribuciones',
+  'superReader.removedSeries': 'Obra eliminada',
+  'superReader.inviteText': 'Apoya una obra y gana la insignia Super Reader.',
 
   'favorites.title': 'MIS FAVORITOS',
   'favorites.subtitle': 'Mi Lista',
@@ -493,6 +505,10 @@ const zh: Record<keyof typeof pt, string> = {
   'superReader.thanksTitle': '感谢你成为 Super Reader！',
   'superReader.thanksBody': '你的支持已直接送达该作品的创作者。',
   'superReader.close': '关闭',
+  'superReader.badgeTitle': 'Super Reader',
+  'superReader.contributionsHeading': '你的支持记录',
+  'superReader.removedSeries': '作品已删除',
+  'superReader.inviteText': '支持一部作品，获得 Super Reader 徽章。',
 
   'favorites.title': '我的收藏',
   'favorites.subtitle': '我的列表',
