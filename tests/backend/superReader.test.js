@@ -1031,3 +1031,198 @@ describe('webhook', () => {
     expect(depois.stripeSubscriptionId ?? null).toBeNull();
   });
 });
+
+/**
+ * Task 4: routes/royalties.js — seção Super Reader no relatório admin e no
+ * CSV de royalties. Período do report/export.csv vem de req.query.period
+ * (validado no formato YYYY-MM por parsePeriod); a seção SR soma
+ * SuperReaderContribution do MESMO período por igualdade de string (o campo
+ * period do modelo já é 'YYYY-MM', igual ao que o report recebe). POST
+ * /close e RoyaltyPeriod continuam intocados — SR fica fora do pool por
+ * decisão da spec (seção "Relatório").
+ *
+ * Períodos usados aqui são exclusivos desta describe (2031-xx) para não
+ * colidir com dados de outras describes deste arquivo (que usam 2026-06/08
+ * para os testes de webhook e /me) nem exigir limpeza entre os `it`s.
+ */
+describe('relatório de royalties — seção Super Reader', () => {
+  const Channel = require('../../models/Channel');
+  const RoyaltyPeriod = require('../../models/RoyaltyPeriod');
+
+  function criarContribuicao(overrides = {}) {
+    return SuperReaderContribution.create({
+      userId: new mongoose.Types.ObjectId(),
+      seriesId: new mongoose.Types.ObjectId(),
+      channelId: new mongoose.Types.ObjectId(),
+      amountCents: 500,
+      currency: 'brl',
+      authorShareCents: 400,
+      platformShareCents: 100,
+      stripeSessionId: `cs_test_royreport_${new mongoose.Types.ObjectId()}`,
+      period: '2031-01',
+      ...overrides,
+    });
+  }
+
+  function getReport(period) {
+    return request(app)
+      .get(`/api/admin/royalties/report?period=${period}`)
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+  }
+
+  function getCsv(period) {
+    return request(app)
+      .get(`/api/admin/royalties/export.csv?period=${period}`)
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+  }
+
+  it('agrupa por canal com somas certas e totaliza (2 canais, valores diferentes)', async () => {
+    const period = '2031-01';
+    const chA = await Channel.create({ ownerId: auth.getId('admin'), name: 'Canal SR A' });
+    const chB = await Channel.create({ ownerId: auth.getId('admin'), name: 'Canal SR B' });
+
+    // Canal A: 2 apoios (400+800 autor / 100+200 plataforma)
+    await criarContribuicao({ channelId: chA._id, period, amountCents: 500, authorShareCents: 400, platformShareCents: 100 });
+    await criarContribuicao({ channelId: chA._id, period, amountCents: 1000, authorShareCents: 800, platformShareCents: 200 });
+    // Canal B: 1 apoio, valor bem diferente — prova que a soma não mistura canais
+    await criarContribuicao({ channelId: chB._id, period, amountCents: 999, authorShareCents: 799, platformShareCents: 200 });
+
+    const res = await getReport(period);
+    expect(res.status).toBe(200);
+
+    const a = res.body.superReader.porCanal.find(c => String(c.channelId) === String(chA._id));
+    const b = res.body.superReader.porCanal.find(c => String(c.channelId) === String(chB._id));
+
+    expect(a.channelName).toBe('Canal SR A');
+    expect(a.apoios).toBe(2);
+    expect(a.autorCents).toBe(1200);
+
+    expect(b.channelName).toBe('Canal SR B');
+    expect(b.apoios).toBe(1);
+    expect(b.autorCents).toBe(799);
+
+    expect(res.body.superReader.totalApoios).toBe(3);
+    expect(res.body.superReader.totalAutorCents).toBe(1999);
+    expect(res.body.superReader.totalPlataformaCents).toBe(500);
+  });
+
+  it('contribuição de outro período fica fora da soma', async () => {
+    const period = '2031-02';
+    const outroPeriodo = '2031-03';
+    const ch = await Channel.create({ ownerId: auth.getId('admin'), name: 'Canal SR Periodo' });
+
+    await criarContribuicao({ channelId: ch._id, period, amountCents: 500, authorShareCents: 400, platformShareCents: 100 });
+    await criarContribuicao({ channelId: ch._id, period: outroPeriodo, amountCents: 5000, authorShareCents: 4000, platformShareCents: 1000 });
+
+    const res = await getReport(period);
+    expect(res.status).toBe(200);
+    expect(res.body.superReader.totalApoios).toBe(1);
+    expect(res.body.superReader.totalAutorCents).toBe(400);
+    const c = res.body.superReader.porCanal.find(x => String(x.channelId) === String(ch._id));
+    expect(c.apoios).toBe(1);
+    expect(c.autorCents).toBe(400);
+  });
+
+  it('poolSuggested e os demais campos do pool são idênticos com e sem contribuições SR', async () => {
+    const period = '2031-04';
+    const antes = await getReport(period);
+    expect(antes.status).toBe(200);
+    const poolAntes = {
+      channels: antes.body.channels,
+      totalPoints: antes.body.totalPoints,
+      adImpressions: antes.body.adImpressions,
+      premiumUsers: antes.body.premiumUsers,
+      grossRevenue: antes.body.grossRevenue,
+      authorShare: antes.body.authorShare,
+      poolSuggested: antes.body.poolSuggested,
+    };
+
+    const ch = await Channel.create({ ownerId: auth.getId('admin'), name: 'Canal SR Nao Vaza' });
+    await criarContribuicao({ channelId: ch._id, period, amountCents: 100000, authorShareCents: 80000, platformShareCents: 20000 });
+
+    const depois = await getReport(period);
+    expect(depois.status).toBe(200);
+    const poolDepois = {
+      channels: depois.body.channels,
+      totalPoints: depois.body.totalPoints,
+      adImpressions: depois.body.adImpressions,
+      premiumUsers: depois.body.premiumUsers,
+      grossRevenue: depois.body.grossRevenue,
+      authorShare: depois.body.authorShare,
+      poolSuggested: depois.body.poolSuggested,
+    };
+
+    expect(poolDepois).toEqual(poolAntes);
+    // e a seção SR de fato mudou — prova que a contribuição foi processada e só não vazou pro pool
+    expect(depois.body.superReader.totalApoios).toBe(1);
+  });
+
+  it('POST /close com SR presente: o RoyaltyPeriod gravado não contém nada de SR', async () => {
+    const period = '2031-05';
+    const ch = await Channel.create({ ownerId: auth.getId('admin'), name: 'Canal SR Fechamento' });
+    await criarContribuicao({ channelId: ch._id, period, amountCents: 100000, authorShareCents: 80000, platformShareCents: 20000 });
+
+    const res = await request(app)
+      .post('/api/admin/royalties/close')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ period, poolFinal: 10 });
+
+    expect(res.status).toBe(201);
+    expect(res.body.superReader).toBeUndefined();
+    for (const item of res.body.breakdown) {
+      expect(item.autorCents).toBeUndefined();
+      expect(item.apoios).toBeUndefined();
+    }
+
+    const doc = await RoyaltyPeriod.findOne({ period }).lean();
+    expect(doc.superReader).toBeUndefined();
+    expect(JSON.stringify(doc)).not.toContain('autorCents');
+    expect(JSON.stringify(doc)).not.toContain('apoios');
+  });
+
+  it('canal apagado → channelName null, 200', async () => {
+    const period = '2031-06';
+    const ch = await Channel.create({ ownerId: auth.getId('admin'), name: 'Canal SR Sera Apagado' });
+    await criarContribuicao({ channelId: ch._id, period });
+    await Channel.deleteOne({ _id: ch._id });
+
+    const res = await getReport(period);
+    expect(res.status).toBe(200);
+    const c = res.body.superReader.porCanal.find(x => String(x.channelId) === String(ch._id));
+    expect(c).toBeTruthy();
+    expect(c.channelName).toBeNull();
+  });
+
+  it('export.csv traz o bloco SR sem alterar as linhas existentes', async () => {
+    const period = '2031-07';
+    const antes = await getCsv(period);
+    expect(antes.status).toBe(200);
+    const prefixoAntes = antes.text.split('Super Reader (direto ao autor)')[0];
+
+    const ch = await Channel.create({ ownerId: auth.getId('admin'), name: 'Canal SR CSV' });
+    await criarContribuicao({ channelId: ch._id, period, amountCents: 500, authorShareCents: 400, platformShareCents: 100 });
+
+    const depois = await getCsv(period);
+    expect(depois.status).toBe(200);
+    const prefixoDepois = depois.text.split('Super Reader (direto ao autor)')[0];
+
+    // As linhas do bloco existente (canal;pontos;share;valor;status + TOTAL) não mudam
+    expect(prefixoDepois).toBe(prefixoAntes);
+    expect(depois.text).toContain('Super Reader (direto ao autor)');
+    expect(depois.text).toContain('Canal SR CSV');
+    expect(depois.text).toContain('4.00'); // 400 centavos de autor formatado como o CSV já formata valores
+    expect(depois.text).toContain('1.00'); // 100 centavos de plataforma
+  });
+
+  it('sem contribuições: superReader presente com zeros e arrays vazios (shape estável)', async () => {
+    const period = '2031-08';
+    const res = await getReport(period);
+    expect(res.status).toBe(200);
+    expect(res.body.superReader).toEqual({
+      porCanal: [],
+      totalAutorCents: 0,
+      totalPlataformaCents: 0,
+      totalApoios: 0,
+    });
+  });
+});
