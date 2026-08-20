@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Coins, ShieldCheck, Download, AlertTriangle, Lock, CheckCircle2 } from 'lucide-react';
+import { Coins, ShieldCheck, Download, AlertTriangle, Lock, CheckCircle2, Gift } from 'lucide-react';
 import { api } from '../../services/api';
 
 /**
@@ -15,6 +15,10 @@ const currentPeriod = () => {
 };
 
 const brl = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
+// O pool vem em decimal (brl() direto); o Super Reader vem em CENTAVOS do
+// backend (authorShareCents/platformShareCents congelados no webhook) — não
+// misturar os dois formatos.
+const brlCents = (cents: number) => brl((cents || 0) / 100);
 
 const RoyaltiesPanel: React.FC = () => {
   const [period, setPeriod] = useState(currentPeriod());
@@ -205,6 +209,56 @@ const RoyaltiesPanel: React.FC = () => {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Super Reader — apoio direto ao autor, fora do pool acima */}
+          <div className="rounded-3xl border border-violet-500/30 bg-violet-500/5 p-6 mb-8">
+            <div className="flex items-center gap-3 mb-1">
+              <Gift size={20} className="text-violet-400" />
+              <h3 className="text-xl font-black tracking-tight">Super Reader — direto ao autor</h3>
+            </div>
+            <p className="text-[11px] text-zinc-500 font-bold mb-6">
+              Apoio direto do leitor à obra (80% autor / 20% plataforma) — não entra no pool nem no fechamento acima.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-2xl p-5">
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Repassado a autores (80%)</p>
+                <p className="text-xl font-black text-violet-400">{brlCents(report.superReader?.totalAutorCents ?? 0)}</p>
+              </div>
+              <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-2xl p-5">
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Plataforma (20%)</p>
+                <p className="text-xl font-black text-violet-400">{brlCents(report.superReader?.totalPlataformaCents ?? 0)}</p>
+              </div>
+              <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-2xl p-5">
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-2">Apoios no período</p>
+                <p className="text-xl font-black">{report.superReader?.totalApoios ?? 0}</p>
+              </div>
+            </div>
+
+            <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-2xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--border-color)] text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+                    <th className="text-left px-6 py-4">Canal</th>
+                    <th className="text-right px-6 py-4">Apoios</th>
+                    <th className="text-right px-6 py-4">Valor do autor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(!report.superReader?.porCanal || report.superReader.porCanal.length === 0) && (
+                    <tr><td colSpan={3} className="px-6 py-8 text-center text-zinc-600 font-bold text-xs uppercase tracking-widest">Sem apoios no período</td></tr>
+                  )}
+                  {report.superReader?.porCanal?.map((c: any) => (
+                    <tr key={c.channelId || 'sem-canal'} className="border-b border-[var(--border-color)] last:border-0">
+                      <td className="px-6 py-4 font-bold">{c.channelName ?? '(canal removido)'}</td>
+                      <td className="px-6 py-4 text-right font-black">{c.apoios}</td>
+                      <td className="px-6 py-4 text-right font-black text-violet-400">{brlCents(c.autorCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Integridade + histórico */}
