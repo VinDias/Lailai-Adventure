@@ -140,19 +140,33 @@ async function registrarContribuicao(session) {
   const agora = new Date();
   const period = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
 
-  const contribuicao = await SuperReaderContribution.findOneAndUpdate(
-    { stripeSessionId: session.id },
-    {
-      $setOnInsert: {
-        userId, seriesId, channelId, amountCents, currency,
-        authorShareCents, platformShareCents,
-        stripeSessionId: session.id, period,
+  try {
+    return await SuperReaderContribution.findOneAndUpdate(
+      { stripeSessionId: session.id },
+      {
+        $setOnInsert: {
+          userId, seriesId, channelId, amountCents, currency,
+          authorShareCents, platformShareCents,
+          stripeSessionId: session.id, period,
+        },
       },
-    },
-    { upsert: true, new: true, setDefaultsOnInsert: true },
-  );
-
-  return contribuicao;
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+  } catch (err) {
+    // Corrida real: duas gravações concorrentes do MESMO stripeSessionId
+    // (dois webhooks quase simultâneos, ex. reenvio do Stripe cruzando com o
+    // processamento original) disputam o upsert — o findOneAndUpdate NÃO é
+    // atômico entre execuções concorrentes no nível do índice único, então
+    // quem perde a corrida pode receber E11000 na tentativa de insert em vez
+    // de simplesmente encontrar o doc do vencedor. Isso é esperado (não é um
+    // erro de verdade): devolvemos o doc já gravado pelo vencedor — mesma
+    // garantia de idempotência, sem lançar erro críptico para o chamador.
+    if (err.code === 11000) {
+      const existente = await SuperReaderContribution.findOne({ stripeSessionId: session.id });
+      if (existente) return existente;
+    }
+    throw err;
+  }
 }
 
 /** Injeção exclusiva de testes (mesmo padrão de notificationService). */

@@ -26,6 +26,14 @@ beforeAll(async () => {
   Setting = require('../../models/Setting');
   SuperReaderContribution = require('../../models/SuperReaderContribution');
   superReaderService = require('../../services/superReaderService');
+
+  // require('../../server') carrega ~20 models; a construção dos índices
+  // declarados (autoIndex) roda em background e NÃO está garantida pronta
+  // quando os testes começam. Model.init() espera essa construção terminar
+  // — sem isso, o teste de unicidade de stripeSessionId é uma corrida: às
+  // vezes passa (índice já pronto), às vezes falha (índice ainda não existe
+  // e o segundo create() simplesmente resolve). Achado da revisão.
+  await SuperReaderContribution.init();
 });
 
 afterAll(() => db.closeDatabase());
@@ -405,6 +413,30 @@ describe('registrarContribuicao', () => {
   it('rejeita (lança) se a sessão não tiver metadata.tipo === "super_reader" — defesa contra chamada errada', async () => {
     const sessao = montarSessao({ metadata: { tipo: 'premium' } });
     await expect(superReaderService.registrarContribuicao(sessao)).rejects.toThrow();
+  });
+
+  it('corrida real (Promise.all): duas chamadas concorrentes para a MESMA sessão gravam exatamente 1 doc, com valores consistentes, e nenhuma das duas lança', async () => {
+    const sessao = montarSessao({ amount_total: 700 });
+
+    // Duas gravações concorrentes do MESMO stripeSessionId disputam o
+    // upsert; o findOneAndUpdate não é atômico entre processos concorrentes
+    // no nível do índice único — uma delas pode receber E11000 na tentativa
+    // de insert. O serviço trata isso devolvendo o doc do vencedor em vez de
+    // deixar o erro vazar (o webhook do Stripe pode reenviar quase em
+    // paralelo se dois workers processarem o mesmo evento).
+    const [doc1, doc2] = await Promise.all([
+      superReaderService.registrarContribuicao(sessao),
+      superReaderService.registrarContribuicao(sessao),
+    ]);
+
+    expect(String(doc1._id)).toBe(String(doc2._id));
+    expect(doc1.amountCents).toBe(700);
+    expect(doc2.amountCents).toBe(700);
+    expect(doc1.authorShareCents).toBe(doc2.authorShareCents);
+    expect(doc1.platformShareCents).toBe(doc2.platformShareCents);
+
+    const todos = await SuperReaderContribution.find({ stripeSessionId: sessao.id });
+    expect(todos).toHaveLength(1);
   });
 });
 
