@@ -30,7 +30,13 @@ Endpoints exclusivos para administradores. Montado em `/api/admin/management`.
 
 ### `payment.js` — Pagamentos Stripe
 - `POST /checkout` — Cria sessão de checkout Stripe para assinatura premium
-- `POST /webhook` — Webhook Stripe para confirmar pagamentos e ativar premium
+- `POST /webhook` — Webhook Stripe para confirmar pagamentos e ativar premium. No `checkout.session.completed` (Fase 4, Bloco 3): **antes** do caminho Premium, `if (session.metadata?.tipo === 'super_reader')` delega a `superReaderService.registrarContribuicao(session)` e retorna — não é assinatura, não pode cair na busca por `stripeCustomerId`. Falha na gravação cai no catch geral (500) e o Stripe reenvia (o upsert do serviço absorve o retry). Guard adicionado durante o Bloco 3 (achado ao testar o webhook do Super Reader, corrigido de imediato — bug pré-existente, não exclusivo do Super Reader): sessão sem `customer` (ex. doação avulsa, "send test webhook" do painel Stripe) é ignorada com `warn` em vez de cair em `findOne({stripeCustomerId: customerId})` com `customerId` undefined — esse filtro casaria qualquer usuário sem o campo e promoveria um usuário arbitrário a Premium
+
+### `superReader.js` — Apoio Direto ao Autor (Fase 4, Bloco 3)
+Montado em `/api/superreader`. Rotas finas por cima de `services/superReaderService.js` — toda validação/regra de negócio vive no serviço.
+- `POST /create-session` — `verifyToken`; body `{ seriesId, amountCents, currency }`. `userId` SEMPRE vem do token (`req.user.id`), nunca do body. Delega a `criarSessaoDeApoio` (valida `amountCents` inteiro ≥ mínimo, moeda somente `brl` — decisão da revisão final: o relatório de repasse agrega sem separar moeda; multimoeda é dívida —, série existe/publicada/com `channelId`; cria a sessão Stripe `mode: 'payment'`) e devolve `{ url }`. Erros de validação (`err.status`) viram o status certo (400/404); qualquer outro erro vira 500
+- `GET /me` — `verifyToken`; devolve `{ superReader: boolean, contribuicoes: [{ seriesTitle, amountCents, currency, createdAt }] }` a partir das próprias `SuperReaderContribution` (mais recente primeiro). `superReader` é derivado (existe ≥ 1 contribuição), sem campo novo em `User`. Nunca devolve `stripeSessionId` nem os campos de share (autor/plataforma); série apagada vira `seriesTitle: null` (populate, mesmo padrão de `routes/favorites.js`)
+- `GET /min` — sem auth; devolve `{ minCents }` via `services/superReaderService.js::lerMinimoCents()` (não via `PUBLIC_KEYS` de `routes/settings.js` — aquela rota devolve `Setting.value` cru, sem validar/aplicar o fallback default 500)
 
 ### `bunnyWebhook.js` — Integração Bunny.net
 Montado em `/api/bunny`.
@@ -66,8 +72,8 @@ Montado em `/api/favorites` (todas com `verifyToken`).
 ### `account.js` — Conta e LGPD
 Montado em `/api/account`.
 - `PUT /me/consent` — consentimento de marketing
-- `GET /me/export` — export de dados (LGPD; inclui `readingProgress` com `percent` e `position`)
-- `DELETE /me` — exclusão de conta com limpeza de engajamento (inclui `ReadingProgress`)
+- `GET /me/export` — export de dados (LGPD; inclui `readingProgress` com `percent` e `position`). Fase 4 Bloco 3: inclui `superReaderContributions` (`seriesTitle`, `amountCents`, `currency`, `createdAt` — sem `stripeSessionId` nem os campos de share, que são detalhe contábil do repasse ao autor, não dado sobre o titular)
+- `DELETE /me` — exclusão de conta com limpeza de engajamento (inclui `ReadingProgress`). Fase 4 Bloco 3: `SuperReaderContribution` NÃO é apagada — é **anonimizada** (`updateMany({userId}, {$set: {userId: null}})`), pois o valor repassado ao autor é registro contábil do relatório de royalties (soma por canal/período, não por usuário)
 - `POST /me/avatar` — upload de foto de perfil (multer memória → sharp 512×512 webp → Bunny Storage `lorflux/avatars/`)
 
 ### `progress.js` — Progresso de Leitura e "Continuar" (Fase 4)
@@ -90,11 +96,11 @@ Um único router montado uma vez em `/api` — mistura rota pública com rotas a
 
 ### `royalties.js` — Motor de Royalties (Fase 3)
 Montado em `/api/admin/royalties` (tudo `verifyToken` + `requireAdmin`).
-- `GET /report?period=YYYY-MM` — pontos válidos por canal (view/read não-flagged), share, pool sugerido (impressões÷1000×`premium_cpm_rate` + premium ativos×`royalty_premium_per_sub`), alertas de anomalia
-- `POST /close` — fecha o período com `poolFinal` confirmado (snapshot em `RoyaltyPeriod`)
+- `GET /report?period=YYYY-MM` — pontos válidos por canal (view/read não-flagged), share, pool sugerido (impressões÷1000×`premium_cpm_rate` + premium ativos×`royalty_premium_per_sub`), alertas de anomalia. Fase 4 Bloco 3: resposta ganha `superReader: { porCanal: [{channelId, channelName, apoios, autorCents}], totalAutorCents, totalPlataformaCents, totalApoios }` — soma de `SuperReaderContribution` (`authorShareCents`/`platformShareCents`) por canal no período, **fora** de `poolSuggested` e do `breakdown` (apoio direto ao autor, não entra no pool mensal)
+- `POST /close` — fecha o período com `poolFinal` confirmado (snapshot em `RoyaltyPeriod`); Super Reader não participa (sem alteração nesta rota)
 - `GET /periods` — períodos fechados
 - `GET /verify-integrity` — re-percorre a cadeia de hash do log de eventos
-- `GET /export.csv?period=YYYY-MM` — CSV do relatório
+- `GET /export.csv?period=YYYY-MM` — CSV do relatório. Fase 4 Bloco 3: bloco separado ao final do arquivo (linha em branco + cabeçalho "Super Reader (direto ao autor)" + `canal;apoios;autor;plataforma`, valores em decimal `.toFixed(2)`) — não altera nenhuma linha/coluna existente do CSV do pool
 
 ---
 

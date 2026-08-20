@@ -10,6 +10,7 @@ import ProgressBar from './ProgressBar';
 import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
+import SuperReaderButton from './SuperReaderButton';
 
 interface VFilmProps {
   user: User | null;
@@ -232,6 +233,7 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                         <ThumbsUp size={18} fill={myVote === 'like' ? 'currentColor' : 'none'} />
                         <span className="font-black text-sm">{likes}</span>
                       </button>
+                      <SuperReaderButton user={user} seriesId={selectedSeries._id} />
                     </div>
                  </div>
               </div>

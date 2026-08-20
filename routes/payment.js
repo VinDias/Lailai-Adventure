@@ -5,6 +5,7 @@ const verifyToken = require('../middlewares/verifyToken');
 const User = require('../models/User');
 const logger = require('../utils/logger');
 const { maskEmail } = require('../utils/pii');
+const superReaderService = require('../services/superReaderService');
 
 // Mapeamento locale → moeda → priceId
 const LOCALE_CURRENCY = {
@@ -92,7 +93,37 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   try {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
+
+      // Super Reader (Fase 4, Bloco 3): apoio direto ao autor de uma obra —
+      // sessão mode: 'payment' criada por superReaderService.criarSessaoDeApoio
+      // com metadata.tipo === 'super_reader'. Trata ANTES do caminho Premium
+      // (abaixo) e retorna — não é assinatura, não pode cair na busca por
+      // stripeCustomerId. Falha na gravação cai no catch geral (500) —
+      // o Stripe reenvia e o upsert do serviço absorve o retry.
+      if (session.metadata?.tipo === 'super_reader') {
+        // Guard de payment_status: hoje inalcançável (checkout.session.completed
+        // com cartão só dispara já pago), mas fecha a porta para quando Pix/
+        // boleto entrarem — esses métodos completam a sessão como 'unpaid' e só
+        // confirmam o pagamento depois, de forma assíncrona.
+        if (session.payment_status && session.payment_status !== 'paid') {
+          logger.warn(`[SuperReader] Sessão ${session.id} com payment_status=${session.payment_status} — não registrada (aguardando pagamento).`);
+          return res.json({ received: true });
+        }
+        await superReaderService.registrarContribuicao(session);
+        logger.info(`[SuperReader] Contribuição registrada: ${session.amount_total} ${session.currency} (canal ${session.metadata.channelId})`);
+        return res.json({ received: true });
+      }
+
       const customerId = session.customer;
+
+      // Sessão avulsa sem customer (ex.: doação genérica, "send test webhook"
+      // do painel do Stripe): filtro { stripeCustomerId: null } casaria campo
+      // null E AUSENTE no Mongo — findOne devolveria um usuário arbitrário e
+      // ele viraria Premium de graça. Sem customer, não há o que ativar.
+      if (!customerId) {
+        logger.warn('[Webhook] checkout.session.completed sem customer — ignorado (não é Premium).');
+        return res.json({ received: true });
+      }
 
       const user = await User.findOne({ stripeCustomerId: customerId });
       if (user) {

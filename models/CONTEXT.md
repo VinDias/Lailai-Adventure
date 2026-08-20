@@ -105,6 +105,20 @@ Inscrição de push de UM aparelho de UM usuário (vários aparelhos = vários d
 - Sem TTL — não expira por tempo; endpoint morto (404/410 no envio) é removido na hora pelo `notificationService`
 - Índice extra em `userId` (para consultas por usuário)
 
+### `SuperReaderContribution.js` (Fase 4, Bloco 3)
+Registro de apoio direto ao autor de uma obra — criado **só no webhook** do Stripe (`checkout.session.completed` com `metadata.tipo === 'super_reader'`), nunca na criação da sessão. Separado do pool mensal de royalties (`RoyaltyPeriod`), não entra nele.
+- `userId` — ref `User`, `default: null`; **`null` = contribuição anonimizada** (exclusão de conta, LGPD — o registro contábil permanece para o relatório, mas sem vínculo pessoal deixa de ser dado pessoal)
+- `seriesId` — ref `Series`, `required`
+- `channelId` — ref `Channel`, `required`; canal do autor **congelado no momento do apoio** (o relatório soma por este campo, não pelo `channelId` atual da série)
+- `amountCents` — `Number`, `required`, `min: 1`
+- `currency` — `String`, enum `brl|usd|eur`
+- `authorShareCents` — `Number`, `required`; 80% congelado no registro (`Math.round(amountCents * 0.8)`)
+- `platformShareCents` — `Number`, `required`; o resto (`amountCents - authorShareCents`)
+- `stripeSessionId` — `String`, `required`, **unique** (idempotência: o Stripe reenvia webhooks, o upsert por este campo não duplica)
+- `period` — `String` `'YYYY-MM'`, `required`; mês do **pagamento** (webhook), não da criação da sessão
+- `timestamps: true`
+- Índices (3): `stripeSessionId` unique (implícito do `unique: true` no campo); `{ channelId: 1, period: 1 }` (soma do relatório admin por canal/período); `{ userId: 1 }` (lista das próprias contribuições em `GET /api/superreader/me`)
+
 ---
 
 ## Observações

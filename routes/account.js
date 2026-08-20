@@ -27,6 +27,7 @@ const RefreshToken = require('../models/RefreshToken');
 const PasswordResetToken = require('../models/PasswordResetToken');
 const ReadingProgress = require('../models/ReadingProgress');
 const PushSubscription = require('../models/PushSubscription');
+const SuperReaderContribution = require('../models/SuperReaderContribution');
 
 /**
  * LGPD — Direitos do titular dos dados (Art. 18).
@@ -76,13 +77,17 @@ router.get('/me/export', verifyToken, async (req, res) => {
     const user = await User.findById(req.user.id).select('-passwordHash').lean();
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
-    const [votes, seriesVotes, favorites, channels, readingProgress, pushSubscriptions] = await Promise.all([
+    const [votes, seriesVotes, favorites, channels, readingProgress, pushSubscriptions, superReaderContributions] = await Promise.all([
       Vote.find({ userId: req.user.id }).lean(),
       SeriesVote.find({ userId: req.user.id }).lean(),
       Favorite.find({ userId: req.user.id }).lean(),
       Channel.find({ ownerId: req.user.id }).lean(),
       ReadingProgress.find({ userId: req.user.id }).lean(),
       PushSubscription.find({ userId: req.user.id }).lean(),
+      SuperReaderContribution.find({ userId: req.user.id })
+        .select('seriesId amountCents currency createdAt')
+        .populate('seriesId', 'title')
+        .lean(),
     ]);
 
     const payload = {
@@ -121,6 +126,17 @@ router.get('/me/export', verifyToken, async (req, res) => {
       pushSubscriptions: pushSubscriptions.map(s => ({
         endpoint: s.endpoint,
         createdAt: s.createdAt,
+      })),
+      // Sem stripeSessionId nem os campos de share (autor/plataforma): são
+      // detalhe contábil do repasse ao autor, não dado informativo sobre o
+      // titular (mesma lógica das keys de push acima). seriesTitle vem de
+      // populate; série apagada vira null (mesmo padrão de
+      // routes/superReader.js GET /me) — não explode o export.
+      superReaderContributions: superReaderContributions.map(c => ({
+        seriesTitle: c.seriesId?.title ?? null,
+        amountCents: c.amountCents,
+        currency: c.currency,
+        createdAt: c.createdAt,
       })),
     };
 
@@ -189,6 +205,11 @@ router.delete('/me', verifyToken, async (req, res) => {
       // deletados, mas o vínculo com a conta é removido — o userId fica fora
       // do hash justamente para permitir esta desvinculação LGPD.
       require('../models/EngagementEvent').updateMany({ userId }, { $unset: { userId: 1 } }),
+      // SuperReaderContribution NÃO é apagada: o valor repassado ao autor é
+      // registro contábil do relatório de royalties (soma por canal/período,
+      // não por usuário). Anonimiza (userId: null) em vez de deletar — sem o
+      // vínculo pessoal, deixa de ser dado pessoal (LGPD).
+      SuperReaderContribution.updateMany({ userId }, { $set: { userId: null } }),
     ]);
 
     await User.findByIdAndDelete(userId);

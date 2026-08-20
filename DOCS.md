@@ -58,6 +58,28 @@ npm run seed:admin
 
 ---
 
+## Super Reader — Apoio Direto ao Autor (Fase 4, Bloco 3)
+
+Apoio direto do leitor ao autor de uma obra (80% autor / 20% plataforma), separado da assinatura Premium. Reaproveita a integração Stripe já existente — **nenhuma variável de ambiente nova**.
+
+### Nenhuma configuração nova de Stripe
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e `STRIPE_PRICE_ID*` já estão documentados acima (seção "Configurar Chaves Stripe em Produção") e em `.env.example` — o Super Reader usa a mesma `STRIPE_SECRET_KEY`, sem chave própria
+- O webhook `POST /api/payment/webhook` já assinado para o Premium **não precisa de nenhuma mudança**: o evento `checkout.session.completed` que ele já recebe é o mesmo evento que o Super Reader trata (a rota distingue pelo `metadata.tipo === 'super_reader'` da sessão). Só confira no painel do Stripe que o endpoint de produção continua com esse evento marcado — nada a adicionar
+
+### Setting opcional: `superReaderMinCents`
+- Valor mínimo de apoio, em **centavos** (500 = R$5,00; Super Reader é BRL apenas — ver seção acima)
+- Chave `superReaderMinCents` na coleção `Setting`, configurável via `PUT /api/settings/:key` com token admin — **não** existe campo para ela no painel de configurações admin (`components/Admin/AdminDashboard.tsx`, formulário hardcoded com as 9 chaves de `PUBLIC_KEYS`); adicionar esse campo ao painel é dívida de produto registrada aqui
+  ```bash
+  curl -X PUT https://api.lorflux.com/api/settings/superReaderMinCents -H "Authorization: Bearer <token-admin>" -H "Content-Type: application/json" -d '{"value":"1000"}'
+  ```
+- **Ausente ou inválido** (não-inteiro ou ≤ 0) → o backend usa o default **500** automaticamente (`services/superReaderService.js`) — não é obrigatório criar a chave para o recurso funcionar
+
+### Comportamento sem `STRIPE_SECRET_KEY`
+- `GET /api/superreader/min` e `GET /api/superreader/me` funcionam normalmente — não tocam no Stripe
+- `POST /api/superreader/create-session` falha: o serviço tenta montar o cliente Stripe só na primeira chamada real (lazy) e lança um erro simples (sem `.status`) quando a chave não está configurada; a rota devolve **500** genérico (`"Erro ao criar a sessão de apoio."`) ao cliente — o motivo real (`STRIPE_SECRET_KEY não configurada`) fica só no log do servidor
+
+---
+
 ## Ativar Notificações Push na VPS
 
 ### Gerar Chaves VAPID (uma única vez)

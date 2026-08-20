@@ -11,6 +11,7 @@ const Series = require('../models/Series');
 const Channel = require('../models/Channel');
 const Setting = require('../models/Setting');
 const User = require('../models/User');
+const SuperReaderContribution = require('../models/SuperReaderContribution');
 
 // Razão pontos/consumidores-únicos acima disso vira alerta de anomalia no relatório.
 const ANOMALY_RATIO = 20;
@@ -108,6 +109,48 @@ async function buildReport(range) {
   return { channels, totalPoints, adImpressions, premiumUsers, cpm, perSub, grossRevenue, authorShare, poolSuggested };
 }
 
+/**
+ * Soma o apoio Super Reader (80% autor / 20% plataforma) por canal no
+ * período — SEPARADO do pool mensal de royalties (decisão da spec, seção
+ * "Relatório"): não entra em poolSuggested nem no breakdown de POST /close.
+ * `period` é a mesma string 'YYYY-MM' que o report já usa (o modelo grava o
+ * período assim, sem precisar de range de datas).
+ * Retorna também `plataformaCents` por canal para uso interno do CSV — o
+ * shape público de GET /report expõe só { channelId, channelName, apoios,
+ * autorCents } por canal, como definido na spec.
+ */
+async function buildSuperReaderSummary(period) {
+  const perChannel = await SuperReaderContribution.aggregate([
+    { $match: { period } },
+    { $group: {
+      _id: '$channelId',
+      apoios: { $sum: 1 },
+      autorCents: { $sum: '$authorShareCents' },
+      plataformaCents: { $sum: '$platformShareCents' },
+    } },
+  ]);
+
+  const channelIds = perChannel.map(c => c._id).filter(Boolean);
+  const channelDocs = await Channel.find({ _id: { $in: channelIds } }).select('name').lean();
+  const channelNames = new Map(channelDocs.map(c => [String(c._id), c.name]));
+
+  const porCanal = perChannel.map(c => ({
+    channelId: c._id,
+    // Canal apagado (ou sem canal, o que não deveria ocorrer — channelId é
+    // required no modelo) → null, sem explodir.
+    channelName: c._id ? (channelNames.get(String(c._id)) ?? null) : null,
+    apoios: c.apoios,
+    autorCents: c.autorCents,
+    plataformaCents: c.plataformaCents,
+  }));
+
+  const totalApoios = porCanal.reduce((sum, c) => sum + c.apoios, 0);
+  const totalAutorCents = porCanal.reduce((sum, c) => sum + c.autorCents, 0);
+  const totalPlataformaCents = porCanal.reduce((sum, c) => sum + c.plataformaCents, 0);
+
+  return { porCanal, totalApoios, totalAutorCents, totalPlataformaCents };
+}
+
 // GET /api/admin/royalties/report?period=YYYY-MM
 router.get('/report', async (req, res) => {
   try {
@@ -115,8 +158,17 @@ router.get('/report', async (req, res) => {
     if (!range) return res.status(400).json({ error: 'period deve estar no formato YYYY-MM.' });
 
     const report = await buildReport(range);
+    const srSummary = await buildSuperReaderSummary(req.query.period);
+    // Shape público da spec: só channelId/channelName/apoios/autorCents por
+    // canal (plataformaCents por canal fica interno, usado só no CSV).
+    const superReader = {
+      porCanal: srSummary.porCanal.map(({ channelId, channelName, apoios, autorCents }) => ({ channelId, channelName, apoios, autorCents })),
+      totalAutorCents: srSummary.totalAutorCents,
+      totalPlataformaCents: srSummary.totalPlataformaCents,
+      totalApoios: srSummary.totalApoios,
+    };
     const closed = await RoyaltyPeriod.findOne({ period: req.query.period }).lean();
-    res.json({ period: req.query.period, ...report, closedPeriod: closed || null });
+    res.json({ period: req.query.period, ...report, superReader, closedPeriod: closed || null });
   } catch (err) {
     logger.error('[Royalties] GET /report', err);
     res.status(500).json({ error: 'Erro ao montar o relatório.' });
@@ -214,6 +266,18 @@ router.get('/export.csv', async (req, res) => {
       lines.push(`${c.channelName.replace(/;/g, ',')};${c.points};${(c.share * 100).toFixed(2)}%;${amount};${closed ? 'fechado' : 'sugerido'}`);
     }
     lines.push(`TOTAL;${report.totalPoints};100%;${pool.toFixed(2)};${closed ? 'fechado' : 'sugerido'}`);
+
+    // Bloco separado: apoio Super Reader (80% autor / 20% plataforma), fora
+    // do pool acima — não mexe em nenhuma linha/coluna já existente.
+    const srSummary = await buildSuperReaderSummary(req.query.period);
+    lines.push('');
+    lines.push('Super Reader (direto ao autor)');
+    lines.push('canal;apoios;autor;plataforma');
+    for (const c of srSummary.porCanal) {
+      const nome = (c.channelName ?? '(canal removido)').replace(/;/g, ',');
+      lines.push(`${nome};${c.apoios};${(c.autorCents / 100).toFixed(2)};${(c.plataformaCents / 100).toFixed(2)}`);
+    }
+    lines.push(`TOTAL;${srSummary.totalApoios};${(srSummary.totalAutorCents / 100).toFixed(2)};${(srSummary.totalPlataformaCents / 100).toFixed(2)}`);
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="royalties-${req.query.period}.csv"`);

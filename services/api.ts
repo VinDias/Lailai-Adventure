@@ -742,6 +742,35 @@ class ApiService {
   async getPushStatus(endpoint: string) {
     return this.request<{ thisDevice: boolean; anyDevice: boolean }>(`/me/push/status?endpoint=${encodeURIComponent(endpoint)}`);
   }
+
+  // ─── Fase 4 Bloco 3: Super Reader (apoio direto ao autor) ──────────────────
+  /**
+   * Exige login (verifyToken em routes/superReader.js). `amountCents` SEMPRE
+   * em centavos inteiros (ruling P1 do bloco — o DonateButton morto errou
+   * exatamente isso, mandando reais). Devolve a URL da sessão de checkout do
+   * Stripe; quem chama redireciona (`window.location.href = url`).
+   */
+  async createSuperReaderSession(seriesId: string, amountCents: number, currency: string) {
+    return this.request<{ url: string }>('/superreader/create-session', {
+      method: 'POST',
+      body: JSON.stringify({ seriesId, amountCents, currency }),
+    });
+  }
+
+  // Shape real de routes/superReader.js GET /me: selo derivado (>=1 contribuição
+  // própria) + lista das contribuições, mais recente primeiro. Nunca traz
+  // stripeSessionId nem os campos de share — só o que a Conta precisa mostrar.
+  async getSuperReaderMe() {
+    return this.request<{
+      superReader: boolean;
+      contribuicoes: { seriesTitle: string | null; amountCents: number; currency: string; createdAt: string }[];
+    }>('/superreader/me');
+  }
+
+  /** Sem auth — o frontend monta os valores rápidos (mínimo, 2x, 4x) a partir daqui. */
+  async getSuperReaderMin() {
+    return this.request<{ minCents: number }>('/superreader/min');
+  }
 }
 
 export const api = ApiService.getInstance();

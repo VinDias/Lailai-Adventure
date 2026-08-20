@@ -36,6 +36,10 @@ vi.mock('../../services/api', () => ({
     getPublicSettings: vi.fn().mockResolvedValue({}),
     getAdminSettings: vi.fn().mockResolvedValue([]),
     updateSetting: vi.fn().mockResolvedValue({}),
+    // SuperReaderButton (Fase 4 Bloco 3) monta dentro do modal de detalhe de
+    // série nos 3 feeds e busca o mínimo ao montar.
+    getSuperReaderMin: vi.fn().mockResolvedValue({ minCents: 500 }),
+    createSuperReaderSession: vi.fn(),
   },
 }));
 
