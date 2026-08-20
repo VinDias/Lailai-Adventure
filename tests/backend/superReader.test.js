@@ -9,7 +9,9 @@
  * padrão de services/progressService.js + routes/progress.js
  * (`err.status === 400 → res.status(400)`).
  */
+const request = require('supertest');
 const db = require('../helpers/db');
+const auth = require('../helpers/auth');
 
 let app;
 let mongoose;
@@ -26,6 +28,7 @@ beforeAll(async () => {
   Setting = require('../../models/Setting');
   SuperReaderContribution = require('../../models/SuperReaderContribution');
   superReaderService = require('../../services/superReaderService');
+  await auth.createUsers(app);
 
   // require('../../server') carrega ~20 models; a construção dos índices
   // declarados (autoIndex) roda em background e NÃO está garantida pronta
@@ -491,5 +494,267 @@ describe('__setStripeForTests', () => {
     } finally {
       process.env.NODE_ENV = originalNodeEnv;
     }
+  });
+});
+
+/**
+ * Task 2: routes/superReader.js — rotas finas por cima do serviço da T1.
+ * Convenção de erro consumida das rotas: err.status do serviço vira o mesmo
+ * status HTTP com { error: mensagem }; sem .status vira 500 genérico (mesmo
+ * padrão de routes/progress.js).
+ */
+describe('rotas', () => {
+  function fakeStripe(sessaoRetornada = { id: 'cs_test_rota_1', url: 'https://checkout.stripe.com/rota' }) {
+    const capturados = [];
+    const stripe = {
+      checkout: {
+        sessions: {
+          create: async (params) => {
+            capturados.push(params);
+            return sessaoRetornada;
+          },
+        },
+      },
+    };
+    return { stripe, capturados };
+  }
+
+  describe('autenticação', () => {
+    it('POST /api/superreader/create-session sem token → 401', async () => {
+      const res = await request(app)
+        .post('/api/superreader/create-session')
+        .send({ seriesId: new mongoose.Types.ObjectId().toString(), amountCents: 500, currency: 'brl' });
+      expect(res.status).toBe(401);
+    });
+
+    it('GET /api/superreader/me sem token → 401', async () => {
+      const res = await request(app).get('/api/superreader/me');
+      expect(res.status).toBe(401);
+    });
+
+    it('GET /api/superreader/min sem token → responde normalmente (rota pública)', async () => {
+      const res = await request(app).get('/api/superreader/min');
+      expect(res.status).toBe(200);
+      expect(typeof res.body.minCents).toBe('number');
+    });
+  });
+
+  describe('POST /create-session', () => {
+    beforeEach(async () => {
+      // Mesmo cuidado do describe('criarSessaoDeApoio') acima: garante o
+      // mínimo no default entre testes.
+      await Setting.deleteOne({ key: 'superReaderMinCents' });
+    });
+
+    it('valor abaixo do mínimo → 400 com a mensagem do serviço', async () => {
+      const { stripe } = fakeStripe();
+      superReaderService.__setStripeForTests(stripe);
+      const serie = await criarSerie();
+
+      const res = await request(app)
+        .post('/api/superreader/create-session')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ seriesId: serie._id.toString(), amountCents: 100, currency: 'brl' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('O apoio mínimo é de 500 centavos.');
+    });
+
+    it('amountCents não-inteiro (500.5) → 400', async () => {
+      const { stripe } = fakeStripe();
+      superReaderService.__setStripeForTests(stripe);
+      const serie = await criarSerie();
+
+      const res = await request(app)
+        .post('/api/superreader/create-session')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ seriesId: serie._id.toString(), amountCents: 500.5, currency: 'brl' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('moeda inválida → 400', async () => {
+      const { stripe } = fakeStripe();
+      superReaderService.__setStripeForTests(stripe);
+      const serie = await criarSerie();
+
+      const res = await request(app)
+        .post('/api/superreader/create-session')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ seriesId: serie._id.toString(), amountCents: 500, currency: 'jpy' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('série inexistente → 404', async () => {
+      const { stripe } = fakeStripe();
+      superReaderService.__setStripeForTests(stripe);
+
+      const res = await request(app)
+        .post('/api/superreader/create-session')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ seriesId: new mongoose.Types.ObjectId().toString(), amountCents: 500, currency: 'brl' });
+
+      expect(res.status).toBe(404);
+    });
+
+    it('série despublicada → 400', async () => {
+      const { stripe } = fakeStripe();
+      superReaderService.__setStripeForTests(stripe);
+      const serie = await criarSerie({ isPublished: false });
+
+      const res = await request(app)
+        .post('/api/superreader/create-session')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ seriesId: serie._id.toString(), amountCents: 500, currency: 'brl' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('série sem canal → 400', async () => {
+      const { stripe } = fakeStripe();
+      superReaderService.__setStripeForTests(stripe);
+      const serie = await criarSerie({ channelId: null });
+
+      const res = await request(app)
+        .post('/api/superreader/create-session')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ seriesId: serie._id.toString(), amountCents: 500, currency: 'brl' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('caso feliz: 200 com { url }, e o metadata da sessão traz o userId DO TOKEN — não o que vier no body', async () => {
+      const { stripe, capturados } = fakeStripe({ id: 'cs_test_rota_feliz', url: 'https://checkout.stripe.com/rota-feliz' });
+      superReaderService.__setStripeForTests(stripe);
+      const serie = await criarSerie();
+
+      // userId "forjado" no body: se a rota o usasse, o metadata traria este
+      // valor. A rota deve ignorá-lo e usar sempre req.user.id (do token).
+      const userIdForjado = new mongoose.Types.ObjectId().toString();
+      const res = await request(app)
+        .post('/api/superreader/create-session')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ seriesId: serie._id.toString(), amountCents: 750, currency: 'usd', userId: userIdForjado });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ url: 'https://checkout.stripe.com/rota-feliz' });
+
+      expect(capturados).toHaveLength(1);
+      expect(capturados[0].metadata.tipo).toBe('super_reader');
+      expect(capturados[0].metadata.userId).toBe(auth.getId('user'));
+      expect(capturados[0].metadata.userId).not.toBe(userIdForjado);
+    });
+  });
+
+  describe('GET /me', () => {
+    it('usuário sem contribuições → { superReader: false, contribuicoes: [] }', async () => {
+      const res = await request(app)
+        .get('/api/superreader/me')
+        .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ superReader: false, contribuicoes: [] });
+    });
+
+    it('com contribuições, devolve na ordem certa (mais recente primeiro), com seriesTitle resolvido, sem stripeSessionId/shares', async () => {
+      const userId = auth.getId('admin');
+      const serieAntiga = await criarSerie({ title: 'Obra Antiga' });
+      const serieNova = await criarSerie({ title: 'Obra Nova' });
+
+      const agora = Date.now();
+      await SuperReaderContribution.create({
+        userId, seriesId: serieAntiga._id, channelId: serieAntiga.channelId,
+        amountCents: 500, currency: 'brl', authorShareCents: 400, platformShareCents: 100,
+        stripeSessionId: `cs_test_me_antiga_${new mongoose.Types.ObjectId()}`,
+        period: '2026-06', createdAt: new Date(agora - 10000),
+      });
+      await SuperReaderContribution.create({
+        userId, seriesId: serieNova._id, channelId: serieNova.channelId,
+        amountCents: 1000, currency: 'usd', authorShareCents: 800, platformShareCents: 200,
+        stripeSessionId: `cs_test_me_nova_${new mongoose.Types.ObjectId()}`,
+        period: '2026-08', createdAt: new Date(agora),
+      });
+
+      const res = await request(app)
+        .get('/api/superreader/me')
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.superReader).toBe(true);
+      expect(res.body.contribuicoes).toHaveLength(2);
+
+      expect(res.body.contribuicoes[0]).toMatchObject({ seriesTitle: 'Obra Nova', amountCents: 1000, currency: 'usd' });
+      expect(res.body.contribuicoes[1]).toMatchObject({ seriesTitle: 'Obra Antiga', amountCents: 500, currency: 'brl' });
+
+      res.body.contribuicoes.forEach((c) => {
+        expect(c.stripeSessionId).toBeUndefined();
+        expect(c.authorShareCents).toBeUndefined();
+        expect(c.platformShareCents).toBeUndefined();
+        expect(c.seriesId).toBeUndefined(); // só seriesTitle sai, não o id bruto/populado
+        expect(c.channelId).toBeUndefined();
+        expect(c.userId).toBeUndefined();
+      });
+    });
+
+    it('contribuição de outro usuário não aparece', async () => {
+      const outroUserId = new mongoose.Types.ObjectId();
+      const serie = await criarSerie({ title: 'Obra De Outro Usuario' });
+      await SuperReaderContribution.create({
+        userId: outroUserId, seriesId: serie._id, channelId: serie.channelId,
+        amountCents: 500, currency: 'brl', authorShareCents: 400, platformShareCents: 100,
+        stripeSessionId: `cs_test_outro_${new mongoose.Types.ObjectId()}`,
+        period: '2026-08',
+      });
+
+      const res = await request(app)
+        .get('/api/superreader/me')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ superReader: false, contribuicoes: [] });
+    });
+
+    it('série apagada → seriesTitle null, sem explodir', async () => {
+      const serie = await criarSerie({ title: 'Obra Que Sera Apagada' });
+      await SuperReaderContribution.create({
+        userId: auth.getId('superadmin'), seriesId: serie._id, channelId: serie.channelId,
+        amountCents: 500, currency: 'brl', authorShareCents: 400, platformShareCents: 100,
+        stripeSessionId: `cs_test_apagada_${new mongoose.Types.ObjectId()}`,
+        period: '2026-08',
+      });
+      await Series.deleteOne({ _id: serie._id });
+
+      const res = await request(app)
+        .get('/api/superreader/me')
+        .set('Authorization', `Bearer ${auth.getToken('superadmin')}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.contribuicoes).toHaveLength(1);
+      expect(res.body.contribuicoes[0].seriesTitle).toBeNull();
+    });
+  });
+
+  describe('GET /min', () => {
+    beforeEach(async () => {
+      await Setting.deleteOne({ key: 'superReaderMinCents' });
+    });
+
+    it('sem Setting cadastrado, default 500', async () => {
+      const res = await request(app).get('/api/superreader/min');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ minCents: 500 });
+    });
+
+    it('reflete Setting alterado', async () => {
+      await Setting.findOneAndUpdate(
+        { key: 'superReaderMinCents' },
+        { value: '1500' },
+        { upsert: true },
+      );
+      const res = await request(app).get('/api/superreader/min');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ minCents: 1500 });
+    });
   });
 });
