@@ -88,7 +88,15 @@ Chaves VAPID identificam seu servidor aos provedores de push (Firefox, Chrome, e
    npm install
    ```
 
-4. **Reinicie o PM2:**
+4. **Rode o backfill de episódios legados (uma vez, idempotente):**
+   ```bash
+   node scripts/backfillNotificationSentAt.js
+   ```
+   Marca o acervo já publicado como notificado, para que o primeiro edit de
+   um episódio antigo (ex.: trocar a thumbnail) não dispare um push falso de
+   "capítulo novo" para quem favoritou. Rodar de novo não faz nada (idempotente).
+
+5. **Reinicie o PM2:**
    ```bash
    npm run restart
    # ou

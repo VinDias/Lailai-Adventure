@@ -1313,3 +1313,88 @@ describe('GET /api/content/agenda', () => {
     expect(idsDomingo).toContain(String(domingo._id));
   });
 });
+
+/**
+ * Item 1 da revisão final (Bloco 2) — BLOQUEADOR corrigido:
+ * scripts/backfillNotificationSentAt.js. Episódios gravados antes desta
+ * branch não têm o campo `notificationSentAt`; no MongoDB
+ * `{notificationSentAt: null}` casa também com o campo AUSENTE — o mesmo
+ * filtro do claim atômico em notifyEpisodePublished. Sem o backfill, editar
+ * um episódio antigo pós-deploy (ex.: só a thumbnail) dispararia um push
+ * falso "Episódio N disponível". O script marca só os JÁ publicados;
+ * rascunho/processing legado tem que continuar sem o campo, senão a
+ * notificação legítima (quando o conteúdo enfim chegar) não sai mais.
+ * Insere os documentos legados via `Episode.collection.insertOne` cru — o
+ * `Episode.create()` do Mongoose aplicaria o default (`null`) e mascararia
+ * o cenário real (campo ausente).
+ */
+describe('scripts/backfillNotificationSentAt', () => {
+  const mongoose = require('mongoose');
+  let Episode, Series, Favorite, PushSubscription, notificationService, backfillNotificationSentAt;
+
+  beforeAll(() => {
+    ({ backfillNotificationSentAt } = require('../../scripts/backfillNotificationSentAt'));
+    Episode = require('../../models/Episode');
+    Series = require('../../models/Series');
+    Favorite = require('../../models/Favorite');
+    PushSubscription = require('../../models/PushSubscription');
+    notificationService = require('../../services/notificationService');
+  });
+
+  afterEach(() => {
+    notificationService.__setTransportForTests(null);
+  });
+
+  it('marca published legado sem o campo; deixa rascunho legado intocado; idempotente; e fecha o bug de ponta a ponta (sem push falso após o backfill)', async () => {
+    const serie = await Series.create({
+      title: 'Serie Legada Backfill', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+    });
+
+    const { insertedId: publicadoId } = await Episode.collection.insertOne({
+      seriesId: serie._id, episode_number: 1, title: 'Cap Legado Publicado', status: 'published',
+      video_url: 'https://cdn.exemplo.test/legado-publicado.m3u8',
+    });
+    const { insertedId: rascunhoId } = await Episode.collection.insertOne({
+      seriesId: serie._id, episode_number: 2, title: 'Cap Legado Rascunho', status: 'processing',
+    });
+
+    // Confirma o cenário legado: o campo está de fato AUSENTE (não é só null
+    // pelo default do schema — insertOne cru não aplica defaults).
+    const publicadoAntes = await Episode.collection.findOne({ _id: publicadoId });
+    const rascunhoAntes = await Episode.collection.findOne({ _id: rascunhoId });
+    expect('notificationSentAt' in publicadoAntes).toBe(false);
+    expect('notificationSentAt' in rascunhoAntes).toBe(false);
+
+    const marcados1 = await backfillNotificationSentAt();
+    expect(marcados1).toBeGreaterThanOrEqual(1);
+
+    const publicadoDepois = await Episode.findById(publicadoId);
+    const rascunhoDepois = await Episode.findById(rascunhoId);
+    expect(publicadoDepois.notificationSentAt).not.toBeNull();
+    expect(rascunhoDepois.notificationSentAt).toBeNull(); // rascunho legado: continua sem o campo (via getter default)
+
+    // Idempotente: rodar de novo não muda o que já foi marcado.
+    const carimboAposPrimeiro = publicadoDepois.notificationSentAt.getTime();
+    const marcados2 = await backfillNotificationSentAt();
+    expect(marcados2).toBe(0);
+    const publicadoAposSegundo = await Episode.findById(publicadoId);
+    expect(publicadoAposSegundo.notificationSentAt.getTime()).toBe(carimboAposPrimeiro);
+
+    // Cenário do bug de ponta a ponta: depois do backfill, notifyEpisodePublished
+    // no episódio legado publicado NÃO envia nada — o claim já foi consumido
+    // pelo backfill, mesmo havendo favorito e subscription prontos para receber.
+    let chamadas = 0;
+    notificationService.__setTransportForTests(async () => { chamadas += 1; });
+    const userId = new mongoose.Types.ObjectId();
+    await Favorite.create({ userId, seriesId: serie._id });
+    await PushSubscription.create({
+      userId,
+      endpoint: `https://push.exemplo/backfill-${new mongoose.Types.ObjectId()}`,
+      keys: { p256dh: 'p', auth: 'a' },
+    });
+
+    const resultado = await notificationService.notifyEpisodePublished(publicadoId);
+    expect(resultado).toBeNull();
+    expect(chamadas).toBe(0);
+  });
+});
