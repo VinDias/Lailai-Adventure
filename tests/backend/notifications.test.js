@@ -1070,4 +1070,108 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
       expect(chamadas).toBe(0);
     });
   });
+
+  /**
+   * 6º caminho de disparo (achado da revisão): GET /video-status/:videoId é
+   * a sincronização manual que o admin usa quando o webhook automático do
+   * Bunny se perde — ela também pode publicar o episódio (status 4 lido
+   * direto da API do Bunny). A rota chama o `fetch` global sem test seam
+   * próprio; mockado aqui com `vi.stubGlobal('fetch', ...)`, mesmo padrão já
+   * usado nos testes de frontend deste repositório (tests/frontend/api.*).
+   */
+  describe('caminho 6 — GET /api/bunny/video-status/:videoId (sincronização manual)', () => {
+    it('sincronizar um vídeo "Finished" (status 4) dispara o push; sincronizar de novo não redispara', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+      const bunnyVideoId = `bunny-${new mongoose.Types.ObjectId()}`;
+      const episodio = await Episode.create({
+        seriesId: serie._id, episode_number: 10, title: 'Cap Sincronizado', status: 'processing', bunnyVideoId,
+      });
+
+      const anteriores = {
+        apiKey: process.env.BUNNY_API_KEY,
+        libraryId: process.env.BUNNY_LIBRARY_ID,
+        cdn: process.env.BUNNY_CDN_HOSTNAME,
+      };
+      process.env.BUNNY_API_KEY = 'chave-teste-sync';
+      process.env.BUNNY_LIBRARY_ID = 'lib-teste-sync';
+      process.env.BUNNY_CDN_HOSTNAME = 'cdn-teste-sync.b-cdn.net';
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 4 }), // 4 = Finished no Bunny
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const primeira = await request(app)
+          .get(`/api/bunny/video-status/${bunnyVideoId}`)
+          .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+        expect(primeira.status).toBe(200);
+        expect(primeira.body.mongoStatus).toBe('published');
+
+        await vi.waitFor(() => expect(chamadas).toBe(1), { timeout: 2000, interval: 20 });
+
+        const depoisDaPrimeira = await Episode.findById(episodio._id);
+        expect(depoisDaPrimeira.status).toBe('published');
+        expect(depoisDaPrimeira.notificationSentAt).not.toBeNull();
+
+        // Sincronizar de novo (Bunny continua reportando "Finished") não
+        // redispara — o claim de notificationSentAt já foi consumido.
+        const segunda = await request(app)
+          .get(`/api/bunny/video-status/${bunnyVideoId}`)
+          .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+        expect(segunda.status).toBe(200);
+
+        await new Promise(r => setTimeout(r, 150));
+        expect(chamadas).toBe(1); // não incrementou de novo
+      } finally {
+        vi.unstubAllGlobals();
+        if (anteriores.apiKey !== undefined) process.env.BUNNY_API_KEY = anteriores.apiKey; else delete process.env.BUNNY_API_KEY;
+        if (anteriores.libraryId !== undefined) process.env.BUNNY_LIBRARY_ID = anteriores.libraryId; else delete process.env.BUNNY_LIBRARY_ID;
+        if (anteriores.cdn !== undefined) process.env.BUNNY_CDN_HOSTNAME = anteriores.cdn; else delete process.env.BUNNY_CDN_HOSTNAME;
+      }
+    });
+
+    it('sincronizar um vídeo ainda "Processing" (status 2) não dispara', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+      const bunnyVideoId = `bunny-${new mongoose.Types.ObjectId()}`;
+      await Episode.create({
+        seriesId: serie._id, episode_number: 11, title: 'Cap Ainda Processando', status: 'processing', bunnyVideoId,
+      });
+
+      const anteriores = {
+        apiKey: process.env.BUNNY_API_KEY,
+        libraryId: process.env.BUNNY_LIBRARY_ID,
+      };
+      process.env.BUNNY_API_KEY = 'chave-teste-sync-2';
+      process.env.BUNNY_LIBRARY_ID = 'lib-teste-sync-2';
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 2 }), // 2 = Processing no Bunny
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const res = await request(app)
+          .get(`/api/bunny/video-status/${bunnyVideoId}`)
+          .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+        expect(res.status).toBe(200);
+        expect(res.body.mongoStatus).toBe('processing');
+
+        await new Promise(r => setTimeout(r, 100));
+        expect(chamadas).toBe(0);
+      } finally {
+        vi.unstubAllGlobals();
+        if (anteriores.apiKey !== undefined) process.env.BUNNY_API_KEY = anteriores.apiKey; else delete process.env.BUNNY_API_KEY;
+        if (anteriores.libraryId !== undefined) process.env.BUNNY_LIBRARY_ID = anteriores.libraryId; else delete process.env.BUNNY_LIBRARY_ID;
+      }
+    });
+  });
 });

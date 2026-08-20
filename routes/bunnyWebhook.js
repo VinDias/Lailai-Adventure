@@ -458,6 +458,17 @@ router.get('/video-status/:videoId', (req, res) => {
         );
 
         logger.info(`[Bunny Status] ${videoId} → Bunny:${video.status} DB:${mongoStatus}`);
+
+        // 6º caminho de disparo: sincronização manual (admin consulta o Bunny
+        // direto quando o webhook automático se perde) também pode publicar
+        // o episódio. Fire-and-forget, igual aos demais — claim + guarda de
+        // conteúdo em notifyEpisodePublished tornam seguro repetir a sync.
+        if (episode && mongoStatus === 'published') {
+          require('../services/notificationService')
+            .notifyEpisodePublished(episode._id)
+            .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+        }
+
         res.json({ bunnyStatus: video.status, mongoStatus, episode });
       } catch (err) {
         logger.error('[Bunny Status Check]', err);
