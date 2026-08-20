@@ -1175,3 +1175,66 @@ describe('disparo do push nos quatro caminhos de publicação', () => {
     });
   });
 });
+
+/**
+ * Task 5: LGPD — inscrições de push entram no export do titular (sem as
+ * chaves criptográficas, que são segredo de transporte) e são removidas
+ * junto na exclusão de conta. Molde: describe "LGPD do progresso" em
+ * tests/backend/progress.test.js.
+ */
+describe('LGPD das inscrições de push', () => {
+  const mongoose = require('mongoose');
+  let PushSubscription;
+
+  beforeAll(() => {
+    PushSubscription = require('../../models/PushSubscription');
+  });
+
+  it('o export do titular inclui pushSubscriptions com endpoint e createdAt, sem keys', async () => {
+    const endpoint = `https://push.exemplo/export-lgpd-${new mongoose.Types.ObjectId()}`;
+    await PushSubscription.create({
+      userId: auth.getId('user'),
+      endpoint,
+      keys: { p256dh: 'chave-p256dh-secreta', auth: 'chave-auth-secreta' },
+    });
+
+    const res = await request(app)
+      .get('/api/account/me/export')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`);
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.pushSubscriptions)).toBe(true);
+    const doExport = res.body.pushSubscriptions.find(p => p.endpoint === endpoint);
+    expect(doExport).toBeTruthy();
+    expect(doExport).toHaveProperty('createdAt');
+    expect(doExport).not.toHaveProperty('keys');
+  });
+
+  it('excluir a conta apaga as inscrições de push junto', async () => {
+    const bcrypt = require('bcrypt');
+    const User = require('../../models/User');
+    const descartavel = await User.create({
+      email: 'push-lgpd@lorflux.test',
+      passwordHash: await bcrypt.hash('Descartavel@123', 10),
+      nome: 'Conta Descartavel Push',
+    });
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'push-lgpd@lorflux.test', password: 'Descartavel@123' });
+    const token = login.body.accessToken;
+
+    await PushSubscription.create({
+      userId: descartavel._id,
+      endpoint: `https://push.exemplo/exclusao-lgpd-${new mongoose.Types.ObjectId()}`,
+      keys: { p256dh: 'p', auth: 'a' },
+    });
+
+    await request(app)
+      .delete('/api/account/me')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ password: 'Descartavel@123' });
+
+    expect(await PushSubscription.countDocuments({ userId: descartavel._id })).toBe(0);
+  });
+});

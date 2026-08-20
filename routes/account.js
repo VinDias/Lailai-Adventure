@@ -26,6 +26,7 @@ const Channel = require('../models/Channel');
 const RefreshToken = require('../models/RefreshToken');
 const PasswordResetToken = require('../models/PasswordResetToken');
 const ReadingProgress = require('../models/ReadingProgress');
+const PushSubscription = require('../models/PushSubscription');
 
 /**
  * LGPD — Direitos do titular dos dados (Art. 18).
@@ -75,12 +76,13 @@ router.get('/me/export', verifyToken, async (req, res) => {
     const user = await User.findById(req.user.id).select('-passwordHash').lean();
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
-    const [votes, seriesVotes, favorites, channels, readingProgress] = await Promise.all([
+    const [votes, seriesVotes, favorites, channels, readingProgress, pushSubscriptions] = await Promise.all([
       Vote.find({ userId: req.user.id }).lean(),
       SeriesVote.find({ userId: req.user.id }).lean(),
       Favorite.find({ userId: req.user.id }).lean(),
       Channel.find({ ownerId: req.user.id }).lean(),
       ReadingProgress.find({ userId: req.user.id }).lean(),
+      PushSubscription.find({ userId: req.user.id }).lean(),
     ]);
 
     const payload = {
@@ -112,6 +114,13 @@ router.get('/me/export', verifyToken, async (req, res) => {
         position: p.position,
         completed: p.completed,
         updatedAt: p.updatedAt,
+      })),
+      // Sem `keys`: são segredo criptográfico do transporte (Web Push), não
+      // dado informativo sobre o titular — endpoint e data bastam para o
+      // export (LGPD, Art. 18).
+      pushSubscriptions: pushSubscriptions.map(s => ({
+        endpoint: s.endpoint,
+        createdAt: s.createdAt,
       })),
     };
 
@@ -172,6 +181,7 @@ router.delete('/me', verifyToken, async (req, res) => {
       Favorite.deleteMany({ userId }),
       Channel.deleteMany({ ownerId: userId }),
       ReadingProgress.deleteMany({ userId }),
+      PushSubscription.deleteMany({ userId }),
       Channel.updateMany({ followers: userId }, { $pull: { followers: userId } }),
       RefreshToken.deleteMany({ userId: userId.toString() }),
       PasswordResetToken.deleteMany({ userId }),

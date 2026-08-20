@@ -61,6 +61,7 @@ const LegalPolicy: React.FC<LegalPolicyProps> = ({ open, onClose, initialTab = '
                 <li><strong>Técnicos:</strong> endereço IP e registro de consentimento, para segurança e cumprimento legal.</li>
                 <li><strong>Cookies:</strong> essenciais (sessão) e, mediante consentimento, de publicidade.</li>
                 <li><strong>Progresso de leitura:</strong> em que ponto você parou em cada capítulo ou episódio, para permitir que continue de onde parou. Se você ainda não tem conta, esse registro fica ligado a um identificador do seu navegador, deixa de ser associado a você quando você limpa os dados do navegador (o identificador é descartado, mas o registro em si permanece no servidor até o prazo abaixo) e é apagado do servidor após 180 dias sem uso. Ao criar uma conta, o histórico passa a ser vinculado a ela.</li>
+                <li><strong>Notificações:</strong> opcionais, ativadas por você. Se ativadas, registramos o endereço de envio do seu aparelho, apagado ao desativar as notificações no app, ao excluir sua conta ou ao revogar a permissão nas configurações do sistema.</li>
               </ul>
             </Section>
 
