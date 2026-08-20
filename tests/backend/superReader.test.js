@@ -438,6 +438,48 @@ describe('registrarContribuicao', () => {
     const todos = await SuperReaderContribution.find({ stripeSessionId: sessao.id });
     expect(todos).toHaveLength(1);
   });
+
+  // Duas promises no mesmo processo contra um mongod único não colidem de
+  // verdade no índice (o mongod serializa o upsert) — o teste acima prova o
+  // resultado, mas não percorre o branch do E11000. Aqui a corrida é FORÇADA
+  // com o mock rejeitando, como o perdedor real veria entre processos
+  // (PM2 cluster / dois workers com o mesmo evento do Stripe) — mesmo padrão
+  // de progress.test.js para a corrida do upsert de progresso.
+  it('perdedor da corrida (E11000 forçado): re-busca e devolve o doc do vencedor', async () => {
+    const sessao = montarSessao({ amount_total: 900 });
+    const vencedor = await superReaderService.registrarContribuicao(sessao);
+
+    const spy = vi.spyOn(SuperReaderContribution, 'findOneAndUpdate').mockImplementationOnce(async () => {
+      const err = new Error('E11000 duplicate key error collection');
+      err.code = 11000;
+      throw err;
+    });
+    try {
+      const doc = await superReaderService.registrarContribuicao(sessao);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(String(doc._id)).toBe(String(vencedor._id));
+      expect(doc.amountCents).toBe(900);
+      expect(doc.authorShareCents).toBe(vencedor.authorShareCents);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('E11000 com re-busca vazia relança o erro original (não mascara com null)', async () => {
+    const sessao = montarSessao();
+    const spyUpsert = vi.spyOn(SuperReaderContribution, 'findOneAndUpdate').mockImplementationOnce(async () => {
+      const err = new Error('E11000 duplicate key error collection');
+      err.code = 11000;
+      throw err;
+    });
+    const spyFindOne = vi.spyOn(SuperReaderContribution, 'findOne').mockResolvedValueOnce(null);
+    try {
+      await expect(superReaderService.registrarContribuicao(sessao)).rejects.toThrow(/E11000/);
+    } finally {
+      spyUpsert.mockRestore();
+      spyFindOne.mockRestore();
+    }
+  });
 });
 
 describe('__setStripeForTests', () => {
