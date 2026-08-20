@@ -605,6 +605,14 @@ describe('rotas de push', () => {
       expect(res.status).toBe(400);
     });
 
+    it('endpoint "https://" sem host → 400 (item 2 da revisão: parse real de URL, não só startsWith)', async () => {
+      const res = await request(app)
+        .post('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ endpoint: 'https://', keys: { p256dh: 'p', auth: 'a' } });
+      expect(res.status).toBe(400);
+    });
+
     it('duas inscrições quase simultâneas do mesmo endpoint (corrida de upsert) → não duplica e ambas resolvem com sucesso', async () => {
       const endpoint = endpointUnico('corrida');
       const [r1, r2] = await Promise.all([

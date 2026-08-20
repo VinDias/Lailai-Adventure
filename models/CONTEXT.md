@@ -26,7 +26,7 @@ Séries de conteúdo (container de episódios).
 - `isPublished` — controla visibilidade pública (default `false`; catálogo exige `true` estrito)
 - `translations` — `{ en|es|zh: { genre, description } }`, preenchido automaticamente pelo `translationService` no save (título NÃO é traduzido — decisão do cliente)
 - `channelId` (Fase 3) — ref ao `Channel` do ilustrador; agrupa a obra no relatório de royalties
-- `releaseDay` (Fase 4, Bloco 2) — dia da semana quando novos episódios são esperados (0–6: Dom–Sáb, ou null); usado pela agenda `GET /api/content/agenda` e notificação programada
+- `releaseDay` (Fase 4, Bloco 2) — dia da semana quando novos episódios são esperados (0–6: Dom–Sáb, ou null); usado pela agenda `GET /api/content/agenda` (não há notificação programada — o push de capítulo novo dispara na publicação, não no releaseDay)
 
 ### `Episode.js`
 Episódios de uma série.

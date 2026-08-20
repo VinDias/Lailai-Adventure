@@ -12,10 +12,15 @@ const { getVapidPublicKey } = require('../services/notificationService');
 
 function endpointValido(endpoint) {
   if (typeof endpoint !== 'string' || !endpoint) return false;
-  if (endpoint.startsWith('https://')) return true;
-  // http:// só é aceito em teste (ambiente de teste não serve HTTPS).
-  if (process.env.NODE_ENV === 'test' && endpoint.startsWith('http://')) return true;
-  return false;
+  try {
+    const u = new URL(endpoint);
+    if (u.protocol === 'https:' && !!u.hostname) return true;
+    // http:// só é aceito em teste (ambiente de teste não serve HTTPS).
+    if (process.env.NODE_ENV === 'test' && u.protocol === 'http:' && !!u.hostname) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function chaveValida(v) {
