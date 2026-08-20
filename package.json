@@ -50,6 +50,7 @@
     "react-dom": "^19.2.4",
     "sharp": "^0.33.2",
     "stripe": "^14.0.0",
+    "web-push": "^3.6.7",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^5.0.0"
   },
