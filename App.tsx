@@ -14,6 +14,7 @@ import Onboarding, { hasSeenOnboarding } from './components/Onboarding';
 import ThemeToggle from './components/ThemeToggle';
 import ImageWithFallback from './components/ImageWithFallback';
 import SearchOverlay from './components/SearchOverlay';
+import AgendaView from './components/AgendaView';
 import ConsentBanner from './components/ConsentBanner';
 import LegalPolicy from './components/LegalPolicy';
 import PrivacyCenter from './components/PrivacyCenter';
@@ -38,6 +39,7 @@ const App: React.FC = () => {
   const [seriesEpisodes, setSeriesEpisodes] = useState<any[]>([]);
   const [isOffline, setIsOffline] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [agendaOpen, setAgendaOpen] = useState(false);
   const [pendingSeriesFocus, setPendingSeriesFocus] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
   const [legalOpen, setLegalOpen] = useState(false);
@@ -255,6 +257,8 @@ const App: React.FC = () => {
 
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onSelectSeries={handleSearchSelect} />
 
+      <AgendaView open={agendaOpen} onClose={() => setAgendaOpen(false)} onOpenSeries={handleSearchSelect} />
+
       {/* O banner flutuante no topo foi removido a pedido do cliente: sobrepunha o
           conteúdo e ficava pequeno/cortado. A publicidade para usuário free fica nos
           banners de feed (HQCine/VCine/Hi-Qua) e nos interstitials de vídeo/leitura. */}
@@ -264,6 +268,7 @@ const App: React.FC = () => {
             user={user}
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
+            onOpenAgenda={() => setAgendaOpen(true)}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -291,6 +296,7 @@ const App: React.FC = () => {
             user={user}
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
+            onOpenAgenda={() => setAgendaOpen(true)}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -318,6 +324,7 @@ const App: React.FC = () => {
             user={user}
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
+            onOpenAgenda={() => setAgendaOpen(true)}
             onOpen={(ep, series, episodes) => {
               setActiveSeries(series);
               setSeriesEpisodes(episodes);

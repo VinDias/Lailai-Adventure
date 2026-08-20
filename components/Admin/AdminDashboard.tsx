@@ -28,6 +28,19 @@ const CONTENT_TYPES = [
   { value: 'hiqua', label: 'Hi-Qua' }
 ];
 
+// Dia de lançamento da agenda — índice igual a Date.getDay() (0=domingo) e ao
+// campo Series.releaseDay do backend (ver docs/superpowers/specs/2026-08-18-
+// notificacoes-agenda-design.md, "Agenda — desenho").
+const RELEASE_DAYS = [
+  { value: 0, label: 'Domingo' },
+  { value: 1, label: 'Segunda' },
+  { value: 2, label: 'Terça' },
+  { value: 3, label: 'Quarta' },
+  { value: 4, label: 'Quinta' },
+  { value: 5, label: 'Sexta' },
+  { value: 6, label: 'Sábado' },
+];
+
 const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSubView }) => {
   const [stats, setStats] = useState<any>(null);
   const [contentList, setContentList] = useState<any[]>([]);
@@ -49,7 +62,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   // Estado do formulário de nova série
   const [newSeries, setNewSeries] = useState({
     title: '', genre: '', description: '',
-    cover_image: '', content_type: 'hqcine', isPremium: false, channelId: ''
+    cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '',
+    releaseDay: null as number | null
   });
   // Canais de ilustradores (Fase 3 — atribuição de royalties por obra)
   const [channels, setChannels] = useState<any[]>([]);
@@ -58,7 +72,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   // Edição de série existente (título/gênero/descrição sem recriar)
   const [editingSeries, setEditingSeries] = useState<any>(null);
-  const [editSeriesForm, setEditSeriesForm] = useState({ title: '', genre: '', description: '', isPremium: false, channelId: '' });
+  const [editSeriesForm, setEditSeriesForm] = useState({ title: '', genre: '', description: '', isPremium: false, channelId: '', releaseDay: null as number | null });
   const [savingSeries, setSavingSeries] = useState(false);
   const [editSeriesMsg, setEditSeriesMsg] = useState('');
 
@@ -76,6 +90,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       description: item.description ?? '',
       isPremium: Boolean(item.isPremium),
       channelId: item.channelId ?? '',
+      releaseDay: item.releaseDay === undefined ? null : item.releaseDay,
     });
     setEditSeriesMsg('');
     api.listChannels().then(setChannels).catch(() => setChannels([]));
@@ -93,6 +108,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         genre: editSeriesForm.genre,
         description: editSeriesForm.description,
         isPremium: editSeriesForm.isPremium,
+        releaseDay: editSeriesForm.releaseDay,
         ...(editSeriesForm.channelId ? { channelId: editSeriesForm.channelId } : {}),
       });
       setContentList(prev => prev.map(s => (s._id || s.id) === id ? { ...s, ...updated } : s));
@@ -808,7 +824,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         } catch { /* não crítico */ }
       }
       setContentList(prev => [created, ...prev]);
-      setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '' });
+      setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '', releaseDay: null });
       setCoverFile(null);
       setCreateMsg('Série criada com sucesso!');
       setTimeout(() => { setCreateMsg(''); setShowCreateModal(false); }, 1500);
@@ -1931,6 +1947,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 </select>
               </div>
 
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Dia de lançamento</label>
+                <select
+                  value={newSeries.releaseDay === null ? '' : String(newSeries.releaseDay)}
+                  onChange={e => setNewSeries(s => ({ ...s, releaseDay: e.target.value === '' ? null : Number(e.target.value) }))}
+                  className="w-full bg-black/5 dark:bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500"
+                >
+                  <option value="" className="bg-zinc-900 text-white">Nenhum (fora da agenda)</option>
+                  {RELEASE_DAYS.map(d => <option key={d.value} value={d.value} className="bg-zinc-900 text-white">{d.label}</option>)}
+                </select>
+              </div>
+
               <label className="flex items-center gap-3 cursor-pointer">
                 <input type="checkbox" checked={newSeries.isPremium} onChange={e => setNewSeries(s => ({ ...s, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
                 <span className="text-sm font-bold text-[var(--text-color)]">Conteúdo Premium</span>
@@ -2058,6 +2086,17 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 >
                   <option value="" className="bg-zinc-900 text-white">Sem canal (fora do rateio)</option>
                   {channels.map(ch => <option key={ch._id} value={ch._id} className="bg-zinc-900 text-white">{ch.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Dia de lançamento</label>
+                <select
+                  value={editSeriesForm.releaseDay === null ? '' : String(editSeriesForm.releaseDay)}
+                  onChange={e => setEditSeriesForm(f => ({ ...f, releaseDay: e.target.value === '' ? null : Number(e.target.value) }))}
+                  className="w-full bg-black/5 dark:bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500"
+                >
+                  <option value="" className="bg-zinc-900 text-white">Nenhum (fora da agenda)</option>
+                  {RELEASE_DAYS.map(d => <option key={d.value} value={d.value} className="bg-zinc-900 text-white">{d.label}</option>)}
                 </select>
               </div>
               <label className="flex items-center gap-3 cursor-pointer">

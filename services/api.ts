@@ -9,6 +9,15 @@ export interface PushSubscriptionPayload {
   expirationTime?: number | null;
 }
 
+// Item de GET /api/content/agenda — ver routes/content.js.
+export interface AgendaItem {
+  _id: string;
+  title: string;
+  cover_image?: string;
+  content_type?: string;
+  releaseDay: number;
+}
+
 class ApiService {
   private static instance: ApiService;
   private accessToken: string | null = null;
@@ -397,7 +406,7 @@ class ApiService {
     });
   }
 
-  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean }>) {
+  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean; releaseDay: number | null }>) {
     return this.request<any>(`/content/series/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
@@ -650,6 +659,13 @@ class ApiService {
     } catch {
       return { series: [], episodes: [] };
     }
+  }
+
+  // Agenda de lançamentos — público, sem auth. Chaves "0".."6" sempre
+  // presentes (0=domingo..6=sábado, igual a Date.getDay()); erro de rede
+  // propaga (this.request lança) para o AgendaView mostrar seu próprio aviso.
+  async getAgenda(): Promise<Record<string, AgendaItem[]>> {
+    return this.request<Record<string, AgendaItem[]>>('/content/agenda');
   }
 
   async uploadVideoToBunny(file: File, episodeId: string, title: string): Promise<{ bunnyVideoId: string; videoUrl?: string }> {

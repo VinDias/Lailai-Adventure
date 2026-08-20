@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Series, User, Episode } from '../types';
 import { api } from '../services/api';
-import { Play, Check, ThumbsUp } from 'lucide-react';
+import { Play, Check, ThumbsUp, Calendar } from 'lucide-react';
 import ImageWithFallback from './ImageWithFallback';
 import Ads from './Ads';
 import ContinueCarousel from './ContinueCarousel';
@@ -16,9 +16,10 @@ interface HQCineProps {
   onOpen: (ep: Episode, s: Series) => void;
   focusSeriesId?: string | null;
   onFocusConsumed?: () => void;
+  onOpenAgenda?: () => void;
 }
 
-const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed }) => {
+const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed, onOpenAgenda }) => {
   const t = useT();
   const { lang } = useI18n();
   const [series, setSeries] = useState<Series[]>([]);
@@ -136,9 +137,18 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
 
   return (
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
-      <header className="p-8 pt-16 md:p-12 animate-apple">
-        <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">HQCINE</h1>
-        <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.5em] ml-1">Original Vertical Series</p>
+      <header className="p-8 pt-16 md:p-12 animate-apple flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">HQCINE</h1>
+          <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.5em] ml-1">Original Vertical Series</p>
+        </div>
+        <button
+          onClick={onOpenAgenda}
+          aria-label={t('agenda.open')}
+          className="p-3 rounded-full bg-white/5 border border-white/10 text-zinc-400 hover:text-[var(--text-color)] hover:bg-white/10 transition-all shrink-0"
+        >
+          <Calendar size={20} />
+        </button>
       </header>
 
       <div className="px-8 mb-6">
