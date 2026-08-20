@@ -62,6 +62,7 @@ const LegalPolicy: React.FC<LegalPolicyProps> = ({ open, onClose, initialTab = '
                 <li><strong>Cookies:</strong> essenciais (sessão) e, mediante consentimento, de publicidade.</li>
                 <li><strong>Progresso de leitura:</strong> em que ponto você parou em cada capítulo ou episódio, para permitir que continue de onde parou. Se você ainda não tem conta, esse registro fica ligado a um identificador do seu navegador, deixa de ser associado a você quando você limpa os dados do navegador (o identificador é descartado, mas o registro em si permanece no servidor até o prazo abaixo) e é apagado do servidor após 180 dias sem uso. Ao criar uma conta, o histórico passa a ser vinculado a ela.</li>
                 <li><strong>Notificações:</strong> opcionais, ativadas por você. Se ativadas, registramos o endereço de envio do seu aparelho, apagado de forma imediata ao desativar as notificações no app ou ao excluir sua conta. Revogar a permissão nas configurações do sistema interrompe o envio na hora; o registro é descartado do servidor na tentativa de envio seguinte.</li>
+                <li><strong>Super Reader:</strong> se você apoiar diretamente o autor de uma obra, seus apoios aparecem no seu export de dados. Ao excluir sua conta, o registro financeiro de cada apoio é mantido de forma ANONIMIZADA (sem nenhum vínculo com você), porque documenta o repasse de 80% do valor ao autor da obra — não é apagado como os demais dados.</li>
               </ul>
             </Section>
 

@@ -1226,3 +1226,150 @@ describe('relatório de royalties — seção Super Reader', () => {
     });
   });
 });
+
+/**
+ * Task 8 — LGPD do Super Reader: routes/account.js ganha a seção
+ * `superReaderContributions` no export (molde: describe "LGPD das
+ * inscrições de push" em tests/backend/notifications.test.js) e DELETE /me
+ * ANONIMIZA (userId: null) as contribuições em vez de apagá-las — o valor
+ * repassado ao autor é registro contábil do relatório de royalties (soma
+ * por canal/período, não por usuário); sem o vínculo pessoal, deixa de ser
+ * dado pessoal (spec, seção "LGPD").
+ */
+describe('LGPD das contribuições Super Reader', () => {
+  it('o export do titular inclui superReaderContributions com os campos certos, sem stripeSessionId/shares; série apagada → seriesTitle null', async () => {
+    const userId = auth.getId('user');
+    const serieViva = await criarSerie({ title: 'Obra Export SR Viva' });
+    const serieApagada = await criarSerie({ title: 'Obra Export SR Apagada' });
+
+    await SuperReaderContribution.create({
+      userId, seriesId: serieViva._id, channelId: serieViva.channelId,
+      amountCents: 500, currency: 'brl', authorShareCents: 400, platformShareCents: 100,
+      stripeSessionId: `cs_test_export_viva_${new mongoose.Types.ObjectId()}`,
+      period: '2026-08',
+    });
+    await SuperReaderContribution.create({
+      userId, seriesId: serieApagada._id, channelId: serieApagada.channelId,
+      amountCents: 1000, currency: 'usd', authorShareCents: 800, platformShareCents: 200,
+      stripeSessionId: `cs_test_export_apagada_${new mongoose.Types.ObjectId()}`,
+      period: '2026-08',
+    });
+    await Series.deleteOne({ _id: serieApagada._id });
+
+    const res = await request(app)
+      .get('/api/account/me/export')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`);
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.superReaderContributions)).toBe(true);
+    expect(res.body.superReaderContributions).toHaveLength(2);
+
+    const viva = res.body.superReaderContributions.find(c => c.seriesTitle === 'Obra Export SR Viva');
+    expect(viva).toMatchObject({ amountCents: 500, currency: 'brl' });
+    expect(viva).toHaveProperty('createdAt');
+
+    const apagada = res.body.superReaderContributions.find(c => c.amountCents === 1000);
+    expect(apagada.seriesTitle).toBeNull();
+    expect(apagada.currency).toBe('usd');
+
+    // Detalhe contábil da plataforma, não dado informativo do titular —
+    // mesma lógica das keys de push acima (não entram no export).
+    res.body.superReaderContributions.forEach((c) => {
+      expect(c).not.toHaveProperty('stripeSessionId');
+      expect(c).not.toHaveProperty('authorShareCents');
+      expect(c).not.toHaveProperty('platformShareCents');
+    });
+  });
+
+  it('usuário sem contribuições → superReaderContributions presente e vazio (shape estável, mesmo padrão de pushSubscriptions)', async () => {
+    const res = await request(app)
+      .get('/api/account/me/export')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.superReaderContributions).toEqual([]);
+  });
+
+  it('excluir a conta anonimiza (userId: null) as contribuições em vez de apagá-las, com os valores intocados; contribuição de OUTRO usuário mantém o userId; e o relatório de royalties do período segue somando os mesmos valores depois', async () => {
+    const bcrypt = require('bcrypt');
+    const descartavel = await User.create({
+      email: `sr-lgpd-exclusao-${new mongoose.Types.ObjectId()}@lorflux.test`,
+      passwordHash: await bcrypt.hash('Descartavel@123', 10),
+      nome: 'Conta Descartavel SR',
+    });
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: descartavel.email, password: 'Descartavel@123' });
+    const token = login.body.accessToken;
+
+    const period = '2032-01';
+    const channelId = new mongoose.Types.ObjectId();
+    const serie1 = await criarSerie({ channelId, title: 'Obra Exclusao SR 1' });
+    const serie2 = await criarSerie({ channelId, title: 'Obra Exclusao SR 2' });
+
+    const contrib1 = await SuperReaderContribution.create({
+      userId: descartavel._id, seriesId: serie1._id, channelId,
+      amountCents: 500, currency: 'brl', authorShareCents: 400, platformShareCents: 100,
+      stripeSessionId: `cs_test_exclusao_1_${new mongoose.Types.ObjectId()}`,
+      period,
+    });
+    const contrib2 = await SuperReaderContribution.create({
+      userId: descartavel._id, seriesId: serie2._id, channelId,
+      amountCents: 1000, currency: 'usd', authorShareCents: 800, platformShareCents: 200,
+      stripeSessionId: `cs_test_exclusao_2_${new mongoose.Types.ObjectId()}`,
+      period,
+    });
+
+    // Contribuição de OUTRO usuário, no mesmo canal/período — prova que a
+    // anonimização é escopada ao usuário excluído, não ao canal/período.
+    const outroUserId = new mongoose.Types.ObjectId();
+    const contribOutro = await SuperReaderContribution.create({
+      userId: outroUserId, seriesId: serie1._id, channelId,
+      amountCents: 700, currency: 'brl', authorShareCents: 560, platformShareCents: 140,
+      stripeSessionId: `cs_test_exclusao_outro_${new mongoose.Types.ObjectId()}`,
+      period,
+    });
+
+    const antesReport = await request(app)
+      .get(`/api/admin/royalties/report?period=${period}`)
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+    expect(antesReport.status).toBe(200);
+    expect(antesReport.body.superReader.totalApoios).toBe(3);
+    expect(antesReport.body.superReader.totalAutorCents).toBe(400 + 800 + 560);
+
+    const del = await request(app)
+      .delete('/api/account/me')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ password: 'Descartavel@123' });
+    expect(del.status).toBe(200);
+    expect(await User.findById(descartavel._id)).toBeNull();
+
+    // Os dois docs continuam existindo — NÃO foram apagados — só o userId
+    // vira null; os valores/centavos ficam intocados.
+    const doc1 = await SuperReaderContribution.findById(contrib1._id);
+    const doc2 = await SuperReaderContribution.findById(contrib2._id);
+    expect(doc1).not.toBeNull();
+    expect(doc2).not.toBeNull();
+    expect(doc1.userId).toBeNull();
+    expect(doc2.userId).toBeNull();
+    expect(doc1.amountCents).toBe(500);
+    expect(doc1.authorShareCents).toBe(400);
+    expect(doc1.platformShareCents).toBe(100);
+    expect(doc2.amountCents).toBe(1000);
+    expect(doc2.authorShareCents).toBe(800);
+    expect(doc2.platformShareCents).toBe(200);
+
+    const docOutro = await SuperReaderContribution.findById(contribOutro._id);
+    expect(String(docOutro.userId)).toBe(String(outroUserId));
+
+    // A anonimização não muda o dinheiro do autor: o relatório soma por
+    // canal/período, não por usuário — os totais do período são os mesmos
+    // antes e depois da exclusão.
+    const depoisReport = await request(app)
+      .get(`/api/admin/royalties/report?period=${period}`)
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+    expect(depoisReport.status).toBe(200);
+    expect(depoisReport.body.superReader).toEqual(antesReport.body.superReader);
+  });
+});
