@@ -145,8 +145,9 @@ self.addEventListener("notificationclick", event => {
           // Nem todo client suporta navigate() (ex.: navegadores antigos do TWA) —
           // sem ele, focar a aba deixaria o usuário na URL errada.
           if ("navigate" in c) {
-            c.navigate(url);
-            return c.focus();
+            // navigate() pode rejeitar (ex.: aba fechou entre matchAll() e aqui) —
+            // sem o catch, isso vira unhandled rejection solto no console do SW.
+            return c.navigate(url).then(() => c.focus()).catch(() => c.focus());
           }
           return clients.openWindow(url);
         }

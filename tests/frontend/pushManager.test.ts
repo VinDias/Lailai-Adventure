@@ -149,7 +149,7 @@ describe('pushManager.subscribeThisDevice', () => {
     const { pushManagerMock } = stubServiceWorker(subscribe);
     stubNotification('granted');
     (api.getPushPublicKey as any).mockResolvedValue({ publicKey: PUBLIC_KEY_B64URL });
-    (api.subscribePush as any).mockResolvedValue({ success: true });
+    (api.subscribePush as any).mockResolvedValue({ subscribed: true });
 
     await expect(pushManager.subscribeThisDevice()).resolves.toBe(true);
 
@@ -201,7 +201,7 @@ describe('pushManager.unsubscribeThisDevice', () => {
     const subscription = { endpoint: 'https://push.example/abc', unsubscribe };
     stubServiceWorker(undefined, vi.fn().mockResolvedValue(subscription));
     stubNotification('granted');
-    (api.unsubscribePush as any).mockResolvedValue({ success: true });
+    (api.unsubscribePush as any).mockResolvedValue({ removed: 1 });
 
     await expect(pushManager.unsubscribeThisDevice()).resolves.toBe(true);
     expect(unsubscribe).toHaveBeenCalledTimes(1);
@@ -213,7 +213,7 @@ describe('pushManager.unsubscribeThisDevice', () => {
     const subscription = { endpoint: 'https://push.example/abc', unsubscribe };
     stubServiceWorker(undefined, vi.fn().mockResolvedValue(subscription));
     stubNotification('granted');
-    (api.unsubscribePush as any).mockResolvedValue({ success: true });
+    (api.unsubscribePush as any).mockResolvedValue({ removed: 1 });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     await expect(pushManager.unsubscribeThisDevice()).resolves.toBe(true);

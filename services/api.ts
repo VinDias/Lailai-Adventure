@@ -699,15 +699,17 @@ class ApiService {
     return this.request<{ publicKey: string | null }>('/push/public-key');
   }
 
+  // Shape real de routes/push.js: 200/201 com { subscribed: true } (upsert por endpoint).
   async subscribePush(sub: PushSubscriptionPayload) {
-    return this.request<{ success: boolean }>('/me/push/subscribe', {
+    return this.request<{ subscribed: true }>('/me/push/subscribe', {
       method: 'POST',
       body: JSON.stringify(sub),
     });
   }
 
+  // Shape real de routes/push.js: { removed: <deletedCount> } (0 ou 1).
   async unsubscribePush(endpoint: string) {
-    return this.request<{ success: boolean }>('/me/push/subscribe', {
+    return this.request<{ removed: number }>('/me/push/subscribe', {
       method: 'DELETE',
       body: JSON.stringify({ endpoint }),
     });

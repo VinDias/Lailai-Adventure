@@ -118,8 +118,18 @@ const App: React.FC = () => {
 
   // Consome o deep link de push quando `user` vira truthy — cobre tanto o
   // login feito nesta mesma sessão quanto o boot já logado (bootstrapSession
-  // acima). Roda DEPOIS do setView de handleLogin (efeitos disparam na ordem
-  // dos setState do render), então a troca de aba do deep link vence.
+  // acima). No boot já logado, setUser + setView(HQCINE) rodam juntos, sem
+  // await entre eles — este efeito só dispara depois (React só roda efeitos
+  // após o commit) e vence por último, sem corrida.
+  //
+  // Já handleLogin (abaixo) tem um `await` (migração do progresso do
+  // visitante) entre o setUser e o setView(HQCINE) default — esse await cede
+  // o controle ao event loop, e este efeito pode rodar E CONSUMIR o deep link
+  // NESSA janela; quando o await resolve, o setView(HQCINE) default rodaria
+  // por cima, perdendo a aba do deep link. handleLogin se protege capturando
+  // um flag síncrono (tinhaDeepLinkPendente) ANTES do await, já que checar
+  // deepLinkRef.current DEPOIS não distingue "nunca teve deep link" de
+  // "efeito já consumiu" — os dois deixam o ref null.
   //
   // Lógica inline (não chama handleSearchSelect, definida mais abaixo no
   // componente, depois dos retornos condicionais de boot/AUTH — referenciá-la
@@ -135,6 +145,13 @@ const App: React.FC = () => {
   }, [user]);
 
   const handleLogin = async (u: User) => {
+    // Capturado ANTES do setUser e de qualquer await: se havia deep link
+    // pendente, o useEffect([user]) acima pode consumi-lo (zerando o ref)
+    // durante o await da migração logo abaixo — ler o ref DEPOIS do await não
+    // distingue "nunca teve deep link" de "efeito já consumiu" (os dois
+    // deixam null). A leitura síncrona aqui resolve isso, e não depende de
+    // quando exatamente o efeito dispara.
+    const tinhaDeepLinkPendente = deepLinkRef.current !== null;
     setUser(u);
     const tok = (u as any).accessToken;
     if (tok) api.setToken(tok);
@@ -152,7 +169,10 @@ const App: React.FC = () => {
     // momento em que a funcionalidade mais precisa se provar. O prazo interno da
     // própria função evita travar o login numa rede lenta.
     await migrarProgressoDoVisitante();
-    setView(ViewMode.HQCINE);
+    // Deep link pendente vence: o useEffect([user]) já trocou de aba pelo tipo
+    // certo (e chamou setPendingSeriesFocus) enquanto aguardávamos a migração —
+    // não sobrescreve com a aba default.
+    if (!tinhaDeepLinkPendente) setView(ViewMode.HQCINE);
     if (!hasSeenOnboarding()) setShowOnboarding(true);
   };
 
