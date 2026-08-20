@@ -3,7 +3,8 @@
  * Cobre: dia de hoje selecionado por padrão (Date.getDay() mockado), troca de
  * dia refiltra a grade, dia vazio mostra aviso, clique numa obra chama
  * onOpenSeries(seriesId, contentType) e fecha o overlay, erro de rede mostra
- * aviso amigável sem quebrar a tela.
+ * aviso amigável sem quebrar a tela, fechar por Escape/clique no backdrop
+ * (mesmo padrão do SearchOverlay) e a pilha de z-index deliberada (1550).
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -125,15 +126,65 @@ describe('AgendaView — erro de rede', () => {
   it('mostra aviso amigável e não quebra quando a API falha', async () => {
     vi.mocked(api.getAgenda).mockRejectedValue(new Error('network fail'));
     render(<AgendaView open={true} onClose={vi.fn()} onOpenSeries={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText(/erro ao processar/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/não foi possível carregar a agenda/i)).toBeInTheDocument());
   });
 
   it('botão fechar continua funcionando após o erro', async () => {
     vi.mocked(api.getAgenda).mockRejectedValue(new Error('network fail'));
     const onClose = vi.fn();
     render(<AgendaView open={true} onClose={onClose} onOpenSeries={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText(/erro ao processar/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/não foi possível carregar a agenda/i)).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText(/fechar/i));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('AgendaView — fechar por Escape e clique no backdrop', () => {
+  beforeEach(() => {
+    vi.mocked(api.getAgenda).mockResolvedValue(makeAgenda({
+      '4': [{ _id: 's-qui', title: 'Obra de Quinta', cover_image: '', content_type: 'hqcine', releaseDay: 4 }],
+    }) as any);
+  });
+
+  it('tecla Escape chama onClose', async () => {
+    const onClose = vi.fn();
+    render(<AgendaView open={true} onClose={onClose} onOpenSeries={vi.fn()} />);
+    await waitFor(() => screen.getByText('Obra de Quinta'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('clique no backdrop (fora do conteúdo) chama onClose', async () => {
+    const onClose = vi.fn();
+    render(<AgendaView open={true} onClose={onClose} onOpenSeries={vi.fn()} />);
+    await waitFor(() => screen.getByText('Obra de Quinta'));
+    fireEvent.click(screen.getByTestId('agenda-backdrop'));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('clique dentro do conteúdo (título) NÃO chama onClose', async () => {
+    const onClose = vi.fn();
+    render(<AgendaView open={true} onClose={onClose} onOpenSeries={vi.fn()} />);
+    await waitFor(() => screen.getByText('Obra de Quinta'));
+    fireEvent.click(screen.getByText('AGENDA'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('remove o listener de Escape ao desmontar (sem vazamento entre montagens)', async () => {
+    const onClose = vi.fn();
+    const { unmount } = render(<AgendaView open={true} onClose={onClose} onOpenSeries={vi.fn()} />);
+    await waitFor(() => screen.getByText('Obra de Quinta'));
+    unmount();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgendaView — z-index', () => {
+  it('overlay usa z-[1550] — pilha deliberada acima do detalhe (1500) e abaixo do PushPrompt (1600)', async () => {
+    vi.mocked(api.getAgenda).mockResolvedValue(makeAgenda() as any);
+    render(<AgendaView open={true} onClose={vi.fn()} onOpenSeries={vi.fn()} />);
+    const backdrop = await screen.findByTestId('agenda-backdrop');
+    expect(backdrop.className).toContain('z-[1550]');
   });
 });

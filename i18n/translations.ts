@@ -125,6 +125,7 @@ const pt = {
   'agenda.title': 'AGENDA',
   'agenda.empty': 'Nenhum lançamento programado para este dia',
   'agenda.open': 'Abrir agenda de lançamentos',
+  'agenda.error': 'Não foi possível carregar a agenda agora.',
 };
 
 const en: Record<keyof typeof pt, string> = {
@@ -235,6 +236,7 @@ const en: Record<keyof typeof pt, string> = {
   'agenda.title': 'SCHEDULE',
   'agenda.empty': 'No releases scheduled for this day',
   'agenda.open': 'Open release schedule',
+  'agenda.error': 'Could not load the schedule right now.',
 };
 
 const es: Record<keyof typeof pt, string> = {
@@ -345,6 +347,7 @@ const es: Record<keyof typeof pt, string> = {
   'agenda.title': 'AGENDA',
   'agenda.empty': 'No hay estrenos programados para este día',
   'agenda.open': 'Abrir agenda de estrenos',
+  'agenda.error': 'No fue posible cargar la agenda ahora.',
 };
 
 const zh: Record<keyof typeof pt, string> = {
@@ -455,6 +458,7 @@ const zh: Record<keyof typeof pt, string> = {
   'agenda.title': '更新日程',
   'agenda.empty': '当天没有安排更新',
   'agenda.open': '打开更新日程',
+  'agenda.error': '暂时无法加载日程。',
 };
 
 export type Lang = 'pt' | 'en' | 'es' | 'zh';
