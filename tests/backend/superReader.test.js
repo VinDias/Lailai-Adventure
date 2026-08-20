@@ -19,6 +19,7 @@ let Series;
 let Setting;
 let SuperReaderContribution;
 let superReaderService;
+let User;
 
 beforeAll(async () => {
   await db.connect();
@@ -28,6 +29,7 @@ beforeAll(async () => {
   Setting = require('../../models/Setting');
   SuperReaderContribution = require('../../models/SuperReaderContribution');
   superReaderService = require('../../services/superReaderService');
+  User = require('../../models/User');
   await auth.createUsers(app);
 
   // require('../../server') carrega ~20 models; a construção dos índices
@@ -756,5 +758,244 @@ describe('rotas', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ minCents: 1500 });
     });
+  });
+});
+
+/**
+ * Task 3: routes/payment.js — POST /api/payment/webhook ganha o branch
+ * `metadata.tipo === 'super_reader'` ANTES do caminho Premium.
+ *
+ * Desafio: o handler valida a ASSINATURA de verdade (stripe.webhooks.
+ * constructEvent com STRIPE_WEBHOOK_SECRET) — não dá pra bater o endpoint
+ * com um body qualquer. Opção A (a usada aqui): o próprio pacote `stripe`
+ * expõe `stripe.webhooks.generateTestHeaderString({ payload, secret })`,
+ * que gera uma assinatura REAL para um STRIPE_WEBHOOK_SECRET de teste. O
+ * `constructEvent` do handler valida essa assinatura de verdade — nenhuma
+ * verificação é afrouxada ou mockada. (Confirmado à parte: constructEvent
+ * aceita tanto string quanto Buffer como payload — express.raw() entrega
+ * Buffer em produção.)
+ * Opção B (extrair o handler para chamar direto) foi descartada: exigiria
+ * refatorar routes/payment.js só para o teste, o que a task pediu para
+ * evitar.
+ */
+describe('webhook', () => {
+  const stripeTestUtil = require('stripe')('sk_test_dummy_key_apenas_para_assinar_webhooks_em_teste');
+  const TEST_WEBHOOK_SECRET = 'whsec_test_superreader_webhook';
+  let segredoOriginal;
+
+  beforeAll(() => {
+    // routes/payment.js lê process.env.STRIPE_WEBHOOK_SECRET a cada
+    // request (não no require do módulo) — dá pra setar aqui sem tocar em
+    // vitest.backend.config.ts nem em outro arquivo de teste. Restaurado no
+    // afterAll para não vazar para os demais arquivos (rodam em sequência,
+    // fileParallelism: false).
+    segredoOriginal = process.env.STRIPE_WEBHOOK_SECRET;
+    process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
+  });
+
+  afterAll(() => {
+    process.env.STRIPE_WEBHOOK_SECRET = segredoOriginal;
+  });
+
+  function assinar(payload) {
+    return stripeTestUtil.webhooks.generateTestHeaderString({ payload, secret: TEST_WEBHOOK_SECRET });
+  }
+
+  // express.raw({ type: 'application/json' }) em server.js só é montado para
+  // /api/payment/webhook — precisa do Content-Type certo e do body cru
+  // (string), não de .send(objeto) (que serializaria de novo).
+  function postWebhookRaw(payload, signature) {
+    const req = request(app)
+      .post('/api/payment/webhook')
+      .set('Content-Type', 'application/json');
+    if (signature !== undefined) req.set('stripe-signature', signature);
+    return req.send(payload);
+  }
+
+  function postWebhookEvent(evento) {
+    const payload = JSON.stringify(evento);
+    return postWebhookRaw(payload, assinar(payload));
+  }
+
+  function montarEventoSR({ sessionId, customer = null, amountTotal = 500, currency = 'brl', userId, seriesId, channelId }) {
+    return {
+      id: `evt_sr_${sessionId}`,
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: sessionId,
+          customer,
+          subscription: null,
+          amount_total: amountTotal,
+          currency,
+          metadata: {
+            tipo: 'super_reader',
+            userId: String(userId),
+            seriesId: String(seriesId),
+            channelId: String(channelId),
+          },
+        },
+      },
+    };
+  }
+
+  // Sessão Premium legítima: mesmo formato que routes/payment.js já trata
+  // hoje (create-checkout, mode: 'subscription') — metadata vazio, como o
+  // Stripe sempre manda ({}), nunca ausente.
+  function montarEventoPremium({ sessionId, customer, subscription = 'sub_test_premium_default', amountTotal = 2990, currency = 'brl' }) {
+    return {
+      id: `evt_premium_${sessionId}`,
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: sessionId,
+          customer,
+          subscription,
+          amount_total: amountTotal,
+          currency,
+          metadata: {},
+        },
+      },
+    };
+  }
+
+  it('caso 1: metadata.tipo=super_reader grava a contribuição (80/20, amount_total da sessão) e NÃO ativa Premium, mesmo com stripeCustomerId batendo com um usuário existente', async () => {
+    const channelId = new mongoose.Types.ObjectId();
+    const serie = await criarSerie({ channelId });
+    const superReaderUserId = new mongoose.Types.ObjectId();
+
+    // Usuário com stripeCustomerId igual ao `customer` da sessão SR — prova
+    // de que o branch SR não cai no caminho Premium (que promoveria este
+    // usuário se o customerId batesse).
+    const usuarioComCustomerId = await User.create({
+      email: `sr-nao-premium-${new mongoose.Types.ObjectId()}@lorflux.test`,
+      nome: 'Usuario SR Nao Premium',
+      role: 'user',
+      stripeCustomerId: 'cus_test_sr_nao_promove',
+      isPremium: false,
+    });
+
+    const sessionId = `cs_test_sr_${new mongoose.Types.ObjectId()}`;
+    const evento = montarEventoSR({
+      sessionId,
+      customer: usuarioComCustomerId.stripeCustomerId,
+      amountTotal: 500,
+      currency: 'brl',
+      userId: superReaderUserId,
+      seriesId: serie._id,
+      channelId,
+    });
+
+    const res = await postWebhookEvent(evento);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+
+    const doc = await SuperReaderContribution.findOne({ stripeSessionId: sessionId });
+    expect(doc).not.toBeNull();
+    expect(doc.amountCents).toBe(500);
+    expect(doc.currency).toBe('brl');
+    expect(doc.authorShareCents).toBe(400);
+    expect(doc.platformShareCents).toBe(100);
+    expect(String(doc.userId)).toBe(String(superReaderUserId));
+    expect(String(doc.seriesId)).toBe(String(serie._id));
+    expect(String(doc.channelId)).toBe(String(channelId));
+
+    const usuarioAtualizado = await User.findById(usuarioComCustomerId._id);
+    expect(usuarioAtualizado.isPremium).toBe(false);
+    expect(usuarioAtualizado.stripeSubscriptionId).toBeFalsy();
+    expect(usuarioAtualizado.premiumExpiresAt).toBeFalsy();
+  });
+
+  it('caso 2: o mesmo evento reenviado (retry do Stripe) responde 200 e mantém 1 único documento', async () => {
+    const serie = await criarSerie();
+    const sessionId = `cs_test_sr_retry_${new mongoose.Types.ObjectId()}`;
+    const evento = montarEventoSR({
+      sessionId,
+      userId: new mongoose.Types.ObjectId(),
+      seriesId: serie._id,
+      channelId: serie.channelId,
+      amountTotal: 700,
+    });
+
+    const res1 = await postWebhookEvent(evento);
+    expect(res1.status).toBe(200);
+
+    const res2 = await postWebhookEvent(evento); // reenvio do Stripe: mesmo session.id
+    expect(res2.status).toBe(200);
+
+    const todos = await SuperReaderContribution.find({ stripeSessionId: sessionId });
+    expect(todos).toHaveLength(1);
+    expect(todos[0].amountCents).toBe(700);
+  });
+
+  it('caso 3: evento SEM metadata.tipo (sessão Premium legítima com customer) segue o caminho Premium intacto — não-regressão', async () => {
+    const usuarioPremium = await User.create({
+      email: `premium-webhook-${new mongoose.Types.ObjectId()}@lorflux.test`,
+      nome: 'Usuario Premium Webhook',
+      role: 'user',
+      stripeCustomerId: 'cus_test_premium_webhook_intacto',
+      isPremium: false,
+    });
+
+    const sessionId = `cs_test_premium_${new mongoose.Types.ObjectId()}`;
+    const evento = montarEventoPremium({
+      sessionId,
+      customer: usuarioPremium.stripeCustomerId,
+      subscription: 'sub_test_premium_webhook_intacto',
+    });
+
+    const res = await postWebhookEvent(evento);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+
+    const usuarioAtualizado = await User.findById(usuarioPremium._id);
+    expect(usuarioAtualizado.isPremium).toBe(true);
+    expect(usuarioAtualizado.stripeSubscriptionId).toBe('sub_test_premium_webhook_intacto');
+    expect(usuarioAtualizado.premiumExpiresAt).toBeInstanceOf(Date);
+
+    // Nenhuma contribuição SR foi criada para essa sessão.
+    const doc = await SuperReaderContribution.findOne({ stripeSessionId: sessionId });
+    expect(doc).toBeNull();
+  });
+
+  it('caso 4: assinatura inválida responde 400 (comportamento atual preservado)', async () => {
+    const evento = montarEventoSR({
+      sessionId: `cs_test_sr_sig_invalida_${new mongoose.Types.ObjectId()}`,
+      userId: new mongoose.Types.ObjectId(),
+      seriesId: new mongoose.Types.ObjectId(),
+      channelId: new mongoose.Types.ObjectId(),
+    });
+    const payload = JSON.stringify(evento);
+
+    const res = await postWebhookRaw(payload, 't=1,v1=assinatura-forjada-invalida');
+    expect(res.status).toBe(400);
+
+    const doc = await SuperReaderContribution.findOne({ stripeSessionId: evento.data.object.id });
+    expect(doc).toBeNull();
+  });
+
+  it('caso 5: falha na gravação do serviço (registrarContribuicao rejeitando) responde 500 — Stripe reenvia depois', async () => {
+    const serie = await criarSerie();
+    const sessionId = `cs_test_sr_falha_${new mongoose.Types.ObjectId()}`;
+    const evento = montarEventoSR({
+      sessionId,
+      userId: new mongoose.Types.ObjectId(),
+      seriesId: serie._id,
+      channelId: serie.channelId,
+    });
+
+    const spy = vi.spyOn(superReaderService, 'registrarContribuicao')
+      .mockRejectedValueOnce(new Error('falha simulada na gravação'));
+    try {
+      const res = await postWebhookEvent(evento);
+      expect(res.status).toBe(500);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+
+    // O upsert nunca chegou a rodar de verdade — nada foi gravado.
+    const doc = await SuperReaderContribution.findOne({ stripeSessionId: sessionId });
+    expect(doc).toBeNull();
   });
 });
