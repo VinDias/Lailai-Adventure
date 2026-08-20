@@ -492,3 +492,210 @@ describe('notificationService', () => {
     }
   });
 });
+
+/**
+ * Task 3: routes/push.js — rotas HTTP de inscrição push (public-key,
+ * subscribe/unsubscribe, status). Upsert por endpoint com E11000 tratado
+ * como sucesso, no padrão de services/progressService.js.
+ */
+describe('rotas de push', () => {
+  const mongoose = require('mongoose');
+  let PushSubscription;
+
+  beforeAll(() => {
+    PushSubscription = require('../../models/PushSubscription');
+  });
+
+  function endpointUnico(sufixo) {
+    return `https://push.exemplo/${sufixo}-${new mongoose.Types.ObjectId()}`;
+  }
+
+  describe('GET /api/push/public-key', () => {
+    it('responde 200 com publicKey (sem auth)', async () => {
+      const res = await request(app).get('/api/push/public-key');
+      expect(res.status).toBe(200);
+      expect(typeof res.body.publicKey).toBe('string');
+      expect(res.body.publicKey.length).toBeGreaterThan(20);
+    });
+  });
+
+  describe('POST /api/me/push/subscribe', () => {
+    it('sem token → 401', async () => {
+      const res = await request(app)
+        .post('/api/me/push/subscribe')
+        .send({ endpoint: endpointUnico('sem-token'), keys: { p256dh: 'p', auth: 'a' } });
+      expect(res.status).toBe(401);
+    });
+
+    it('com token e body válido → 2xx e cria documento no banco', async () => {
+      const endpoint = endpointUnico('valido');
+      const res = await request(app)
+        .post('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ endpoint, keys: { p256dh: 'p256dh-1', auth: 'auth-1' } });
+
+      expect([200, 201]).toContain(res.status);
+
+      const doc = await PushSubscription.findOne({ endpoint });
+      expect(doc).not.toBeNull();
+      expect(String(doc.userId)).toBe(auth.getId('user'));
+      expect(doc.keys.p256dh).toBe('p256dh-1');
+      expect(doc.keys.auth).toBe('auth-1');
+    });
+
+    it('repetir o mesmo endpoint (mesmo usuário) → 2xx sem duplicar no banco', async () => {
+      const endpoint = endpointUnico('repete');
+      const primeira = await request(app)
+        .post('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ endpoint, keys: { p256dh: 'p1', auth: 'a1' } });
+      expect([200, 201]).toContain(primeira.status);
+
+      const segunda = await request(app)
+        .post('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ endpoint, keys: { p256dh: 'p2', auth: 'a2' } });
+      expect([200, 201]).toContain(segunda.status);
+
+      const docs = await PushSubscription.find({ endpoint });
+      expect(docs).toHaveLength(1);
+      expect(docs[0].keys.p256dh).toBe('p2'); // atualizou, não duplicou
+    });
+
+    it('mesmo endpoint por outro usuário → o documento troca de dono (takeover)', async () => {
+      const endpoint = endpointUnico('takeover');
+      await request(app)
+        .post('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ endpoint, keys: { p256dh: 'p-user', auth: 'a-user' } });
+
+      const res = await request(app)
+        .post('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('premium')}`)
+        .send({ endpoint, keys: { p256dh: 'p-premium', auth: 'a-premium' } });
+      expect([200, 201]).toContain(res.status);
+
+      const docs = await PushSubscription.find({ endpoint });
+      expect(docs).toHaveLength(1);
+      expect(String(docs[0].userId)).toBe(auth.getId('premium'));
+    });
+
+    it('body sem keys.auth → 400', async () => {
+      const res = await request(app)
+        .post('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ endpoint: endpointUnico('sem-auth'), keys: { p256dh: 'p' } });
+      expect(res.status).toBe(400);
+    });
+
+    it('endpoint que não é URL http(s) → 400', async () => {
+      const res = await request(app)
+        .post('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ endpoint: 'ftp://push.exemplo/invalido', keys: { p256dh: 'p', auth: 'a' } });
+      expect(res.status).toBe(400);
+    });
+
+    it('duas inscrições quase simultâneas do mesmo endpoint (corrida de upsert) → não duplica e ambas resolvem com sucesso', async () => {
+      const endpoint = endpointUnico('corrida');
+      const [r1, r2] = await Promise.all([
+        request(app)
+          .post('/api/me/push/subscribe')
+          .set('Authorization', `Bearer ${auth.getToken('user')}`)
+          .send({ endpoint, keys: { p256dh: 'p1', auth: 'a1' } }),
+        request(app)
+          .post('/api/me/push/subscribe')
+          .set('Authorization', `Bearer ${auth.getToken('user')}`)
+          .send({ endpoint, keys: { p256dh: 'p2', auth: 'a2' } }),
+      ]);
+      expect([200, 201]).toContain(r1.status);
+      expect([200, 201]).toContain(r2.status);
+
+      const docs = await PushSubscription.find({ endpoint });
+      expect(docs).toHaveLength(1);
+    });
+  });
+
+  describe('DELETE /api/me/push/subscribe', () => {
+    it('remove só o endpoint do próprio usuário', async () => {
+      const endpointDoUsuario = endpointUnico('delete-proprio');
+      const endpointDeOutro = endpointUnico('delete-alheio');
+
+      await PushSubscription.create({
+        userId: auth.getId('user'),
+        endpoint: endpointDoUsuario,
+        keys: { p256dh: 'p', auth: 'a' },
+      });
+      await PushSubscription.create({
+        userId: auth.getId('premium'),
+        endpoint: endpointDeOutro,
+        keys: { p256dh: 'p', auth: 'a' },
+      });
+
+      // Tenta remover o endpoint de outro usuário: não remove nada.
+      const resAlheio = await request(app)
+        .delete('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ endpoint: endpointDeOutro });
+      expect(resAlheio.status).toBe(200);
+      expect(resAlheio.body.removed).toBe(0);
+      expect(await PushSubscription.findOne({ endpoint: endpointDeOutro })).not.toBeNull();
+
+      // Remove o próprio.
+      const resProprio = await request(app)
+        .delete('/api/me/push/subscribe')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`)
+        .send({ endpoint: endpointDoUsuario });
+      expect(resProprio.status).toBe(200);
+      expect(resProprio.body.removed).toBe(1);
+      expect(await PushSubscription.findOne({ endpoint: endpointDoUsuario })).toBeNull();
+    });
+
+    it('sem token → 401', async () => {
+      const res = await request(app)
+        .delete('/api/me/push/subscribe')
+        .send({ endpoint: endpointUnico('sem-token-delete') });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe('GET /api/me/push/status', () => {
+    it('reflete thisDevice e anyDevice', async () => {
+      const endpoint = endpointUnico('status');
+      await PushSubscription.create({
+        userId: auth.getId('user'),
+        endpoint,
+        keys: { p256dh: 'p', auth: 'a' },
+      });
+
+      const comEndpoint = await request(app)
+        .get(`/api/me/push/status?endpoint=${encodeURIComponent(endpoint)}`)
+        .set('Authorization', `Bearer ${auth.getToken('user')}`);
+      expect(comEndpoint.status).toBe(200);
+      expect(comEndpoint.body).toEqual({ thisDevice: true, anyDevice: true });
+
+      // Outro endpoint que este usuário não tem, mas o usuário tem alguma inscrição.
+      const outroEndpoint = await request(app)
+        .get(`/api/me/push/status?endpoint=${encodeURIComponent(endpointUnico('outro'))}`)
+        .set('Authorization', `Bearer ${auth.getToken('user')}`);
+      expect(outroEndpoint.body).toEqual({ thisDevice: false, anyDevice: true });
+
+      // Sem query endpoint → thisDevice false.
+      const semEndpoint = await request(app)
+        .get('/api/me/push/status')
+        .set('Authorization', `Bearer ${auth.getToken('user')}`);
+      expect(semEndpoint.body.thisDevice).toBe(false);
+
+      // Usuário sem nenhuma inscrição → anyDevice false.
+      const semInscricao = await request(app)
+        .get('/api/me/push/status')
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`);
+      expect(semInscricao.body).toEqual({ thisDevice: false, anyDevice: false });
+    });
+
+    it('sem token → 401', async () => {
+      const res = await request(app).get('/api/me/push/status');
+      expect(res.status).toBe(401);
+    });
+  });
+});
