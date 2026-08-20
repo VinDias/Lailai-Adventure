@@ -26,6 +26,7 @@ Séries de conteúdo (container de episódios).
 - `isPublished` — controla visibilidade pública (default `false`; catálogo exige `true` estrito)
 - `translations` — `{ en|es|zh: { genre, description } }`, preenchido automaticamente pelo `translationService` no save (título NÃO é traduzido — decisão do cliente)
 - `channelId` (Fase 3) — ref ao `Channel` do ilustrador; agrupa a obra no relatório de royalties
+- `releaseDay` (Fase 4, Bloco 2) — dia da semana quando novos episódios são esperados (0–6: Dom–Sáb, ou null); usado pela agenda `GET /api/content/agenda` e notificação programada
 
 ### `Episode.js`
 Episódios de uma série.
@@ -37,6 +38,7 @@ Episódios de uma série.
 - `isPremium`, `status` (`draft` | `processing` | `published`)
 - `views`, `order_index`, `webtoonLanguageLabels`
 - `translations` — `{ en|es|zh: { description } }`, automático via `translationService`
+- `notificationSentAt` (Fase 4, Bloco 2) — timestamp de quando o push foi disparado; `null` até o primeiro disparo; previne re-envios em reprocessamento
 
 ### `Ad.js`
 Campanhas publicitárias próprias (interstitial + banner de feed).
@@ -94,6 +96,13 @@ Progresso de leitura/reprodução — um documento por (identidade, episódio).
 - Índices únicos parciais `{userId, episodeId}` e `{anonymousId, episodeId}` (nunca sparse — o índice é composto)
 - Índice TTL (`expireAfterSeconds: 180 dias`, `partialFilterExpression: anonymousId exists`) — só visitante expira; conta não expira (LGPD: quem apaga é o usuário, pelo Centro de Privacidade)
 - Ver `services/progressService.js` para as regras de gravação e do carrossel "Continuar"
+
+### `PushSubscription.js` (Fase 4, Bloco 2)
+Inscrições de notificações push.
+- Referência para `User` (relação 1:N — usuário pode ter múltiplas inscrições, ex: desktop + mobile)
+- Campos: `endpoint`, `p256dh`, `auth` (credenciais Web Push API — RFC 8030)
+- `createdAt` com índice TTL (`expireAfterSeconds: 180 dias`) — inscrição expirada é re-inscrita pelo app
+- Índice único em `{userId, endpoint}` — reinscrição do mesmo endpoint é upsert idempotente
 
 ---
 

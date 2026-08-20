@@ -47,11 +47,19 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 | `AdComponent.tsx` | Componente individual de exibição de um anúncio em vídeo |
 | `DonateButton.tsx` | Botão de doação integrado ao backend |
 
+## Notificações e Agenda (Fase 4, Bloco 2)
+
+| Arquivo | Propósito |
+|---------|-----------|
+| `PushPrompt.tsx` | Overlay de permissão de notificações push — aparece após clicar no botão de inscrição (ex: em PushAccountToggle ou na aba Conta). Exibe motivo, solicita permissão via `pushManager.subscribe()`. Se o usuário nega, a aba de notificações fica desativada e o prompt reclama apenas se o usuário tentar novamente. |
+| `PushAccountToggle.tsx` | Botão/toggle de estado de inscrição (está na aba Conta). Mostra se inscrito ou não, chama `pushManager.getStatus()` ao montar, permite ligar/desligar. Clique para ativar abre o `PushPrompt` se necessária permissão do navegador. |
+| `AgendaView.tsx` | Visualização de agenda de lançamentos — mostra séries com `releaseDay` definido, agrupadas por dia da semana. Busca `GET /api/content/agenda` e renderiza com ícone de série, título, dia de lançamento esperado. |
+
 ## Admin
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `Admin/AdminDashboard.tsx` | Painel administrativo completo — inclui estatísticas, gerenciamento de séries/episódios, uploads diretos para Bunny CDN, gestão de campanhas de anúncios, gerenciamento de usuários e rastreamento de pagamentos |
+| `Admin/AdminDashboard.tsx` | Painel administrativo completo — inclui estatísticas, gerenciamento de séries/episódios, uploads diretos para Bunny CDN, gestão de campanhas de anúncios, gerenciamento de usuários e rastreamento de pagamentos. Na seção de edição de série, novo campo `releaseDay` (select 0–6 ou null) para agenda e notificações push. |
 
 ## UI Geral
 

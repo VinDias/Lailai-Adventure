@@ -77,6 +77,13 @@ Montado em `/api/me`. Todas as rotas aceitam conta OU visitante (`optionalAuth` 
 - `GET /continue` — carrossel "Continuar"; aceita `?contentType=hqcine|vcine|hiqua` para filtrar e aplicar o teto de 20 obras só dentro daquele tipo
 - `POST /progress/claim` — migra o histórico do visitante (`anonymousId`) para a conta no login/cadastro
 
+### `push.js` — Notificações Push (Fase 4, Bloco 2)
+Montado em `/api/push` (todas com `verifyToken`).
+- `POST /subscribe` — inscreve o cliente (navegador/app) para notificações; aceita `subscription` (objeto `PushSubscription` da Web Push API) + `contentTypes[]` (filtro opcional, padrão: todas as obras); valida chaves VAPID, cria/atualiza documento no MongoDB, retorna sucesso
+- `POST /unsubscribe` — remove inscrição (identifica por `endpoint` enviado no body)
+- `GET /public-key` — exporta `VAPID_PUBLIC_KEY` para o app chamar `serviceWorkerContainer.ready.then(reg => reg.pushManager.subscribe({...}))`
+- `GET /status` — retorna boolean `isSubscribed` e lista `contentTypes` da conta (usado pela UI para mostrar estado e permitir alteração)
+
 ### `settings.js` — Configurações
 - `GET /public` — settings públicas (tagline, anúncios, `google_client_id` vindo do env quando configurado)
 - `GET /`, `PUT /:key` — CRUD (admin)
