@@ -20,6 +20,7 @@ import LegalPolicy from './components/LegalPolicy';
 import PrivacyCenter from './components/PrivacyCenter';
 import PushPrompt from './components/PushPrompt';
 import PushAccountToggle from './components/PushAccountToggle';
+import SuperReaderThanks from './components/SuperReaderThanks';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search, Heart, Star, Pencil } from 'lucide-react';
 import { getLocalizedPrice } from './utils/localizedPrice';
 import { initConsent } from './utils/consent';
@@ -27,6 +28,7 @@ import { useI18n, useT } from './contexts/I18nContext';
 import { LANG_OPTIONS } from './i18n/translations';
 import { migrarProgressoDoVisitante } from './utils/claimProgress';
 import { parseDeepLink, DeepLink } from './utils/deepLink';
+import { parseSuperReaderReturn } from './utils/superReaderReturn';
 
 const App: React.FC = () => {
   const t = useT();
@@ -46,6 +48,9 @@ const App: React.FC = () => {
   const [legalTab, setLegalTab] = useState<'privacy' | 'terms'>('privacy');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  // Retorno do checkout do Super Reader (Fase 4 Bloco 3): true só em
+  // ?superreader=success (cancelled limpa a query em silêncio, sem estado).
+  const [superReaderThanks, setSuperReaderThanks] = useState(false);
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
   // Deep link de notificação push (?abrir=<seriesId>&tipo=<tipo>): parseado e
   // removido da URL logo no boot (ver useEffect abaixo); fica guardado aqui
@@ -98,9 +103,22 @@ const App: React.FC = () => {
     // ?abrir=&tipo= e já limpa a URL (history.replaceState) para um reload
     // não reabrir a mesma série. O consumo real (trocar de aba + focar a
     // série) só acontece no useEffect abaixo, quando houver `user`.
-    const deepLink = parseDeepLink(window.location.search);
-    if (deepLink) {
-      deepLinkRef.current = deepLink;
+    //
+    // Mesmo trecho trata o retorno do checkout do Super Reader (Fase 4 Bloco
+    // 3): `?superreader=success|cancelled`, gerado pelo success_url/
+    // cancel_url de services/superReaderService.js. `success` mostra o
+    // cartão de agradecimento; `cancelled` só limpa a query, em silêncio —
+    // os dois casos e o deep link de push compartilham a MESMA limpeza de URL
+    // (evita dois replaceState em sequência quando, em teoria, os dois
+    // parâmetros coexistissem).
+    const querySearch = window.location.search;
+    const deepLink = parseDeepLink(querySearch);
+    if (deepLink) deepLinkRef.current = deepLink;
+
+    const superReaderReturn = parseSuperReaderReturn(querySearch);
+    if (superReaderReturn === 'success') setSuperReaderThanks(true);
+
+    if (deepLink || superReaderReturn) {
       const url = new URL(window.location.href);
       url.search = '';
       window.history.replaceState({}, '', url.pathname + url.hash);
@@ -449,6 +467,7 @@ const App: React.FC = () => {
 
       {showOnboarding && <Onboarding onFinish={() => setShowOnboarding(false)} />}
       {user && <PushPrompt />}
+      {superReaderThanks && <SuperReaderThanks onClose={() => setSuperReaderThanks(false)} />}
       <ConsentBanner onOpenPolicy={() => openPolicy('privacy')} />
       <LegalPolicy open={legalOpen} onClose={() => setLegalOpen(false)} initialTab={legalTab} />
     </div>

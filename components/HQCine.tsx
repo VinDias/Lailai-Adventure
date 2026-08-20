@@ -10,6 +10,7 @@ import ProgressBar from './ProgressBar';
 import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
+import SuperReaderButton from './SuperReaderButton';
 
 interface HQCineProps {
   user: User | null;
@@ -217,10 +218,11 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
                     <ThumbsUp size={18} fill={myVote === 'like' ? 'currentColor' : 'none'} />
                     <span className="font-black text-sm">{likes}</span>
                   </button>
+                  <SuperReaderButton user={user} seriesId={selectedSeries._id} />
                 </div>
               </div>
             </div>
-            
+
             <div className="space-y-4">
               {episodes.map(ep => (
                 <div key={ep._id || ep.id} onClick={() => onOpen(ep, selectedSeries)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
