@@ -107,12 +107,21 @@ const App: React.FC = () => {
     }
 
     // Restaura a sessão usando o cookie httpOnly de refresh — sem tokens no localStorage.
+    //
+    // O mesmo guard do handleLogin, pelo mesmo motivo em outra roupagem: com
+    // StrictMode (dev), este efeito roda duas vezes — a 1ª execução limpa a
+    // URL e o useEffect([user]) consome o deep link (troca para a aba certa),
+    // mas o bootstrap da 2ª execução resolvia depois e clobrava com o
+    // setView(HQCINE) default. Capturar o pendente ANTES do await decide
+    // certo nas duas execuções: o ref sobrevive ao remount do StrictMode,
+    // então a 2ª leitura ainda o vê. Em produção (mount único) é inócuo.
+    const tinhaDeepLinkPendente = deepLinkRef.current !== null;
     (async () => {
       try {
         const restored = await api.bootstrapSession();
         if (restored) {
           setUser(restored);
-          setView(ViewMode.HQCINE);
+          if (!tinhaDeepLinkPendente) setView(ViewMode.HQCINE);
           if (!hasSeenOnboarding()) setShowOnboarding(true);
         }
       } catch { /* segue para tela de login */ }
@@ -122,9 +131,11 @@ const App: React.FC = () => {
 
   // Consome o deep link de push quando `user` vira truthy — cobre tanto o
   // login feito nesta mesma sessão quanto o boot já logado (bootstrapSession
-  // acima). No boot já logado, setUser + setView(HQCINE) rodam juntos, sem
-  // await entre eles — este efeito só dispara depois (React só roda efeitos
-  // após o commit) e vence por último, sem corrida.
+  // acima). Os DOIS caminhos que setam a aba default (bootstrap e handleLogin)
+  // capturam `tinhaDeepLinkPendente` de forma síncrona antes dos seus awaits e
+  // pulam o setView(HQCINE) default quando havia deep link — sem isso, um
+  // setView tardio (StrictMode dobra o bootstrap em dev; a migração atrasa o
+  // handleLogin) rodava por cima da aba que este efeito escolheu.
   //
   // Já handleLogin (abaixo) tem um `await` (migração do progresso do
   // visitante) entre o setUser e o setView(HQCINE) default — esse await cede
