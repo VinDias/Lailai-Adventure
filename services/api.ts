@@ -502,7 +502,14 @@ class ApiService {
   }
 
   async addFavorite(seriesId: string | number) {
-    return this.request<{ favorited: boolean }>(`/favorites/${seriesId}`, { method: 'POST' });
+    const result = await this.request<{ favorited: boolean }>(`/favorites/${seriesId}`, { method: 'POST' });
+    // Ponto único de integração do prompt contextual de push (Fase 4 Bloco 2,
+    // Task 8): PushPrompt escuta este evento — nenhuma das três abas (HQCine/
+    // VCine/Hi-Qua) precisa saber de push.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('lorflux:favorited'));
+    }
+    return result;
   }
 
   async removeFavorite(seriesId: string | number) {
