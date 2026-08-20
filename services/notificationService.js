@@ -1,6 +1,8 @@
 /**
  * Push de capítulo novo para quem favoritou a série (Web Push / VAPID).
- * Disparado (fire-and-forget) pelos 3 caminhos que publicam um episódio.
+ * Disparado (fire-and-forget) pelos 6 pontos que tornam um episódio consumível:
+ * criação já publicada, edição para publicado, republicação da série, anexo de
+ * painéis, webhook do Bunny (Status 4) e sincronização manual do status Bunny.
  * Test seam no mesmo padrão de utils/bunnyStorage.js: __setTransportForTests
  * injeta o transporte e o web-push real nunca é tocado em teste.
  */
