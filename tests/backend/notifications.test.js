@@ -699,3 +699,220 @@ describe('rotas de push', () => {
     });
   });
 });
+
+/**
+ * Task 4: disparo (fire-and-forget) de notifyEpisodePublished nos QUATRO
+ * caminhos que resultam em episódio publicado: POST /episodes, PUT
+ * /episodes/:id, o webhook do Bunny (Status 4) e — ampliação de escopo — o
+ * PUT /series/:id quando isPublished transiciona de falso para verdadeiro
+ * (série volta a publicar e "destrava" capítulos que ficaram sem notificar).
+ * Cada teste injeta o transporte e aguarda o efeito com poll curto, já que a
+ * rota nunca espera o envio (sem await no disparo).
+ */
+describe('disparo do push nos quatro caminhos de publicação', () => {
+  const mongoose = require('mongoose');
+  let notificationService, Series, Episode, Favorite, PushSubscription;
+
+  beforeAll(() => {
+    notificationService = require('../../services/notificationService');
+    Series = require('../../models/Series');
+    Episode = require('../../models/Episode');
+    Favorite = require('../../models/Favorite');
+    PushSubscription = require('../../models/PushSubscription');
+  });
+
+  afterEach(() => {
+    notificationService.__setTransportForTests(null);
+  });
+
+  /** Série publicada + 1 favorito com subscription — garante destinatário
+   *  real, senão o transporte nunca é chamado (lista de subscriptions vazia). */
+  async function criarSerieComFavoritoESubscription(overrides = {}) {
+    const serie = await Series.create({
+      title: 'Serie Disparo', genre: 'Teste', content_type: 'hiqua', isPublished: true, ...overrides,
+    });
+    const userId = new mongoose.Types.ObjectId();
+    await Favorite.create({ userId, seriesId: serie._id });
+    await PushSubscription.create({
+      userId,
+      endpoint: `https://push.exemplo/disparo-${new mongoose.Types.ObjectId()}`,
+      keys: { p256dh: 'p', auth: 'a' },
+    });
+    return serie;
+  }
+
+  describe('caminho 1 — POST /api/content/episodes com status: "published"', () => {
+    it('dispara o push após criar o episódio já publicado', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+
+      const res = await request(app)
+        .post('/api/content/episodes')
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ seriesId: serie._id, episode_number: 1, title: 'Capitulo Disparo POST', status: 'published' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe('published');
+
+      await vi.waitFor(() => expect(chamadas).toBe(1), { timeout: 2000, interval: 20 });
+
+      const episodio = await Episode.findById(res.body._id);
+      expect(episodio.notificationSentAt).not.toBeNull();
+    });
+
+    it('episódio criado como draft (padrão, sem status no body) não dispara o push', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+
+      const res = await request(app)
+        .post('/api/content/episodes')
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ seriesId: serie._id, episode_number: 2, title: 'Capitulo Draft POST' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe('draft');
+
+      await new Promise(r => setTimeout(r, 100));
+      expect(chamadas).toBe(0);
+    });
+  });
+
+  describe('caminho 2 — PUT /api/content/episodes/:id para status: "published"', () => {
+    it('dispara o push quando a edição muda o status para published', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+      const episodio = await Episode.create({ seriesId: serie._id, episode_number: 3, title: 'Cap PUT', status: 'draft' });
+
+      const res = await request(app)
+        .put(`/api/content/episodes/${episodio._id}`)
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ status: 'published' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('published');
+
+      await vi.waitFor(() => expect(chamadas).toBe(1), { timeout: 2000, interval: 20 });
+    });
+
+    it('editar um episódio já publicado (sem mudar o status) não redispara — claim já consumido', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+      const episodio = await Episode.create({
+        seriesId: serie._id, episode_number: 4, title: 'Cap Ja Publicado', status: 'published', notificationSentAt: new Date(),
+      });
+
+      const res = await request(app)
+        .put(`/api/content/episodes/${episodio._id}`)
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ title: 'Cap Ja Publicado Editado' });
+
+      expect(res.status).toBe(200);
+
+      await new Promise(r => setTimeout(r, 100));
+      expect(chamadas).toBe(0);
+    });
+  });
+
+  describe('caminho 3 — webhook do Bunny com Status 4', () => {
+    it('dispara o push quando o Bunny reporta Status 4 (Finished)', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await criarSerieComFavoritoESubscription();
+      const episodio = await Episode.create({
+        seriesId: serie._id, episode_number: 5, title: 'Cap Bunny', status: 'processing', bunnyVideoId: `bunny-${new mongoose.Types.ObjectId()}`,
+      });
+
+      const segredoAnterior = process.env.BUNNY_WEBHOOK_SECRET;
+      process.env.BUNNY_WEBHOOK_SECRET = 'segredo-teste-notificacoes';
+      try {
+        const res = await request(app)
+          .post('/api/bunny/webhook')
+          .set('x-webhook-token', 'segredo-teste-notificacoes')
+          .send({ VideoGuid: episodio.bunnyVideoId, Status: 4 });
+
+        expect(res.status).toBe(200);
+      } finally {
+        process.env.BUNNY_WEBHOOK_SECRET = segredoAnterior;
+      }
+
+      await vi.waitFor(() => expect(chamadas).toBe(1), { timeout: 2000, interval: 20 });
+
+      const episodioAtualizado = await Episode.findById(episodio._id);
+      expect(episodioAtualizado.status).toBe('published');
+      expect(episodioAtualizado.notificationSentAt).not.toBeNull();
+    });
+  });
+
+  describe('caminho 4 — PUT /api/content/series/:id transiciona isPublished false→true', () => {
+    it('redispara o push para episódios publicados sem notificationSentAt quando a série volta a publicar', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await Series.create({ title: 'Serie Reabertura', genre: 'Teste', content_type: 'hiqua', isPublished: false });
+      const userId = new mongoose.Types.ObjectId();
+      await Favorite.create({ userId, seriesId: serie._id });
+      await PushSubscription.create({
+        userId,
+        endpoint: `https://push.exemplo/reabertura-${new mongoose.Types.ObjectId()}`,
+        keys: { p256dh: 'p', auth: 'a' },
+      });
+
+      const pendente1 = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Pendente 1', status: 'published' });
+      const pendente2 = await Episode.create({ seriesId: serie._id, episode_number: 2, title: 'Pendente 2', status: 'published' });
+      const jaNotificado = await Episode.create({ seriesId: serie._id, episode_number: 3, title: 'Ja Notificado', status: 'published', notificationSentAt: new Date() });
+      const rascunho = await Episode.create({ seriesId: serie._id, episode_number: 4, title: 'Rascunho', status: 'draft' });
+
+      const res = await request(app)
+        .put(`/api/content/series/${serie._id}`)
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ isPublished: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.isPublished).toBe(true);
+
+      await vi.waitFor(() => expect(chamadas).toBe(2), { timeout: 2000, interval: 20 });
+
+      const [ep1, ep2, ep3, ep4] = await Promise.all([
+        Episode.findById(pendente1._id),
+        Episode.findById(pendente2._id),
+        Episode.findById(jaNotificado._id),
+        Episode.findById(rascunho._id),
+      ]);
+      expect(ep1.notificationSentAt).not.toBeNull();
+      expect(ep2.notificationSentAt).not.toBeNull();
+      expect(ep3.notificationSentAt.getTime()).toBe(jaNotificado.notificationSentAt.getTime()); // não mexeu
+      expect(ep4.notificationSentAt).toBeNull(); // draft não notifica
+      expect(chamadas).toBe(2); // exatamente os 2 pendentes — nem o já notificado, nem o draft
+    });
+
+    it('editar uma série já publicada NÃO redispara (não é a transição falso→verdadeiro)', async () => {
+      let chamadas = 0;
+      notificationService.__setTransportForTests(async () => { chamadas += 1; });
+
+      const serie = await Series.create({ title: 'Serie Ja Publicada', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+      const episodio = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Pendente', status: 'published' });
+
+      const res = await request(app)
+        .put(`/api/content/series/${serie._id}`)
+        .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        .send({ isPublished: true, title: 'Serie Ja Publicada Editada' });
+
+      expect(res.status).toBe(200);
+
+      await new Promise(r => setTimeout(r, 100));
+      expect(chamadas).toBe(0);
+
+      const episodioIntacto = await Episode.findById(episodio._id);
+      expect(episodioIntacto.notificationSentAt).toBeNull();
+    });
+  });
+});
