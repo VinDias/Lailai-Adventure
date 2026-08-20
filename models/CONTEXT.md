@@ -98,11 +98,12 @@ Progresso de leitura/reprodução — um documento por (identidade, episódio).
 - Ver `services/progressService.js` para as regras de gravação e do carrossel "Continuar"
 
 ### `PushSubscription.js` (Fase 4, Bloco 2)
-Inscrições de notificações push.
-- Referência para `User` (relação 1:N — usuário pode ter múltiplas inscrições, ex: desktop + mobile)
-- Campos: `endpoint`, `p256dh`, `auth` (credenciais Web Push API — RFC 8030)
-- `createdAt` com índice TTL (`expireAfterSeconds: 180 dias`) — inscrição expirada é re-inscrita pelo app
-- Índice único em `{userId, endpoint}` — reinscrição do mesmo endpoint é upsert idempotente
+Inscrição de push de UM aparelho de UM usuário (vários aparelhos = vários documentos).
+- `userId` — ref para `User`
+- `endpoint` — único GLOBAL (não composto com `userId`); reinscrição do mesmo endpoint (`findOneAndUpdate` upsert) troca o dono para quem está logado nele agora (takeover intencional, ver `routes/push.js`)
+- `keys.p256dh`, `keys.auth` (credenciais Web Push API)
+- Sem TTL — não expira por tempo; endpoint morto (404/410 no envio) é removido na hora pelo `notificationService`
+- Índice extra em `userId` (para consultas por usuário)
 
 ---
 

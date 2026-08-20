@@ -78,11 +78,11 @@ Montado em `/api/me`. Todas as rotas aceitam conta OU visitante (`optionalAuth` 
 - `POST /progress/claim` — migra o histórico do visitante (`anonymousId`) para a conta no login/cadastro
 
 ### `push.js` — Notificações Push (Fase 4, Bloco 2)
-Montado em `/api/push` (todas com `verifyToken`).
-- `POST /subscribe` — inscreve o cliente (navegador/app) para notificações; aceita `subscription` (objeto `PushSubscription` da Web Push API) + `contentTypes[]` (filtro opcional, padrão: todas as obras); valida chaves VAPID, cria/atualiza documento no MongoDB, retorna sucesso
-- `POST /unsubscribe` — remove inscrição (identifica por `endpoint` enviado no body)
-- `GET /public-key` — exporta `VAPID_PUBLIC_KEY` para o app chamar `serviceWorkerContainer.ready.then(reg => reg.pushManager.subscribe({...}))`
-- `GET /status` — retorna boolean `isSubscribed` e lista `contentTypes` da conta (usado pela UI para mostrar estado e permitir alteração)
+Um único router montado uma vez em `/api` — mistura rota pública com rotas autenticadas.
+- `GET /push/public-key` — SEM auth; devolve `{ publicKey }` (pode vir `null` se VAPID não estiver configurado em produção — o front trata)
+- `POST /me/push/subscribe` — `verifyToken`; upsert por `endpoint` (`{ endpoint, keys: { p256dh, auth } }` no body); o aparelho passa a pertencer a quem está logado nele agora (takeover de dono é intencional); devolve `{ subscribed: true }` (200 se já existia, 201 se novo)
+- `DELETE /me/push/subscribe` — `verifyToken`; remove só o endpoint do próprio usuário (`{ endpoint }` no body); devolve `{ removed: <deletedCount 0 ou 1> }`
+- `GET /me/push/status` — `verifyToken`; `?endpoint=` opcional; devolve `{ thisDevice, anyDevice }` (`thisDevice` = esse endpoint pertence ao logado; `anyDevice` = o logado tem alguma inscrição, em qualquer aparelho)
 
 ### `settings.js` — Configurações
 - `GET /public` — settings públicas (tagline, anúncios, `google_client_id` vindo do env quando configurado)

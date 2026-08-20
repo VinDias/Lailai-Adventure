@@ -100,13 +100,14 @@ Chaves VAPID identificam seu servidor aos provedores de push (Firefox, Chrome, e
 **Trocar VAPID_PRIVATE_KEY invalida TODAS as inscrições ativas.** Antes de regerar:
 - Notifique usuários sobre qualquer interrupção de notificações
 - Faça backup do `.env` anterior (caso seja necessário reverter temporariamente)
-- Aguarde ~24h para que clientes velhos se reinscrevam automaticamente (TTL de 180 dias no `PushSubscription`)
+- `PushSubscription` não tem TTL nem expira sozinha: o `notificationService` só remove uma inscrição quando o envio falha com 404/410 (endpoint morto), o que uma chave trocada não necessariamente causa. Ou seja, inscrições antigas podem ficar paradas no banco sem receber nada até o usuário reabrir o app e reativar manualmente (o toggle da Conta ou o cartão pós-favorito criam uma inscrição nova)
 
 ### Se Push Ficar Desativado
 
 Se as variáveis VAPID não estiverem no `.env`:
-- O app funciona normalmente (todos os recursos disponíveis)
-- Notificações push não funcionam — chamadas a `/api/push/subscribe` retornam erro 503
+- O app funciona normalmente (todos os recursos disponíveis) — a ausência de push nunca derruba o boot
+- Em produção, `notificationService.notifyEpisodePublished` fica desativado (log de erro, sem lançar) — nada é enviado, mas a publicação do episódio segue normal
+- Em desenvolvimento, um par de chaves efêmero é gerado a cada start (aviso no log) — inscrições não sobrevivem a um restart
 - Reiniciar o PM2 com as chaves corretas reativa o push
 
 ---
