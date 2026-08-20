@@ -5,7 +5,7 @@
 //  - /assets/ do Vite: cache-first (nomes com hash são imutáveis).
 //  - Demais GETs same-origin: network com fallback ao cache (suporte offline).
 // Bump em VERSION invalida todos os caches antigos no activate.
-const VERSION = "v2";
+const VERSION = "v3";
 const RUNTIME_CACHE = `lorflux-${VERSION}`;
 // Cada deploy do Vite gera hashes novos em /assets/; sem poda, os bundles de
 // builds antigos acumulariam no storage do aparelho a cada release.
@@ -106,5 +106,52 @@ self.addEventListener("fetch", (event) => {
         return resp;
       })
       .catch(() => caches.match(request))
+  );
+});
+
+// ─── Fase 4 Bloco 2: push (notificação de capítulo novo) ───────────────────
+// Payload enviado pelo servidor (services/notificationService.js), sempre
+// JSON: { title, body, url, tag }. Sem body no evento (algumas plataformas
+// mandam push "silencioso") não há o que mostrar — ignora.
+self.addEventListener("push", event => {
+  if (!event.data) return;
+  let dados;
+  try {
+    dados = event.data.json();
+  } catch {
+    // Payload que não é JSON válido: nada a mostrar, mas não derruba o SW.
+    return;
+  }
+  event.waitUntil(
+    self.registration.showNotification(dados.title || "Lorflux", {
+      body: dados.body || "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: dados.tag || undefined,
+      data: { url: dados.url || "/" },
+    })
+  );
+});
+
+// Clique na notificação: foca uma aba já aberta do app (navegando para o
+// destino) ou, sem aba aberta nem suporte a navigate(), abre uma nova janela.
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
+      for (const c of list) {
+        if ("focus" in c) {
+          // Nem todo client suporta navigate() (ex.: navegadores antigos do TWA) —
+          // sem ele, focar a aba deixaria o usuário na URL errada.
+          if ("navigate" in c) {
+            c.navigate(url);
+            return c.focus();
+          }
+          return clients.openWindow(url);
+        }
+      }
+      return clients.openWindow(url);
+    })
   );
 });

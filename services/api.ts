@@ -2,6 +2,13 @@
 import API_URL from '../config/api';
 import { getAnonymousId } from '../utils/anonymousId';
 
+// Formato de PushSubscription.toJSON() (Web Push API) — o que POST /me/push/subscribe espera.
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  expirationTime?: number | null;
+}
+
 class ApiService {
   private static instance: ApiService;
   private accessToken: string | null = null;
@@ -684,6 +691,31 @@ class ApiService {
       method: 'POST',
       body: JSON.stringify({ anonymousId }),
     });
+  }
+
+  // ─── Fase 4 Bloco 2: push (notificação de capítulo novo) ───────────────────
+  /** Sem auth — chave pública VAPID usada por pushManager para assinar o push deste aparelho. */
+  async getPushPublicKey() {
+    return this.request<{ publicKey: string | null }>('/push/public-key');
+  }
+
+  async subscribePush(sub: PushSubscriptionPayload) {
+    return this.request<{ success: boolean }>('/me/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(sub),
+    });
+  }
+
+  async unsubscribePush(endpoint: string) {
+    return this.request<{ success: boolean }>('/me/push/subscribe', {
+      method: 'DELETE',
+      body: JSON.stringify({ endpoint }),
+    });
+  }
+
+  /** endpoint vazio ainda é uma consulta válida (aparelho sem subscription local). */
+  async getPushStatus(endpoint: string) {
+    return this.request<{ thisDevice: boolean; anyDevice: boolean }>(`/me/push/status?endpoint=${encodeURIComponent(endpoint)}`);
   }
 }
 

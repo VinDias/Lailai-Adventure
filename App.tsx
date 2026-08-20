@@ -23,6 +23,7 @@ import { initConsent } from './utils/consent';
 import { useI18n, useT } from './contexts/I18nContext';
 import { LANG_OPTIONS } from './i18n/translations';
 import { migrarProgressoDoVisitante } from './utils/claimProgress';
+import { parseDeepLink, DeepLink } from './utils/deepLink';
 
 const App: React.FC = () => {
   const t = useT();
@@ -42,6 +43,10 @@ const App: React.FC = () => {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
+  // Deep link de notificação push (?abrir=<seriesId>&tipo=<tipo>): parseado e
+  // removido da URL logo no boot (ver useEffect abaixo); fica guardado aqui
+  // até existir um `user` para consumir (login OU sessão já restaurada).
+  const deepLinkRef = React.useRef<DeepLink | null>(null);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -85,6 +90,18 @@ const App: React.FC = () => {
       setView(ViewMode.AUTH);
     });
 
+    // Deep link de push (clique na notificação de capítulo novo): parseia
+    // ?abrir=&tipo= e já limpa a URL (history.replaceState) para um reload
+    // não reabrir a mesma série. O consumo real (trocar de aba + focar a
+    // série) só acontece no useEffect abaixo, quando houver `user`.
+    const deepLink = parseDeepLink(window.location.search);
+    if (deepLink) {
+      deepLinkRef.current = deepLink;
+      const url = new URL(window.location.href);
+      url.search = '';
+      window.history.replaceState({}, '', url.pathname + url.hash);
+    }
+
     // Restaura a sessão usando o cookie httpOnly de refresh — sem tokens no localStorage.
     (async () => {
       try {
@@ -98,6 +115,24 @@ const App: React.FC = () => {
       finally { setBooting(false); }
     })();
   }, []);
+
+  // Consome o deep link de push quando `user` vira truthy — cobre tanto o
+  // login feito nesta mesma sessão quanto o boot já logado (bootstrapSession
+  // acima). Roda DEPOIS do setView de handleLogin (efeitos disparam na ordem
+  // dos setState do render), então a troca de aba do deep link vence.
+  //
+  // Lógica inline (não chama handleSearchSelect, definida mais abaixo no
+  // componente, depois dos retornos condicionais de boot/AUTH — referenciá-la
+  // aqui quebraria em renders que retornam cedo, antes dela ser atribuída).
+  useEffect(() => {
+    const deepLink = deepLinkRef.current;
+    if (!user || !deepLink) return;
+    deepLinkRef.current = null;
+    if (deepLink.tipo === 'hiqua') setView(ViewMode.HIQUA);
+    else if (deepLink.tipo === 'vcine') setView(ViewMode.VCINE);
+    else if (deepLink.tipo === 'hqcine') setView(ViewMode.HQCINE);
+    setPendingSeriesFocus(deepLink.seriesId);
+  }, [user]);
 
   const handleLogin = async (u: User) => {
     setUser(u);
