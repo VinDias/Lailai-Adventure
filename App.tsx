@@ -30,6 +30,8 @@ import { LANG_OPTIONS } from './i18n/translations';
 import { migrarProgressoDoVisitante } from './utils/claimProgress';
 import { parseDeepLink, DeepLink } from './utils/deepLink';
 import { parseSuperReaderReturn } from './utils/superReaderReturn';
+import { isGuestMode, enterGuestMode, leaveGuestMode } from './utils/guestMode';
+import GuestAccountPrompt from './components/GuestAccountPrompt';
 
 const App: React.FC = () => {
   const t = useT();
@@ -136,15 +138,33 @@ const App: React.FC = () => {
     // então a 2ª leitura ainda o vê. Em produção (mount único) é inócuo.
     const tinhaDeepLinkPendente = deepLinkRef.current !== null;
     (async () => {
+      // Fica true só quando uma sessão de CONTA foi mesmo restaurada — usado
+      // no finally abaixo para distinguir esse caminho do modo visitante.
+      let sessaoDeContaRestaurada = false;
       try {
         const restored = await api.bootstrapSession();
         if (restored) {
+          sessaoDeContaRestaurada = true;
           setUser(restored);
           if (!tinhaDeepLinkPendente) setView(ViewMode.HQCINE);
           if (!hasSeenOnboarding()) setShowOnboarding(true);
         }
       } catch { /* segue para tela de login */ }
-      finally { setBooting(false); }
+      finally {
+        // Modo visitante (acesso sem conta): sem sessão de conta restaurada
+        // (nem pelo caminho de sucesso acima, nem pelo catch) mas com a flag
+        // `lorflux_guest` gravada, pula a tela de login e vai direto pro
+        // catálogo — a MESMA experiência de "sem flash de login" que a sessão
+        // de conta restaurada já tem acima. Fica no finally (não dentro do
+        // try) de propósito: cobre tanto bootstrapSession resolver sem
+        // usuário quanto lançar. Ao contrário do ramo de sessão de conta, não
+        // olha tinhaDeepLinkPendente — visitante não consome deep link de
+        // push (decisão da spec: push exige conta, então não há deep link
+        // legítimo pra ele), então não existe aba de deep link pra proteger
+        // aqui.
+        if (!sessaoDeContaRestaurada && isGuestMode()) setView(ViewMode.HQCINE);
+        setBooting(false);
+      }
     })();
   }, []);
 
@@ -187,6 +207,11 @@ const App: React.FC = () => {
     // quando exatamente o efeito dispara.
     const tinhaDeepLinkPendente = deepLinkRef.current !== null;
     setUser(u);
+    // A conta substitui o modo visitante (decisão da spec): limpa a flag
+    // `lorflux_guest` para não sobrar marcado como visitante quem acabou de
+    // logar/cadastrar — não deve haver diferença de tela entre "logou agora"
+    // e "reabriu o app já logado".
+    leaveGuestMode();
     const tok = (u as any).accessToken;
     if (tok) api.setToken(tok);
     const rtok = (u as any).refreshToken;
@@ -228,9 +253,18 @@ const App: React.FC = () => {
     setView(ViewMode.READER);
   };
 
+  // Modo visitante (acesso sem conta): entra direto no catálogo, sem senha
+  // nem cadastro. Mesma primeira impressão do login — onboarding se nunca visto.
+  const handleGuest = () => {
+    enterGuestMode();
+    setView(ViewMode.HQCINE);
+    if (!hasSeenOnboarding()) setShowOnboarding(true);
+  };
+
   const handleLogout = () => {
     api.logout();
     purgeLegacyTokens();
+    leaveGuestMode();
     setUser(null);
     setView(ViewMode.AUTH);
   };
@@ -238,6 +272,7 @@ const App: React.FC = () => {
   const handleAccountDeleted = () => {
     api.setToken('');
     purgeLegacyTokens();
+    leaveGuestMode();
     setUser(null);
     setView(ViewMode.AUTH);
   };
@@ -254,7 +289,7 @@ const App: React.FC = () => {
       <div className="absolute top-4 right-4 z-50">
         <ThemeToggle />
       </div>
-      <Auth onLogin={handleLogin} onOpenPolicy={openPolicy} />
+      <Auth onLogin={handleLogin} onOpenPolicy={openPolicy} onGuest={handleGuest} />
       <ConsentBanner onOpenPolicy={() => openPolicy('privacy')} />
       <LegalPolicy open={legalOpen} onClose={() => setLegalOpen(false)} initialTab={legalTab} />
     </div>
@@ -363,50 +398,74 @@ const App: React.FC = () => {
           />
         )}
 
+        {/* Visitante (view === PROFILE && !user): o convite GuestAccountPrompt
+            substitui avatar/nome/e-mail e todo o bloco de ações de conta —
+            nada ali (Premium, favoritos, SuperReaderBadge, PushAccountToggle,
+            avaliar, sair, PrivacyCenter/LGPD) faz sentido sem conta, e
+            SuperReaderBadge/PushAccountToggle consultam a API assim que
+            montam, então nem podem montar para visitante. Seletor de idioma
+            fica fora do `user &&` de propósito — é útil para os dois; os
+            links de privacidade/termos (dentro de PrivacyCenter pro usuário
+            real) ganham uma versão mínima equivalente pro visitante logo
+            abaixo, reaproveitando o mesmo estilo/rótulos da tela de login
+            (auth.privacyLabel/termsLabel) em vez de duplicar o PrivacyCenter
+            inteiro (que também exporta dados e exclui conta — não se aplica
+            a quem não tem conta). */}
         {view === ViewMode.PROFILE && (
           <div className="p-8 animate-apple max-w-xl mx-auto pt-20 text-center">
-            <div className="relative inline-block mb-8">
-              <div className={`w-32 h-32 rounded-[3.5rem] border-4 border-white/5 shadow-2xl overflow-hidden ${uploadingAvatar ? 'opacity-50' : ''}`}>
-                <ImageWithFallback src={user?.avatar} className="w-full h-full object-cover" alt={user?.nome || 'Avatar'} />
-              </div>
-              {user?.isPremium && <div className="absolute -bottom-2 -right-2 bg-amber-500 p-2 rounded-full border-4 border-[#0A0A0B]"><Sparkles size={16} className="text-black" /></div>}
-              {/* Troca de foto de perfil */}
-              <button
-                onClick={() => avatarInputRef.current?.click()}
-                disabled={uploadingAvatar}
-                aria-label={t('account.changePhoto')}
-                className="absolute -top-1 -right-1 p-2.5 bg-rose-600 rounded-full border-4 border-[var(--bg-color)] text-white hover:bg-rose-500 transition-all disabled:opacity-60"
-              >
-                {uploadingAvatar
-                  ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  : <Pencil size={14} />}
-              </button>
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleAvatarChange}
-              />
-            </div>
-            <h2 className="text-4xl font-black text-[var(--text-color)] mb-2 tracking-tighter">{user?.nome}</h2>
-            <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mb-12">{user?.email}</p>
-            <div className="space-y-4">
-              {!user?.isPremium && (
-                <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')} ({getLocalizedPrice()})</button>
-              )}
-              <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> {t('account.myFavorites')}</button>
-              <SuperReaderBadge />
-              <PushAccountToggle />
-              <button
-                onClick={() => window.open('https://play.google.com/store/apps/details?id=com.lorflux.twa', '_blank', 'noopener,noreferrer')}
-                className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"
-              >
-                <Star size={18} /> {t('account.rateApp')}
-              </button>
-              <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">{t('account.logout')}</button>
+            {user ? (
+              <>
+                <div className="relative inline-block mb-8">
+                  <div className={`w-32 h-32 rounded-[3.5rem] border-4 border-white/5 shadow-2xl overflow-hidden ${uploadingAvatar ? 'opacity-50' : ''}`}>
+                    <ImageWithFallback src={user?.avatar} className="w-full h-full object-cover" alt={user?.nome || 'Avatar'} />
+                  </div>
+                  {user?.isPremium && <div className="absolute -bottom-2 -right-2 bg-amber-500 p-2 rounded-full border-4 border-[#0A0A0B]"><Sparkles size={16} className="text-black" /></div>}
+                  {/* Troca de foto de perfil */}
+                  <button
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={uploadingAvatar}
+                    aria-label={t('account.changePhoto')}
+                    className="absolute -top-1 -right-1 p-2.5 bg-rose-600 rounded-full border-4 border-[var(--bg-color)] text-white hover:bg-rose-500 transition-all disabled:opacity-60"
+                  >
+                    {uploadingAvatar
+                      ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      : <Pencil size={14} />}
+                  </button>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleAvatarChange}
+                  />
+                </div>
+                <h2 className="text-4xl font-black text-[var(--text-color)] mb-2 tracking-tighter">{user?.nome}</h2>
+                <p className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest mb-12">{user?.email}</p>
+              </>
+            ) : (
+              <GuestAccountPrompt onLogin={() => setView(ViewMode.AUTH)} />
+            )}
 
-              {/* Seletor de idioma da interface (compartilhado com os balões do leitor) */}
+            <div className="space-y-4">
+              {user && (
+                <>
+                  {!user.isPremium && (
+                    <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')} ({getLocalizedPrice()})</button>
+                  )}
+                  <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> {t('account.myFavorites')}</button>
+                  <SuperReaderBadge />
+                  <PushAccountToggle />
+                  <button
+                    onClick={() => window.open('https://play.google.com/store/apps/details?id=com.lorflux.twa', '_blank', 'noopener,noreferrer')}
+                    className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"
+                  >
+                    <Star size={18} /> {t('account.rateApp')}
+                  </button>
+                  <button onClick={handleLogout} className="w-full py-5 bg-rose-600/10 text-rose-500 font-black rounded-3xl border border-rose-500/20 hover:bg-rose-600/20 transition-all">{t('account.logout')}</button>
+                </>
+              )}
+
+              {/* Seletor de idioma da interface (compartilhado com os balões do leitor) — vale pra perfil real e convite do visitante */}
               <div className="pt-4">
                 <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3">{t('account.language')}</p>
                 <div className="flex justify-center gap-2">
@@ -423,7 +482,15 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <PrivacyCenter user={user} onOpenPolicy={openPolicy} onDeleted={handleAccountDeleted} />
+            {user ? (
+              <PrivacyCenter user={user} onOpenPolicy={openPolicy} onDeleted={handleAccountDeleted} />
+            ) : (
+              <div className="mt-10 text-[10px] text-zinc-600 flex justify-center gap-3">
+                <button type="button" onClick={() => openPolicy('privacy')} className="hover:text-rose-500 transition-colors">{t('auth.privacyLabel')}</button>
+                <span>·</span>
+                <button type="button" onClick={() => openPolicy('terms')} className="hover:text-rose-500 transition-colors">{t('auth.termsLabel')}</button>
+              </div>
+            )}
           </div>
         )}
 

@@ -15,13 +15,17 @@ interface AuthProps {
   // o que parece travamento.
   onLogin: (user: User) => void | Promise<void>;
   onOpenPolicy?: (tab?: 'privacy' | 'terms') => void;
+  // Modo visitante (acesso sem conta): só some no App quando passada, e o
+  // próprio Auth só a mostra no modo login (ver JSX abaixo) — cadastro e
+  // recuperação de senha já são fluxos de quem decidiu criar/ter conta.
+  onGuest?: () => void;
 }
 
 type Mode = 'login' | 'register' | 'forgot' | 'reset';
 
 const inputClass = "w-full bg-[rgba(128,128,128,0.1)] border border-[rgba(128,128,128,0.1)] rounded-2xl px-5 py-4 focus:outline-none focus:border-rose-500 transition-all text-[var(--text-color)] placeholder-zinc-600";
 
-const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy }) => {
+const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy, onGuest }) => {
   const t = useT();
   const { platform_tagline, google_client_id } = useSettings();
   const [mode, setMode] = useState<Mode>('login');
@@ -275,6 +279,13 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy }) => {
             className="text-zinc-500 hover:text-rose-500 font-bold transition-colors text-sm">
             {mode === 'login' ? t('auth.noAccount') : t('auth.haveAccount')}
           </button>
+          {/* Modo visitante (acesso sem conta): discreto, só no login — quem já
+              está em cadastro/recuperação decidiu ter conta. */}
+          {mode === 'login' && onGuest && (
+            <button onClick={onGuest} className="text-zinc-600 hover:text-rose-500 font-bold transition-colors text-xs">
+              {t('auth.exploreGuest')}
+            </button>
+          )}
           <div className="text-[10px] text-zinc-600 mt-2 flex gap-3">
             <button type="button" onClick={() => onOpenPolicy?.('privacy')} className="hover:text-rose-500 transition-colors">{t('auth.privacyLabel')}</button>
             <span>·</span>

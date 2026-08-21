@@ -41,6 +41,12 @@ const pt = {
   'auth.resetSuccess': 'Senha redefinida com sucesso! Faça login.',
   'auth.privacyLabel': 'Privacidade',
   'auth.termsLabel': 'Termos',
+  'auth.exploreGuest': 'Explorar sem conta',
+
+  // Modo visitante (aba Conta)
+  'guest.title': 'Crie sua conta para aproveitar tudo',
+  'guest.body': 'Com uma conta você favorita obras, recebe aviso de capítulo novo, apoia os autores e guarda seu progresso em qualquer aparelho.',
+  'guest.cta': 'Entrar ou criar conta',
 
   // Onboarding
   'onboarding.next': 'Próximo',
@@ -179,6 +185,11 @@ const en: Record<keyof typeof pt, string> = {
   'auth.resetSuccess': 'Password reset successfully! Please log in.',
   'auth.privacyLabel': 'Privacy',
   'auth.termsLabel': 'Terms',
+  'auth.exploreGuest': 'Explore without an account',
+
+  'guest.title': 'Create an account to unlock everything',
+  'guest.body': 'With an account you can favorite titles, get notified about new chapters, support the creators, and keep your progress on any device.',
+  'guest.cta': 'Log in or create an account',
 
   'onboarding.next': 'Next',
   'onboarding.start': 'Start',
@@ -306,6 +317,11 @@ const es: Record<keyof typeof pt, string> = {
   'auth.resetSuccess': '¡Contraseña restablecida con éxito! Inicia sesión.',
   'auth.privacyLabel': 'Privacidad',
   'auth.termsLabel': 'Términos',
+  'auth.exploreGuest': 'Explorar sin cuenta',
+
+  'guest.title': 'Crea tu cuenta para aprovechar todo',
+  'guest.body': 'Con una cuenta puedes marcar obras como favoritas, recibir avisos de capítulos nuevos, apoyar a los autores y guardar tu progreso en cualquier dispositivo.',
+  'guest.cta': 'Entrar o crear cuenta',
 
   'onboarding.next': 'Siguiente',
   'onboarding.start': 'Comenzar',
@@ -433,6 +449,11 @@ const zh: Record<keyof typeof pt, string> = {
   'auth.resetSuccess': '密码重置成功！请登录。',
   'auth.privacyLabel': '隐私',
   'auth.termsLabel': '条款',
+  'auth.exploreGuest': '免注册浏览',
+
+  'guest.title': '创建账户，解锁全部功能',
+  'guest.body': '拥有账户后，你可以收藏作品、获得新章节提醒、支持创作者，并在任何设备上保留你的观看/阅读进度。',
+  'guest.cta': '登录或创建账户',
 
   'onboarding.next': '下一步',
   'onboarding.start': '开始',
