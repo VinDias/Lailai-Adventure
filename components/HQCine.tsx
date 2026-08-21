@@ -38,8 +38,28 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
   // catálogo (barra de progresso) — evita uma segunda requisição idêntica.
   const [continueItems, setContinueItems] = useState<any[]>([]);
 
+  // Ordem da grade vem do algoritmo de recomendação (Fase 4 Bloco 4); erro OU
+  // lista vazia caem no fallback getSeries() com o filtro manual de hoje —
+  // a recomendação nunca pode derrubar o feed (spec: seção "Feeds").
   useEffect(() => {
-    api.getSeries().then(data => setSeries(data.filter(s => s.content_type === 'hqcine')));
+    const carregar = async () => {
+      try {
+        const recomendadas = await api.getRecommendations('hqcine');
+        if (Array.isArray(recomendadas) && recomendadas.length > 0) {
+          setSeries(recomendadas);
+          return;
+        }
+      } catch {
+        // cai no fallback abaixo
+      }
+      try {
+        const todas = await api.getSeries();
+        setSeries(todas.filter(s => s.content_type === 'hqcine'));
+      } catch {
+        // mantém a lista vazia, como o comportamento anterior
+      }
+    };
+    carregar();
   }, []);
 
   useEffect(() => {

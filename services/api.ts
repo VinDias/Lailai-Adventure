@@ -245,6 +245,15 @@ class ApiService {
     return this.request<any[]>(path);
   }
 
+  // GET /api/content/recommendations?type= — Fase 4 Bloco 4 (algoritmo).
+  // Mesmo shape de getSeries (lista de séries publicadas do tipo), já na
+  // ordem 50/30/20 do routes/content.js. A identidade anônima que alimenta a
+  // Afinidade do leitor é a MESMA do progresso: request() já injeta
+  // X-Anonymous-Id em toda chamada (linha ~152 acima) — nada extra aqui.
+  async getRecommendations(type: 'hqcine' | 'vcine' | 'hiqua') {
+    return this.request<any[]>(`/content/recommendations?type=${type}`);
+  }
+
   // Busca uma série específica direto na API — ao contrário de procurar num
   // array já carregado pela tela, não depende de nenhum estado local ter
   // chegado antes (usado pelo carrossel "Continuar", que pode aparecer antes
