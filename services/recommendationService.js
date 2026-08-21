@@ -349,8 +349,10 @@ async function computeFracaoOutroDia(seriesObjectId) {
 /**
  * Retenção (0–25 pts, Etapa 3 do PDF, redistribuição 45/33/22 — ver
  * constantes no topo do arquivo). Diferente da Qualidade: cada sub-métrica
- * já é 0–1 NATURAL (fração/média), então NÃO normaliza pelo catálogo — a
- * spec é explícita: "retenção é absoluta por natureza".
+ * já é 0–1 NATURAL (fração/média), então NÃO normaliza pelo catálogo — na
+ * spec, a decisão "Proporcionalidade (Etapa 2)" amarra a normalização por
+ * catálogo apenas à Qualidade; frações de conclusão/percentual já têm
+ * escala própria e comparável entre obras.
  *
  * `serie` precisa só de `_id` (doc do Mongoose ou objeto lean/simples
  * funcionam — mesmo contrato de computeQualidade).
