@@ -349,15 +349,20 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
     // DECISÃO (Task 5, ledger — gatilho de recálculo "view/read" da Etapa 11
     // do PDF): NÃO dispara recommendationService.dispararRecalculo aqui. Esta
     // é a rota de MAIOR volume do backend inteiro — toda abertura de
-    // episódio passa por ela — e computeSeriesScore refaz ~10 agregações
-    // sobre a série. Mesmo um cheque barato de "computedAt > 1h" antes de
-    // decidir ainda seria uma query extra na rota mais quente do app, por um
-    // ganho marginal: o efeito de UMA view isolada no score é minúsculo, e
-    // nenhum dado se perde (o EngagementEvent é gravado de qualquer jeito,
-    // logo abaixo — a releitura fica disponível para o próximo cálculo). Os
-    // outros 5 gatilhos (voto, favorito, Super Reader, conclusão de leitura,
-    // capítulo publicado) cobrem os sinais fortes de imediato; a varredura
-    // periódica de 24h (services/recommendationService.iniciarVarreduraPeriodica)
+    // episódio passa por ela — e computeSeriesScore refaz o contexto de
+    // normalização varrendo o catálogo publicado do MESMO content_type,
+    // custo real O(catálogo do tipo) por gatilho (CORRIGIDO na revisão da T8
+    // e de novo no fix round da revisão final, Item 4 — a estimativa antiga
+    // deste comentário, "~10 agregações", estava errada; ver nota completa
+    // em services/progressService.js, dispararSeConcluido). Mesmo um cheque
+    // barato de "computedAt > 1h" antes de decidir ainda seria uma query
+    // extra na rota mais quente do app, por um ganho marginal: o efeito de
+    // UMA view isolada no score é minúsculo, e nenhum dado se perde (o
+    // EngagementEvent é gravado de qualquer jeito, logo abaixo — a
+    // releitura fica disponível para o próximo cálculo). Os outros 5
+    // gatilhos (voto, favorito, Super Reader, conclusão de leitura, capítulo
+    // publicado) cobrem os sinais fortes de imediato; a varredura periódica
+    // de 24h (services/recommendationService.iniciarVarreduraPeriodica)
     // absorve a deriva orgânica de views/releituras ao longo do tempo.
     if (episode.seriesId) {
       const engagementLogger = require('../services/engagementLogger');

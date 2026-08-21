@@ -30,6 +30,23 @@
  * do Confidence na ordenação + Etapa 8: diversidade). Ver comentários de cada
  * função na seção "Task 6" abaixo, perto do fim do arquivo.
  *
+ * Fix round da revisão final do Bloco 4 (4 achados, rulings fechados):
+ *   A1 (ALTO) — `computeMetricasBrutas`: denominador da Qualidade/Potential
+ *     passa de `leitoresUnicos` (logados+anônimos) para `leitoresLogados`,
+ *     mesma população dos numeradores (que já eram estruturalmente
+ *     só-logados). `leitoresUnicos` continua persistido/usado no Confidence.
+ *   A2 (ALTO) — `computeNeutroDerivado`/`buildRecommendations`: neutro da
+ *     Afinidade de obra SEM tags deixa de ser 12,5 fixo e passa a ser a
+ *     MÉDIA das afinidades das obras COM tags do mesmo request.
+ *   M1 (MÉDIO) — `temaForte`/`conflitoAdjacente`/`aplicarDiversidade`: a 4ª
+ *     regra de diversidade do PDF ("alternar temas e estilos") entra no
+ *     passe, junto com o canal adjacente.
+ *   M2 (MÉDIO, este commit) — `buildQualidadeContexto`/`metricasComReuso`: o
+ *     contexto de normalização devolve também `porSerie` (métricas já
+ *     calculadas de toda obra do tipo), reusado por
+ *     `computeQualidade`/`computePotential` em vez de recomputar a própria
+ *     série.
+ *
  * Spec: docs/superpowers/specs/2026-08-20-algoritmo-recomendacao-design.md
  * Ledger: .superpowers/sdd/2026-08-20-algoritmo/progress.md
  *   P4 — eventos flagged do anti-fraude ficam FORA de toda contagem.
@@ -253,16 +270,27 @@ async function computeMetricasBrutas(seriesId) {
 
 /**
  * Contexto de normalização: para cada `content_type`, o MÁXIMO de cada
- * métrica (por leitor único) entre as séries PUBLICADAS daquele tipo.
- * Calculado UMA vez por varredura — `computeAllScores` chama isto uma única
- * vez e passa o resultado para cada `computeSeriesScore`, evitando recalcular
- * o catálogo inteiro série por série.
+ * métrica (por leitor logado — Item 1 do fix round) entre as séries
+ * PUBLICADAS daquele tipo. Calculado UMA vez por varredura —
+ * `computeAllScores` chama isto uma única vez e passa o resultado para cada
+ * `computeSeriesScore`, evitando recalcular o catálogo inteiro série por
+ * série.
  *
  * Assinatura escolhida: sem parâmetros, sempre varre `Series` publicadas do
  * banco. Devolve `{ [contentType]: { superReaderPorLeitor, favoritosPorLeitor,
- * likesPorLeitor, releiturasPorLeitor } }` — máximo 0 quando nenhuma série do
- * tipo tem aquela métrica > 0 ainda (computeQualidade trata max 0 como
- * "sem normalização possível", componente fica 0, nunca NaN/Infinity).
+ * likesPorLeitor, releiturasPorLeitor }, porSerie: { [seriesId]: metricas } }`
+ * — máximo 0 quando nenhuma série do tipo tem aquela métrica > 0 ainda
+ * (computeQualidade trata max 0 como "sem normalização possível", componente
+ * fica 0, nunca NaN/Infinity).
+ *
+ * FIX ROUND da revisão final do Bloco 4 (Item 4, M2): `porSerie` é NOVO —
+ * este scan já chama `computeMetricasBrutas` para TODAS as séries do tipo
+ * (pra achar o máximo); antes disso, `computeQualidade` e `computePotential`
+ * IGNORAVAM esse trabalho e chamavam `computeMetricasBrutas` de NOVO, cada
+ * uma, só pra própria série — 2 recomputações redundantes por série. Guardar
+ * o mapa aqui deixa as duas reaproveitarem o que este scan já sabe (ver
+ * `computeQualidade`/`computePotential` abaixo — chave é `String(seriesId)`,
+ * igual ao resto do arquivo, ex. `scorePorSerie` em `buildRecommendations`).
  */
 async function buildQualidadeContexto(contentType) {
   // A normalização é POR content_type (spec, "Proporcionalidade"): o máximo de
@@ -274,25 +302,42 @@ async function buildQualidadeContexto(contentType) {
   const filtro = { isPublished: true };
   if (contentType) filtro.content_type = contentType;
   const series = await Series.find(filtro, '_id content_type').lean();
-  const porSerie = await Promise.all(series.map(async (s) => ({
+  const porSerieCalculada = await Promise.all(series.map(async (s) => ({
+    seriesId: String(s._id),
     contentType: s.content_type,
     metricas: await computeMetricasBrutas(s._id),
   })));
 
   const contexto = {};
-  for (const { contentType, metricas } of porSerie) {
-    if (!contexto[contentType]) {
-      contexto[contentType] = {
+  const porSerie = {};
+  for (const { seriesId, contentType: tipo, metricas } of porSerieCalculada) {
+    porSerie[seriesId] = metricas;
+    if (!contexto[tipo]) {
+      contexto[tipo] = {
         superReaderPorLeitor: 0, favoritosPorLeitor: 0, likesPorLeitor: 0, releiturasPorLeitor: 0,
       };
     }
-    const max = contexto[contentType];
+    const max = contexto[tipo];
     max.superReaderPorLeitor = Math.max(max.superReaderPorLeitor, metricas.superReaderPorLeitor);
     max.favoritosPorLeitor = Math.max(max.favoritosPorLeitor, metricas.favoritosPorLeitor);
     max.likesPorLeitor = Math.max(max.likesPorLeitor, metricas.likesPorLeitor);
     max.releiturasPorLeitor = Math.max(max.releiturasPorLeitor, metricas.releiturasPorLeitor);
   }
+  contexto.porSerie = porSerie;
   return contexto;
+}
+
+/**
+ * Reusa `contexto.porSerie[seriesId]` (populado por `buildQualidadeContexto`
+ * acima) quando presente — fix round Item 4 (M2): evita recomputar
+ * `computeMetricasBrutas` da MESMA série que o contexto já calculou.
+ * Fallback pra computar na hora quando ausente — chamadas AVULSAS de teste
+ * que passam `{}` ou um contexto parcial continuam funcionando idêntico a
+ * antes (compatibilidade, ruling explícito).
+ */
+async function metricasComReuso(serie, contexto) {
+  const doContexto = contexto && contexto.porSerie && contexto.porSerie[String(serie._id)];
+  return doContexto || computeMetricasBrutas(serie._id);
 }
 
 /**
@@ -306,10 +351,11 @@ async function buildQualidadeContexto(contentType) {
  * `serie` precisa de `_id` e `content_type` (doc do Mongoose ou objeto
  * lean/simples funcionam). `contexto` vem de `buildQualidadeContexto()`; sem
  * ele (ou tipo ausente do contexto), toda normalização cai para 0 —
- * comportamento seguro, nunca NaN/Infinity.
+ * comportamento seguro, nunca NaN/Infinity. Reusa `contexto.porSerie` quando
+ * presente (`metricasComReuso`, Item 4 do fix round) em vez de recomputar.
  */
 async function computeQualidade(serie, contexto = {}) {
-  const metricas = await computeMetricasBrutas(serie._id);
+  const metricas = await metricasComReuso(serie, contexto);
 
   if (metricas.leitoresUnicos === 0) {
     return { qualidade: 0, leitoresUnicos: 0, metricas };
@@ -648,10 +694,12 @@ const ESCALA_POTENTIAL = 100;
  * `buildQualidadeContexto()` (mesmo contrato de computeQualidade — sem
  * contexto ou tipo ausente, normalização cai para 0, nunca NaN/Infinity);
  * `retencaoPontos` é o `.retencao` (0–25) já calculado por `computeRetencao`
- * para a MESMA série (evita recalcular a agregação de Retenção aqui).
+ * para a MESMA série (evita recalcular a agregação de Retenção aqui). Reusa
+ * `contexto.porSerie` quando presente (`metricasComReuso`, Item 4 do fix
+ * round) em vez de recomputar `computeMetricasBrutas` da própria série.
  */
 async function computePotential(serie, contexto = {}, retencaoPontos = 0) {
-  const metricas = await computeMetricasBrutas(serie._id);
+  const metricas = await metricasComReuso(serie, contexto);
   const max = contexto[serie.content_type] || {};
   const normalizar = (valor, maximo) => (maximo > 0 ? valor / maximo : 0);
 

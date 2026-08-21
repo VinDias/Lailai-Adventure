@@ -1594,9 +1594,116 @@ describe('buildQualidadeContexto com filtro de tipo', () => {
     if (completo.hiqua) {
       expect(soHiqua.hiqua).toEqual(completo.hiqua);
     }
+    // 'porSerie' (Item 4 do fix round) e a unica chave extra ao lado dos
+    // content_types de verdade — nao deve ser confundida com um deles.
     for (const tipo of Object.keys(soHiqua)) {
+      if (tipo === 'porSerie') continue;
       expect(tipo).toBe('hiqua');
     }
+  });
+
+  it('porSerie (Item 4 do fix round): so inclui series do tipo filtrado, com as metricas ja calculadas dessa serie', async () => {
+    const Series = require('../../models/Series');
+    const recommendationService = require('../../services/recommendationService');
+    const serieHiqua = await Series.create({ title: 'PorSerie Hiqua', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+    const serieVcine = await Series.create({ title: 'PorSerie Vcine', genre: 'Teste', content_type: 'vcine', isPublished: true });
+
+    const soHiqua = await recommendationService.buildQualidadeContexto('hiqua');
+    expect(soHiqua.porSerie[String(serieHiqua._id)]).toBeDefined();
+    expect(soHiqua.porSerie[String(serieHiqua._id)].leitoresUnicos).toBe(0);
+    expect(soHiqua.porSerie[String(serieVcine._id)]).toBeUndefined();
+  });
+});
+
+/**
+ * Item 4 (M2) do fix round da revisão final: `computeQualidade` e
+ * `computePotential` reusam `contexto.porSerie` (populado por
+ * `buildQualidadeContexto`) em vez de recomputar `computeMetricasBrutas` da
+ * PRÓPRIA série de novo — elimina 2 recomputações redundantes por gatilho.
+ * `computeMetricasBrutas` não é exportado, então a prova é INJETAR um
+ * `porSerie` com valores DIFERENTES dos reais no banco: se a função usasse o
+ * banco (recomputando), veria os valores REAIS; se reusa o contexto, vê os
+ * valores INJETADOS — o teste distingue os dois casos por esse contraste.
+ */
+describe('reuso de metricas via contexto.porSerie (Item 4, fix round da revisao final)', () => {
+  let mongoose;
+  let Series;
+  let ReadingProgress;
+  let Favorite;
+  let recommendationService;
+
+  beforeAll(() => {
+    mongoose = require('mongoose');
+    Series = require('../../models/Series');
+    ReadingProgress = require('../../models/ReadingProgress');
+    Favorite = require('../../models/Favorite');
+    recommendationService = require('../../services/recommendationService');
+  });
+
+  async function seedLeitoresLogados(seriesId, quantidade, contentType) {
+    const userIds = Array.from({ length: quantidade }, () => new mongoose.Types.ObjectId());
+    const docs = userIds.map((userId) => ({
+      userId, seriesId, episodeId: new mongoose.Types.ObjectId(), contentType,
+      position: 0, percent: 0.9, completed: false, createdAt: new Date(), updatedAt: new Date(),
+    }));
+    await ReadingProgress.collection.insertMany(docs);
+    return userIds;
+  }
+
+  it('computeQualidade usa contexto.porSerie quando presente, em vez de recomputar do banco', async () => {
+    const serie = await Series.create({ title: 'Reuso Qualidade', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+    const leitores = await seedLeitoresLogados(serie._id, 4, 'hiqua');
+    await Favorite.collection.insertMany(leitores.map((userId) => ({ userId, seriesId: serie._id, createdAt: new Date(), updatedAt: new Date() })));
+    // Dados reais no banco dariam favoritosPorLeitor = 4/4 = 1.
+
+    const contextoComInjecao = {
+      hiqua: { superReaderPorLeitor: 1, favoritosPorLeitor: 1, likesPorLeitor: 1, releiturasPorLeitor: 1 },
+      porSerie: {
+        [String(serie._id)]: {
+          leitoresUnicos: 999, superReaderPorLeitor: 0, favoritosPorLeitor: 0, likesPorLeitor: 0, releiturasPorLeitor: 0,
+        },
+      },
+    };
+
+    const resultado = await recommendationService.computeQualidade(serie, contextoComInjecao);
+    // Se tivesse recomputado, favoritosPorLeitor seria 1 (real) — como usou
+    // o valor INJETADO no contexto, reflete 0 e leitoresUnicos 999.
+    expect(resultado.metricas.favoritosPorLeitor).toBe(0);
+    expect(resultado.leitoresUnicos).toBe(999);
+    expect(resultado.qualidade).toBe(0);
+  });
+
+  it('computePotential usa contexto.porSerie quando presente, em vez de recomputar do banco', async () => {
+    const serie = await Series.create({ title: 'Reuso Potential', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+    const leitores = await seedLeitoresLogados(serie._id, 4, 'hiqua');
+    await Favorite.collection.insertMany(leitores.map((userId) => ({ userId, seriesId: serie._id, createdAt: new Date(), updatedAt: new Date() })));
+
+    const contextoComInjecao = {
+      hiqua: { superReaderPorLeitor: 1, favoritosPorLeitor: 1, likesPorLeitor: 1, releiturasPorLeitor: 1 },
+      porSerie: {
+        [String(serie._id)]: {
+          leitoresUnicos: 999, superReaderPorLeitor: 0, favoritosPorLeitor: 0, likesPorLeitor: 0, releiturasPorLeitor: 0,
+        },
+      },
+    };
+
+    const potential = await recommendationService.computePotential(serie, contextoComInjecao, 0);
+    // favoritosNorm/likesNorm/superReaderNorm todos 0 (valor injetado) — se
+    // recomputasse do banco, favoritosNorm seria 1 (dado real) e o
+    // potential daria 25 (peso de favoritos), não 0.
+    expect(potential).toBe(0);
+  });
+
+  it('sem contexto.porSerie (compatibilidade — chamada avulsa de teste): computeQualidade cai no cálculo direto do banco, como antes', async () => {
+    const serie = await Series.create({ title: 'Sem Porserie Fallback', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+    const leitores = await seedLeitoresLogados(serie._id, 4, 'hiqua');
+    await Favorite.collection.insertMany(leitores.map((userId) => ({ userId, seriesId: serie._id, createdAt: new Date(), updatedAt: new Date() })));
+
+    // Contexto SEM 'porSerie' — mesmo formato usado por dezenas de outros
+    // testes deste arquivo (ex.: describe "qualidade proporcional").
+    const resultado = await recommendationService.computeQualidade(serie, {});
+    expect(resultado.metricas.favoritosPorLeitor).toBeCloseTo(1, 10);
+    expect(resultado.leitoresUnicos).toBe(4);
   });
 });
 
