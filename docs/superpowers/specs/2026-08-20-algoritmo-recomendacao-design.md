@@ -94,8 +94,15 @@ componentes crus (65 + afinidade 25), não o reescalado — documentado no códi
 
 Gatilhos fire-and-forget de recálculo nas rotas existentes: vote de série,
 favorito (add), webhook SR (registro ok), saveProgress com `completed` novo,
-view/read do engajamento (releitura), publicação de capítulo (os mesmos 6
-pontos do push do Bloco 2 — reusar a lista de lá).
+publicação de capítulo (os mesmos 6 pontos do push do Bloco 2 — reusar a
+lista de lá).
+
+**Nota (ruling da T5):** o gatilho de view/read (releitura, Etapa 11 do PDF)
+é coberto SÓ pela varredura de 24h, sem disparo síncrono — a rota de abrir
+episódio é a mais quente do backend e o recálculo custa ~10 agregações; o
+evento é gravado de qualquer forma (nada se perde) e o atraso máximo de 24h
+é o mesmo que a própria Etapa 11 aceita para a atualização geral. Alternativa
+de debounce em memória por série fica registrada como opção futura.
 
 ## Fora de escopo (dívida registrada)
 
