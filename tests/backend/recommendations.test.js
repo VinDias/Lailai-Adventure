@@ -75,6 +75,15 @@ describe('tags', () => {
       expect(serie.tags).toEqual(['aventura', 'drama', 'comedia', 'romance', 'acao']);
     });
 
+    it('dedupe que cruza o limiar mínimo rejeita: 5 cruas viram 4 únicas', async () => {
+      // A contagem do validator é APÓS a normalização do setter — 'A' e 'a'
+      // são a mesma tag, então este envio tem só 4 tags de verdade.
+      await expect(Series.create({
+        title: 'Serie Tags Limiar', genre: 'Teste', content_type: 'hiqua',
+        tags: ['A', 'a', 'b', 'c', 'd'],
+      })).rejects.toThrow(/tags/i);
+    });
+
     it('normaliza tags para minúsculas', async () => {
       const serie = await Series.create({
         title: 'Serie Tags Maiusculas', genre: 'Teste', content_type: 'hiqua',
