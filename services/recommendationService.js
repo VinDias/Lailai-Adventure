@@ -34,12 +34,15 @@ const ESCALA_QUALIDADE = 30; // pts máximos da Qualidade dentro dos 100 do PDF
  * distintas não-nulas.
  *
  * Uma pessoa que leu anônima e DEPOIS logada, em tese, apareceria nas duas
- * listas (contando 2). Na prática isso não acontece: o claim do Bloco 1
- * (services/progressService.claimAnonymousProgress) REATRIBUI os documentos
- * do `anonymousId` para o `userId` no login/cadastro — o doc antigo perde o
- * `anonymousId` e ganha `userId`, então a mesma pessoa nunca fica com pé nas
- * duas listas ao mesmo tempo. Só quem nunca logou permanece só no lado
- * `anonymousId`.
+ * listas (contando 2). O claim do Bloco 1 (services/progressService.
+ * claimAnonymousProgress) REATRIBUI os documentos do `anonymousId` para o
+ * `userId` no login/cadastro — mas só o `anonymousId` EFETIVAMENTE
+ * reclamado naquele login (o do aparelho/sessão atual). Achado da revisão
+ * da T2: se a mesma pessoa leu em OUTRO aparelho/navegador com um
+ * `anonymousId` diferente e nunca logou por lá, aquele progresso fica
+ * órfão — conta como um leitor "anônimo" separado do "logado". Edge case
+ * herdado do Bloco 1 (o claim é por sessão, não por pessoa) — aceito, fora
+ * do escopo deste bloco corrigir.
  */
 async function contarLeitoresUnicos(seriesId) {
   const [usuarios, anonimos] = await Promise.all([
@@ -49,10 +52,17 @@ async function contarLeitoresUnicos(seriesId) {
   return usuarios.length + anonimos.length;
 }
 
-/** Likes − dislikes de SeriesVote, nunca negativo (dislikes não "devem" à obra). */
-async function contarLikesLiquidos(seriesObjectId) {
+/**
+ * Likes − dislikes de SeriesVote, nunca negativo (dislikes não "devem" à
+ * obra). Mesmo gate de "ação real de leitor" do Favorito (ver
+ * computeMetricasBrutas): só conta voto de quem também tem ReadingProgress
+ * na mesma série (`leitoresUserIds`) — sem isso, contas falsas votando sem
+ * ler inflariam o máximo do content_type e suprimiriam a qualidade das
+ * obras honestas (achado ALTO da revisão da T2).
+ */
+async function contarLikesLiquidos(seriesObjectId, leitoresUserIds) {
   const porTipo = await SeriesVote.aggregate([
-    { $match: { seriesId: seriesObjectId } },
+    { $match: { seriesId: seriesObjectId, userId: { $in: leitoresUserIds } } },
     { $group: { _id: '$type', total: { $sum: 1 } } },
   ]);
   const likes = porTipo.find((t) => t._id === 'like')?.total || 0;
@@ -83,10 +93,18 @@ async function contarReleituras(seriesObjectId) {
  * valor da própria série), garantindo que as duas contam do mesmo jeito.
  *
  * Leitores únicos 0 → todas as métricas 0 (sem divisão por zero).
+ *
+ * Busca a lista de userIds leitores da série (não só a contagem) porque
+ * Favorito e Like precisam dela para o gate de "ação real de leitor" abaixo
+ * — evita repetir o distinct de contarLeitoresUnicos com outra query.
  */
 async function computeMetricasBrutas(seriesId) {
   const seriesObjectId = new mongoose.Types.ObjectId(seriesId);
-  const leitoresUnicos = await contarLeitoresUnicos(seriesObjectId);
+  const [leitoresUserIds, leitoresAnonimos] = await Promise.all([
+    ReadingProgress.distinct('userId', { seriesId: seriesObjectId, userId: { $ne: null } }),
+    ReadingProgress.distinct('anonymousId', { seriesId: seriesObjectId, anonymousId: { $ne: null } }),
+  ]);
+  const leitoresUnicos = leitoresUserIds.length + leitoresAnonimos.length;
 
   if (leitoresUnicos === 0) {
     return {
@@ -99,9 +117,25 @@ async function computeMetricasBrutas(seriesId) {
   }
 
   const [superReaderCount, favoritosCount, likesLiquidos, releiturasCount] = await Promise.all([
+    // Super Reader conta SEMPRE, SEM o gate de leitura abaixo: é um gate
+    // ECONÔMICO, não comportamental — a contribuição só existe porque
+    // passou pelo checkout pago do Stripe (services/superReaderService.js).
+    // Além disso, uma contribuição anonimizada (userId: null — exclusão de
+    // conta, LGPD do Bloco 3, ver models/SuperReaderContribution.js) perde
+    // o vínculo com qualquer leitor: filtrar por leitura descartaria apoios
+    // reais e já pagos, sem nenhum ganho anti-fraude (quem paga não é o
+    // perfil de ataque barato que o gate abaixo mira).
     SuperReaderContribution.countDocuments({ seriesId: seriesObjectId }),
-    Favorite.countDocuments({ seriesId: seriesObjectId }),
-    contarLikesLiquidos(seriesObjectId),
+    // Favorito só conta se quem favoritou também LEU a obra (tem
+    // ReadingProgress na mesma série) — achado ALTO da revisão da T2: sem
+    // esse filtro, N contas falsas favoritando SEM ler fariam
+    // favoritosPorLeitor crescer sem teto e, via o máximo do content_type,
+    // SUPRIMIR a qualidade de todas as obras honestas do tipo (é grátis
+    // favoritar, ao contrário do Super Reader). $in no conjunto de leitores
+    // logados da própria série (já buscado acima) — catálogo pequeno, a
+    // escala atual comporta o $in sem paginação (spec, "Fora de escopo").
+    Favorite.countDocuments({ seriesId: seriesObjectId, userId: { $in: leitoresUserIds } }),
+    contarLikesLiquidos(seriesObjectId, leitoresUserIds),
     contarReleituras(seriesObjectId),
   ]);
 

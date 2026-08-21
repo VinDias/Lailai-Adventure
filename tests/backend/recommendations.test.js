@@ -239,6 +239,13 @@ describe('tags', () => {
  * computedAt nesta task; Retenção/Descoberta/Potential/Confidence chegam nas
  * Tasks 3 e 4 — por isso ficam asserted como 0/[]/default aqui).
  *
+ * Fix pós-aprovação (achado ALTO da revisão da T2): Favorito e Like só
+ * contam de userIds que TAMBÉM têm ReadingProgress na mesma série — sem
+ * esse gate, contas falsas favoritando/votando sem ler inflam o máximo do
+ * content_type e suprimem a qualidade das obras honestas (ver describe
+ * "gate de leitura real" abaixo). Super Reader continua contando sempre
+ * (gate econômico, não comportamental).
+ *
  * Seeding via insertMany DIRETO na collection (Model.collection.insertMany),
  * não Model.create(): bypassa Mongoose (validação/hooks) de propósito para
  * criar centenas de documentos de ReadingProgress sem o custo de construir
@@ -276,8 +283,10 @@ describe('qualidade proporcional', () => {
     });
   }
 
-  /** N identidades distintas (anonymousId) lendo a série — leitores únicos "baratos". */
-  async function seedLeitoresUnicos(seriesId, quantidade, contentType = 'hiqua') {
+  /** N identidades distintas via anonymousId — "leitor" sem conta, barato pra
+   *  semear volume. Não pode favoritar/votar (Favorite/SeriesVote exigem
+   *  userId) — usar para testes que não dependem do gate de leitura real. */
+  async function seedLeitoresAnonimos(seriesId, quantidade, contentType = 'hiqua') {
     const docs = Array.from({ length: quantidade }, (_, i) => ({
       anonymousId: `leitor-${seriesId}-${i}`,
       seriesId,
@@ -292,26 +301,51 @@ describe('qualidade proporcional', () => {
     await ReadingProgress.collection.insertMany(docs);
   }
 
-  async function seedFavoritos(seriesId, quantidade) {
-    const docs = Array.from({ length: quantidade }, () => ({
-      userId: new mongoose.Types.ObjectId(),
+  /** N identidades distintas via userId (leitores LOGADOS) — devolve os
+   *  userIds criados, porque Favorito/Like só contam se o MESMO userId
+   *  aparecer aqui (gate de "ação real de leitor" — ver
+   *  services/recommendationService.js, computeMetricasBrutas). */
+  async function seedLeitoresLogados(seriesId, quantidade, contentType = 'hiqua') {
+    const userIds = Array.from({ length: quantidade }, () => new mongoose.Types.ObjectId());
+    const docs = userIds.map((userId) => ({
+      userId,
       seriesId,
+      episodeId: new mongoose.Types.ObjectId(),
+      contentType,
+      position: 0,
+      percent: 0.95,
+      completed: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     }));
+    await ReadingProgress.collection.insertMany(docs);
+    return userIds;
+  }
+
+  /** Favorito por userId EXPLÍCITO (não gera identidade nova) — deixa o
+   *  teste escolher se quem favoritou É ou NÃO é leitor da própria série. */
+  async function seedFavoritos(seriesId, userIds) {
+    const docs = userIds.map((userId) => ({ userId, seriesId, createdAt: new Date(), updatedAt: new Date() }));
     if (docs.length) await Favorite.collection.insertMany(docs);
   }
 
-  async function seedVotos(seriesId, { likes = 0, dislikes = 0 } = {}) {
-    const docs = [];
-    for (let i = 0; i < likes; i++) docs.push({ userId: new mongoose.Types.ObjectId(), seriesId, type: 'like', createdAt: new Date() });
-    for (let i = 0; i < dislikes; i++) docs.push({ userId: new mongoose.Types.ObjectId(), seriesId, type: 'dislike', createdAt: new Date() });
+  /** Likes/dislikes por userId EXPLÍCITO, mesmo motivo do seedFavoritos acima. */
+  async function seedVotos(seriesId, { likesUserIds = [], dislikesUserIds = [] } = {}) {
+    const docs = [
+      ...likesUserIds.map((userId) => ({ userId, seriesId, type: 'like', createdAt: new Date() })),
+      ...dislikesUserIds.map((userId) => ({ userId, seriesId, type: 'dislike', createdAt: new Date() })),
+    ];
     if (docs.length) await SeriesVote.collection.insertMany(docs);
   }
 
-  async function seedSuperReader(seriesId, quantidade) {
+  /** Contribuições Super Reader — SEMPRE contam (gate econômico, não de
+   *  leitura; ver comentário em computeMetricasBrutas). `userId` opcional
+   *  simula tanto apoio de quem leu quanto de quem nunca leu — não muda a
+   *  contagem em nenhum dos dois casos. */
+  async function seedSuperReader(seriesId, quantidade, { userId = null } = {}) {
     const docs = Array.from({ length: quantidade }, (_, i) => ({
       seriesId,
+      userId,
       channelId: new mongoose.Types.ObjectId(),
       amountCents: 500,
       currency: 'brl',
@@ -342,7 +376,7 @@ describe('qualidade proporcional', () => {
   describe('contarLeitoresUnicos', () => {
     it('soma identidades distintas de userId e anonymousId da série', async () => {
       const serie = await criarSerie({ title: 'Leitores Unicos Soma' });
-      await seedLeitoresUnicos(serie._id, 3, 'hiqua');
+      await seedLeitoresAnonimos(serie._id, 3, 'hiqua');
       // 2 leitores logados (userId), via insertMany cru também.
       await ReadingProgress.collection.insertMany([
         { userId: new mongoose.Types.ObjectId(), seriesId: serie._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'hiqua', percent: 0.5, completed: false, createdAt: new Date(), updatedAt: new Date() },
@@ -365,14 +399,17 @@ describe('qualidade proporcional', () => {
     // para 1.000 (10x menor) e favoritos de B de 200 para 20 — preservando a
     // taxa EXATA do exemplo do PDF (0,2 e 0,02 por leitor), só reduzindo o
     // volume absoluto de documentos de ReadingProgress a inserir.
+    // Leitores LOGADOS (não anônimos): favorito só conta de quem leu (gate
+    // de leitura real) — os 20 favoritos usam um SUBCONJUNTO dos userIds
+    // que de fato leram a obra.
     const tipo = 'hqcine';
     const serieA = await criarSerie({ title: 'PDF Obra A', content_type: tipo });
     const serieB = await criarSerie({ title: 'PDF Obra B', content_type: tipo });
 
-    await seedLeitoresUnicos(serieA._id, 100, tipo);
-    await seedLeitoresUnicos(serieB._id, 1000, tipo);
-    await seedFavoritos(serieA._id, 20);
-    await seedFavoritos(serieB._id, 20);
+    const leitoresA = await seedLeitoresLogados(serieA._id, 100, tipo);
+    const leitoresB = await seedLeitoresLogados(serieB._id, 1000, tipo);
+    await seedFavoritos(serieA._id, leitoresA.slice(0, 20));
+    await seedFavoritos(serieB._id, leitoresB.slice(0, 20));
 
     const contexto = await recommendationService.buildQualidadeContexto();
     const resultadoA = await recommendationService.computeQualidade(serieA, contexto);
@@ -390,10 +427,10 @@ describe('qualidade proporcional', () => {
     const serieSR = await criarSerie({ title: 'Peso SR', content_type: tipo });
     const serieLikes = await criarSerie({ title: 'Peso Likes', content_type: tipo });
 
-    await seedLeitoresUnicos(serieSR._id, 10, tipo);
-    await seedLeitoresUnicos(serieLikes._id, 10, tipo);
-    await seedSuperReader(serieSR._id, 5);       // 5/10 = 0,5 por leitor
-    await seedVotos(serieLikes._id, { likes: 5 }); // 5/10 = 0,5 por leitor
+    await seedLeitoresLogados(serieSR._id, 10, tipo);
+    const leitoresLikes = await seedLeitoresLogados(serieLikes._id, 10, tipo);
+    await seedSuperReader(serieSR._id, 5); // 5/10 = 0,5 por leitor — SR não depende do gate de leitura
+    await seedVotos(serieLikes._id, { likesUserIds: leitoresLikes.slice(0, 5) }); // 5/10 = 0,5 por leitor, de LEITORES reais
 
     const contexto = await recommendationService.buildQualidadeContexto();
     const resultadoSR = await recommendationService.computeQualidade(serieSR, contexto);
@@ -410,7 +447,7 @@ describe('qualidade proporcional', () => {
 
   it('3) flagged fora: eventos flagged NÃO contam como releitura', async () => {
     const serie = await criarSerie({ title: 'Releituras Flagged' });
-    await seedLeitoresUnicos(serie._id, 1, 'hiqua');
+    await seedLeitoresAnonimos(serie._id, 1, 'hiqua');
 
     const userId = new mongoose.Types.ObjectId();
     await seedEngagementEvents(serie._id, [
@@ -429,8 +466,8 @@ describe('qualidade proporcional', () => {
 
   it('4) dislikes subtraem dos likes; líquido negativo vira 0 (nunca fica negativo)', async () => {
     const serie = await criarSerie({ title: 'Likes Negativos' });
-    await seedLeitoresUnicos(serie._id, 10, 'hiqua');
-    await seedVotos(serie._id, { likes: 2, dislikes: 5 }); // líquido -3 → 0
+    const leitores = await seedLeitoresLogados(serie._id, 10, 'hiqua');
+    await seedVotos(serie._id, { likesUserIds: leitores.slice(0, 2), dislikesUserIds: leitores.slice(2, 7) }); // líquido 2-5 = -3 → 0
 
     const resultado = await recommendationService.computeQualidade(serie, {});
     expect(resultado.metricas.likesPorLeitor).toBe(0);
@@ -453,19 +490,20 @@ describe('qualidade proporcional', () => {
     // 1.0, bem acima de qualquer coisa usada nos testes anteriores deste
     // describe), então compara duas obras de taxa IDÊNTICA (0,1) em tipos
     // diferentes — uma competindo com a obra grande (hqcine), outra sozinha
-    // no seu tipo (vcine, sem nenhum favorito semeado até aqui).
+    // no seu tipo (vcine, sem nenhum favorito semeado até aqui). Favoritos
+    // sempre de leitores LOGADOS reais (gate de leitura real).
     const serieGrande = await criarSerie({ title: 'Norm Tipo Grande', content_type: 'hqcine' });
     const serieQ = await criarSerie({ title: 'Norm Tipo Q', content_type: 'hqcine' });
     const serieP = await criarSerie({ title: 'Norm Tipo P', content_type: 'vcine' });
 
-    await seedLeitoresUnicos(serieGrande._id, 10, 'hqcine');
-    await seedFavoritos(serieGrande._id, 10); // 1,0 por leitor — dominante em hqcine
+    const leitoresGrande = await seedLeitoresLogados(serieGrande._id, 10, 'hqcine');
+    await seedFavoritos(serieGrande._id, leitoresGrande); // 10/10 = 1,0 por leitor — dominante em hqcine
 
-    await seedLeitoresUnicos(serieQ._id, 10, 'hqcine');
-    await seedFavoritos(serieQ._id, 1); // 0,1 por leitor
+    const leitoresQ = await seedLeitoresLogados(serieQ._id, 10, 'hqcine');
+    await seedFavoritos(serieQ._id, leitoresQ.slice(0, 1)); // 0,1 por leitor
 
-    await seedLeitoresUnicos(serieP._id, 10, 'vcine');
-    await seedFavoritos(serieP._id, 1); // 0,1 por leitor — mesma taxa de Q, tipo diferente
+    const leitoresP = await seedLeitoresLogados(serieP._id, 10, 'vcine');
+    await seedFavoritos(serieP._id, leitoresP.slice(0, 1)); // 0,1 por leitor — mesma taxa de Q, tipo diferente
 
     const contexto = await recommendationService.buildQualidadeContexto();
     const resultadoQ = await recommendationService.computeQualidade(serieQ, contexto);
@@ -484,8 +522,8 @@ describe('qualidade proporcional', () => {
   it('7) computeSeriesScore grava com upsert: duas chamadas mantêm 1 único doc, atualizado', async () => {
     const tipo = 'hiqua';
     const serie = await criarSerie({ title: 'Upsert SeriesScore', content_type: tipo });
-    await seedLeitoresUnicos(serie._id, 5, tipo);
-    await seedFavoritos(serie._id, 1);
+    const leitores = await seedLeitoresLogados(serie._id, 5, tipo);
+    await seedFavoritos(serie._id, leitores.slice(0, 1));
 
     const agora1 = new Date('2026-08-20T10:00:00.000Z');
     const doc1 = await recommendationService.computeSeriesScore(serie._id, { agora: agora1 });
@@ -522,8 +560,8 @@ describe('qualidade proporcional', () => {
     const tipo = 'hiqua';
     const serie1 = await criarSerie({ title: 'ComputeAll 1', content_type: tipo });
     const serie2 = await criarSerie({ title: 'ComputeAll 2', content_type: tipo });
-    await seedLeitoresUnicos(serie1._id, 3, tipo);
-    await seedLeitoresUnicos(serie2._id, 7, tipo);
+    await seedLeitoresAnonimos(serie1._id, 3, tipo);
+    await seedLeitoresAnonimos(serie2._id, 7, tipo);
 
     const agora = new Date('2026-08-22T00:00:00.000Z');
     await recommendationService.computeAllScores({ agora });
@@ -533,5 +571,80 @@ describe('qualidade proporcional', () => {
     expect(doc1.leitoresUnicos).toBe(3);
     expect(doc2.leitoresUnicos).toBe(7);
     expect(doc1.computedAt.toISOString()).toBe(agora.toISOString());
+  });
+
+  /**
+   * Achado ALTO da revisão da T2: leitoresUnicos (denominador) vem de
+   * ReadingProgress, mas favoritos/likes (numeradores) vinham de coleções
+   * que não exigiam leitura — N contas falsas favoritando/votando SEM ler
+   * faziam a taxa por leitor crescer sem teto e, via o máximo do
+   * content_type, SUPRIMIAM a qualidade de todas as obras honestas do tipo.
+   * Fix: Favorito e Like só contam de userIds que TAMBÉM têm ReadingProgress
+   * na mesma série ("ações reais dos leitores", letra do PDF). Super Reader
+   * é a exceção deliberada — gate econômico (pagou via Stripe), não
+   * comportamental.
+   */
+  describe('gate de leitura real (favoritos/likes só de quem leu; SR sempre conta)', () => {
+    it('favorito de conta SEM leitura na obra NÃO conta — só favoritos de leitores entram na taxa', async () => {
+      const serie = await criarSerie({ title: 'Favoritos Nao Leitor' });
+      const leitores = await seedLeitoresLogados(serie._id, 1, 'hiqua'); // 1 leitor real
+      const naoLeitores = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
+
+      // 1 favorito de quem leu + 3 favoritos de contas que NUNCA leram a obra.
+      await seedFavoritos(serie._id, [...leitores, ...naoLeitores]);
+
+      const resultado = await recommendationService.computeQualidade(serie, {});
+      // Se os 3 de não-leitor contassem, daria 4/1 = 4. Só o de leitor conta: 1/1 = 1.
+      expect(resultado.metricas.favoritosPorLeitor).toBe(1);
+    });
+
+    it('like de não-leitor não conta; like de leitor conta', async () => {
+      const serie = await criarSerie({ title: 'Likes Leitor Vs Nao Leitor' });
+      const leitores = await seedLeitoresLogados(serie._id, 2, 'hiqua');
+      const naoLeitor = new mongoose.Types.ObjectId();
+
+      await seedVotos(serie._id, { likesUserIds: [leitores[0], naoLeitor] }); // 1 like de leitor + 1 de não-leitor
+
+      const resultado = await recommendationService.computeQualidade(serie, {});
+      // Se o like do não-leitor contasse, daria 2/2 = 1. Só o de leitor conta: 1/2 = 0,5.
+      expect(resultado.metricas.likesPorLeitor).toBe(0.5);
+    });
+
+    it('super reader de não-leitor CONTA — gate econômico (Stripe), não comportamental', async () => {
+      const serie = await criarSerie({ title: 'SR Nao Leitor Conta' });
+      await seedLeitoresLogados(serie._id, 5, 'hiqua'); // 5 leitores reais, nenhum é o autor da contribuição
+      const naoLeitor = new mongoose.Types.ObjectId(); // nunca aparece em ReadingProgress desta série
+      await seedSuperReader(serie._id, 1, { userId: naoLeitor });
+
+      const resultado = await recommendationService.computeQualidade(serie, {});
+      expect(resultado.metricas.superReaderPorLeitor).toBeCloseTo(1 / 5, 10);
+    });
+
+    it('regressão do ataque: obra honesta vence obra com favoritos fabricados de não-leitores', async () => {
+      const tipo = 'hiqua';
+      const serieHonesta = await criarSerie({ title: 'Obra Honesta', content_type: tipo });
+      const serieAtacada = await criarSerie({ title: 'Obra Fabricada', content_type: tipo });
+
+      // Obra honesta: 10 leitores reais, 3 favoritam de verdade → 0,3/leitor.
+      const leitoresHonesta = await seedLeitoresLogados(serieHonesta._id, 10, tipo);
+      await seedFavoritos(serieHonesta._id, leitoresHonesta.slice(0, 3));
+
+      // Obra atacada: 1 leitor real, mas 500 contas FALSAS favoritando sem
+      // nunca ter lido — antes do fix isso inflava favoritosPorLeitor para
+      // 500/1 = 500 e, via o máximo do content_type, suprimia a qualidade de
+      // TODAS as obras honestas do tipo (o achado ALTO da revisão).
+      await seedLeitoresLogados(serieAtacada._id, 1, tipo);
+      const contasFalsas = Array.from({ length: 500 }, () => new mongoose.Types.ObjectId());
+      await seedFavoritos(serieAtacada._id, contasFalsas); // nenhuma delas tem ReadingProgress na série
+
+      const contexto = await recommendationService.buildQualidadeContexto();
+      const resultadoHonesta = await recommendationService.computeQualidade(serieHonesta, contexto);
+      const resultadoAtacada = await recommendationService.computeQualidade(serieAtacada, contexto);
+
+      // Os 500 favoritos fabricados NÃO contam — a taxa da obra atacada fica 0.
+      expect(resultadoAtacada.metricas.favoritosPorLeitor).toBe(0);
+      expect(resultadoHonesta.metricas.favoritosPorLeitor).toBeCloseTo(0.3, 10);
+      expect(resultadoHonesta.qualidade).toBeGreaterThan(resultadoAtacada.qualidade);
+    });
   });
 });
