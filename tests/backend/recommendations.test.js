@@ -1775,3 +1775,524 @@ describe('gatilhos', () => {
     });
   });
 });
+
+/**
+ * Task 6: Afinidade por leitor (Etapa 4 do PDF, spec "Afinidade (Etapa 4)").
+ * `computeAffinityProfile` é NÃO PERSISTIDO (LGPD by design — nada novo no
+ * export/exclusão de dados, ver docstring no serviço) e `computeAfinidade`
+ * (0–25 pts) é a sobreposição normalizada entre as tags do perfil e as tags
+ * da série.
+ */
+describe('afinidade', () => {
+  let mongoose;
+  let Series;
+  let Favorite;
+  let SeriesVote;
+  let SuperReaderContribution;
+  let ReadingProgress;
+  let recommendationService;
+
+  beforeAll(() => {
+    mongoose = require('mongoose');
+    Series = require('../../models/Series');
+    Favorite = require('../../models/Favorite');
+    SeriesVote = require('../../models/SeriesVote');
+    SuperReaderContribution = require('../../models/SuperReaderContribution');
+    ReadingProgress = require('../../models/ReadingProgress');
+    recommendationService = require('../../services/recommendationService');
+  });
+
+  function criarSerie(overrides = {}) {
+    return Series.create({
+      title: 'Serie Afinidade', genre: 'Teste', content_type: 'hiqua', isPublished: true, ...overrides,
+    });
+  }
+
+  function seedFavorito(userId, seriesId) {
+    return Favorite.create({ userId, seriesId });
+  }
+
+  function seedSuperReader(seriesId, userId, sufixoSessao) {
+    return SuperReaderContribution.create({
+      seriesId,
+      userId,
+      channelId: new mongoose.Types.ObjectId(),
+      amountCents: 500,
+      currency: 'brl',
+      authorShareCents: 400,
+      platformShareCents: 100,
+      stripeSessionId: `cs_test_afinidade_${sufixoSessao}`,
+      period: '2026-08',
+    });
+  }
+
+  function seedVoto(userId, seriesId, type = 'like') {
+    return SeriesVote.create({ userId, seriesId, type });
+  }
+
+  function seedProgresso(identidade, seriesId, overrides = {}) {
+    return ReadingProgress.create({
+      seriesId,
+      episodeId: new mongoose.Types.ObjectId(),
+      contentType: 'hiqua',
+      percent: 0.5,
+      ...identidade,
+      ...overrides,
+    });
+  }
+
+  describe('computeAffinityProfile', () => {
+    it('sem userId nem anonymousId: perfil vazio', async () => {
+      const perfil = await recommendationService.computeAffinityProfile({});
+      expect(perfil).toEqual({});
+    });
+
+    it('identidade logada sem NENHUM histórico nas 4 fontes: perfil vazio', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const perfil = await recommendationService.computeAffinityProfile({ userId });
+      expect(perfil).toEqual({});
+    });
+
+    it('favoritos somam ×3 pra cada tag da série favoritada', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const serie = await criarSerie({ title: 'Fav Tag', tags: ['acao1', 'aventura1', 'suspense1', 'drama1', 'fantasia1'] });
+      await seedFavorito(userId, serie._id);
+
+      const perfil = await recommendationService.computeAffinityProfile({ userId });
+      expect(perfil.acao1).toBe(3);
+      expect(perfil.aventura1).toBe(3);
+      expect(perfil.suspense1).toBe(3);
+      expect(perfil.drama1).toBe(3);
+      expect(perfil.fantasia1).toBe(3);
+    });
+
+    it('Super Reader soma ×4 (leitor logado, apoio da própria conta)', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const serie = await criarSerie({ title: 'SR Tag', tags: ['acao2', 'aventura2', 'suspense2', 'drama2', 'fantasia2'] });
+      await seedSuperReader(serie._id, userId, 'sr1');
+
+      const perfil = await recommendationService.computeAffinityProfile({ userId });
+      expect(perfil.acao2).toBe(4);
+    });
+
+    it('contribuição Super Reader ANONIMIZADA (userId: null, LGPD do Bloco 3) não é rastreável — não entra no perfil de ninguém', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const serie = await criarSerie({ title: 'SR Anonimizado', tags: ['acao3', 'aventura3', 'suspense3', 'drama3', 'fantasia3'] });
+      // Contribuição SEM vínculo (anonimizada) — mesmo que o MESMO userId
+      // apareça consultando depois, não há como atribuir de volta a ele.
+      await seedSuperReader(serie._id, null, 'sr-anon');
+
+      const perfil = await recommendationService.computeAffinityProfile({ userId });
+      expect(perfil).toEqual({});
+    });
+
+    it('likes de série somam ×2; DISLIKE não soma nada', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const serieLike = await criarSerie({ title: 'Like Tag', tags: ['romance1', 'drama4', 'comedia1', 'familia1', 'amizade1'] });
+      const serieDislike = await criarSerie({ title: 'Dislike Tag', tags: ['terror1', 'suspense4', 'misterio1', 'crime1', 'policial1'] });
+      await seedVoto(userId, serieLike._id, 'like');
+      await seedVoto(userId, serieDislike._id, 'dislike');
+
+      const perfil = await recommendationService.computeAffinityProfile({ userId });
+      expect(perfil.romance1).toBe(2);
+      expect(perfil.terror1).toBeUndefined();
+    });
+
+    it('progresso de leitura soma ×1 — identidade LOGADA', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const serie = await criarSerie({ title: 'Progresso Logado', tags: ['acao4', 'aventura4', 'suspense5', 'drama5', 'fantasia4'] });
+      await seedProgresso({ userId }, serie._id);
+
+      const perfil = await recommendationService.computeAffinityProfile({ userId });
+      expect(perfil.acao4).toBe(1);
+    });
+
+    it('progresso de leitura soma ×1 — identidade ANÔNIMA via anonymousId (mesmo mecanismo do Bloco 1)', async () => {
+      const anonymousId = `anon-afinidade-${new mongoose.Types.ObjectId()}`;
+      const serie = await criarSerie({ title: 'Progresso Anonimo', tags: ['acao5', 'aventura5', 'suspense6', 'drama6', 'fantasia5'] });
+      await seedProgresso({ anonymousId }, serie._id);
+
+      const perfil = await recommendationService.computeAffinityProfile({ anonymousId });
+      expect(perfil.acao5).toBe(1);
+    });
+
+    it('múltiplos documentos de progresso na MESMA série contam a série UMA vez (não multiplica por documento)', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const serie = await criarSerie({ title: 'Progresso Multiplos Docs', tags: ['acao6', 'aventura6', 'suspense7', 'drama7', 'fantasia6'] });
+      await seedProgresso({ userId }, serie._id, { episodeId: new mongoose.Types.ObjectId(), percent: 0.2 });
+      await seedProgresso({ userId }, serie._id, { episodeId: new mongoose.Types.ObjectId(), percent: 0.4 });
+      await seedProgresso({ userId }, serie._id, { episodeId: new mongoose.Types.ObjectId(), percent: 0.6 });
+
+      const perfil = await recommendationService.computeAffinityProfile({ userId });
+      // 3 documentos, mesma série — soma ×1 UMA vez, nunca ×3.
+      expect(perfil.acao6).toBe(1);
+    });
+
+    it('soma corretamente as 4 fontes na mesma tag (favorito + SR + like + progresso)', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      const serie = await criarSerie({ title: 'Todas Fontes', tags: ['epico1', 'aventura7', 'suspense8', 'drama8', 'fantasia7'] });
+      await seedFavorito(userId, serie._id);
+      await seedSuperReader(serie._id, userId, 'todasfontes');
+      await seedVoto(userId, serie._id, 'like');
+      await seedProgresso({ userId }, serie._id);
+
+      const perfil = await recommendationService.computeAffinityProfile({ userId });
+      expect(perfil.epico1).toBe(3 + 4 + 2 + 1);
+    });
+  });
+
+  describe('computeAfinidade', () => {
+    it('sem perfil (objeto vazio): 12,5 pts neutros pra qualquer série, com ou sem tags', () => {
+      const serieComTags = { tags: ['acao7', 'aventura8', 'suspense9', 'drama9', 'fantasia8'] };
+      const serieSemTags = { tags: [] };
+      expect(recommendationService.computeAfinidade(serieComTags, {})).toBe(12.5);
+      expect(recommendationService.computeAfinidade(serieSemTags, {})).toBe(12.5);
+    });
+
+    it('RULING (Task 6): série SEM tags recebe neutro (12,5) MESMO com perfil existente (acervo antigo sem curadoria)', () => {
+      const perfil = { acao8: 10, aventura9: 5 };
+      const serieSemTags = { tags: [] };
+      expect(recommendationService.computeAfinidade(serieSemTags, perfil)).toBe(12.5);
+    });
+
+    it('sobreposição normalizada ×25 com valores não-redondos (asserta o valor exato)', () => {
+      // Perfil: acao=7, aventura=3, drama=2 (soma total = 12).
+      const perfil = { acao9: 7, aventura10: 3, drama10: 2 };
+      // A série tem 'acao9' e 'drama10' do perfil, mais uma tag FORA do
+      // perfil (que não soma nada) → sobreposição = 7+2 = 9.
+      const serie = { tags: ['acao9', 'drama10', 'tag-fora-do-perfil'] };
+      const esperado = (9 / 12) * 25;
+      expect(recommendationService.computeAfinidade(serie, perfil)).toBeCloseTo(esperado, 10);
+      expect(esperado).toBeCloseTo(18.75, 10); // 9/12 = 0,75 × 25 — não é redondo por acidente
+    });
+
+    it('afinidade TOTAL: todas as tags do perfil aparecem na série → fração 1,0 → 25 pts exatos', () => {
+      const perfil = { acao10: 7, aventura11: 3, drama11: 2 };
+      const serie = { tags: ['acao10', 'aventura11', 'drama11', 'extra1', 'extra2'] };
+      expect(recommendationService.computeAfinidade(serie, perfil)).toBeCloseTo(25, 10);
+    });
+
+    it('série com tags mas NENHUMA delas no perfil: sobreposição 0 → afinidade 0 (diferente do caso "sem tags")', () => {
+      const perfil = { acao11: 7, aventura12: 3 };
+      const serie = { tags: ['romance2', 'drama12', 'comedia2', 'familia2', 'amizade2'] };
+      expect(recommendationService.computeAfinidade(serie, perfil)).toBe(0);
+    });
+  });
+});
+
+/**
+ * Task 6: `buildRecommendations` — a função que JUNTA tudo (spec, seção
+ * "Rotas" + "Distribuição 50/30/20 (Etapa 10)" + "Diversidade (Etapa 8)"):
+ * valorOrdenacao = parteDaObra×confidence + afinidade, cotas 50/30/20,
+ * diversidade por canal, e a rota GET /api/content/recommendations com
+ * fallback pra ordem manual (ledger P3 — recomendação nunca derruba o feed).
+ */
+describe('recomendacoes', () => {
+  let request;
+  let mongoose;
+  let app;
+  let auth;
+  let Series;
+  let SeriesScore;
+  let ReadingProgress;
+  let Favorite;
+  let recommendationService;
+
+  beforeAll(() => {
+    request = require('supertest');
+    mongoose = require('mongoose');
+    app = require('../../server');
+    auth = require('../helpers/auth');
+    Series = require('../../models/Series');
+    SeriesScore = require('../../models/SeriesScore');
+    ReadingProgress = require('../../models/ReadingProgress');
+    Favorite = require('../../models/Favorite');
+    recommendationService = require('../../services/recommendationService');
+  });
+
+  // Isolamento: buildRecommendations depende do TAMANHO exato do catálogo
+  // (N) pra calcular as cotas — sobras de describes anteriores (ou de outros
+  // testes deste mesmo describe) inflariam N e quebrariam as contagens
+  // exatas testadas abaixo. Mesmo padrão do describe "composicao" (T4).
+  beforeEach(() => db.clearDatabase());
+
+  // A limpeza acima apaga TODOS os usuários de teste (helpers/auth.createUsers
+  // rodou só uma vez, no beforeAll do topo do arquivo) — os testes de rota
+  // deste describe usam auth.getToken(), que só lê os tokens já emitidos em
+  // memória (JWT autocontido, verifyToken não relê o Mongo — mesmo padrão já
+  // validado pelo describe "gatilhos" logo acima, que roda depois de
+  // "composicao" limpar o banco do mesmo jeito).
+
+  function criarSerie(overrides = {}) {
+    return Series.create({
+      title: 'Serie Recomendacao', genre: 'Teste', content_type: 'hiqua', isPublished: true, ...overrides,
+    });
+  }
+
+  function criarScore(seriesId, overrides = {}) {
+    return SeriesScore.create({
+      seriesId,
+      contentType: 'hiqua',
+      scoreFinal: 0,
+      qualidade: 0,
+      retencao: 0,
+      descoberta: 0,
+      potentialScore: 0,
+      confidence: 0,
+      leitoresUnicos: 0,
+      penalizacoes: [],
+      computedAt: new Date(),
+      ...overrides,
+    });
+  }
+
+  describe('buildRecommendations — ordenação (valorOrdenacao = parteDaObra×confidence + afinidade)', () => {
+    it('obra com scoreFinal ALTO mas confidence BAIXA não desbanca "consolidada equivalente" (score menor, confidence alta)', async () => {
+      const flashy = await criarSerie({ title: 'Flashy Baixa Confianca' });
+      const consolidada = await criarSerie({ title: 'Consolidada Confianca Alta' });
+      // parteDaObra = scoreFinal×0,65: flashy = 100×0,65=65, valorOrdenacao = 65×0,05 = 3,25.
+      await criarScore(flashy._id, { scoreFinal: 100, confidence: 0.05 });
+      // consolidada = 65×0,65=42,25, valorOrdenacao = 42,25×0,9 = 38,025 — MAIOR mesmo com scoreFinal menor.
+      await criarScore(consolidada._id, { scoreFinal: 65, confidence: 0.9 });
+
+      const resultado = await recommendationService.buildRecommendations({ contentType: 'hiqua' });
+      const ids = resultado.map((s) => String(s._id));
+      expect(ids.indexOf(String(consolidada._id))).toBeLessThan(ids.indexOf(String(flashy._id)));
+    });
+
+    it('afinidade muda a ordem entre leitores diferentes (mesmas duas séries, sem SeriesScore — só a Afinidade decide)', async () => {
+      const serieAcao = await criarSerie({ title: 'Serie Acao', tags: ['acao12', 'luta1', 'forca1', 'poder1', 'heroi1'] });
+      const serieRomance = await criarSerie({ title: 'Serie Romance', tags: ['romance3', 'drama13', 'emocao1', 'amor1', 'familia3'] });
+
+      const leitorAcao = new mongoose.Types.ObjectId();
+      await Favorite.create({ userId: leitorAcao, seriesId: serieAcao._id });
+
+      const leitorRomance = new mongoose.Types.ObjectId();
+      await Favorite.create({ userId: leitorRomance, seriesId: serieRomance._id });
+
+      const paraLeitorAcao = await recommendationService.buildRecommendations({ contentType: 'hiqua', userId: leitorAcao });
+      const paraLeitorRomance = await recommendationService.buildRecommendations({ contentType: 'hiqua', userId: leitorRomance });
+
+      const idsAcao = paraLeitorAcao.map((s) => String(s._id));
+      const idsRomance = paraLeitorRomance.map((s) => String(s._id));
+
+      expect(idsAcao.indexOf(String(serieAcao._id))).toBeLessThan(idsAcao.indexOf(String(serieRomance._id)));
+      expect(idsRomance.indexOf(String(serieRomance._id))).toBeLessThan(idsRomance.indexOf(String(serieAcao._id)));
+    });
+
+    it('série publicada SEM SeriesScore ainda aparece na lista (não some do feed)', async () => {
+      const comScore = await criarSerie({ title: 'Com Score' });
+      const semScore = await criarSerie({ title: 'Sem Score' });
+      await criarScore(comScore._id, { scoreFinal: 80, confidence: 0.8 });
+      // Nenhum SeriesScore criado pra semScore de propósito.
+
+      const resultado = await recommendationService.buildRecommendations({ contentType: 'hiqua' });
+      const ids = resultado.map((s) => String(s._id));
+      expect(ids).toContain(String(semScore._id));
+      expect(ids).toContain(String(comScore._id));
+    });
+
+    it('catálogo vazio do tipo: devolve array vazio, sem lançar', async () => {
+      const resultado = await recommendationService.buildRecommendations({ contentType: 'vcine' });
+      expect(resultado).toEqual([]);
+    });
+
+    it('shape das séries devolvidas NÃO inclui campos internos de ordenação (potentialScore/valorOrdenacao)', async () => {
+      const serie = await criarSerie({ title: 'Shape Interno' });
+      await criarScore(serie._id, { scoreFinal: 50, confidence: 0.5, potentialScore: 77 });
+
+      const resultado = await recommendationService.buildRecommendations({ contentType: 'hiqua' });
+      const item = resultado.find((s) => String(s._id) === String(serie._id));
+      expect(item).toBeDefined();
+      expect(item.potentialScore).toBeUndefined();
+      expect(item.valorOrdenacao).toBeUndefined();
+      expect(item.confidence).toBeUndefined();
+      expect(item.title).toBe('Shape Interno');
+    });
+  });
+
+  describe('cotas 50/30/20 (montarCotas — função pura, sem banco)', () => {
+    function serieFake(id, { valorOrdenacao = 0, potentialScore = 0, createdAt = new Date('2020-01-01') } = {}) {
+      return { _id: id, valorOrdenacao, potentialScore, createdAt };
+    }
+
+    it('catálogo de 10: 5 consolidadas / 3 potencial / 2 novas, sem duplicata', () => {
+      const agora = new Date('2026-08-20T00:00:00.000Z');
+      const antigo = new Date('2020-01-01T00:00:00.000Z'); // fora da janela de 90 dias
+      const recente = new Date(agora.getTime() - 10 * 24 * 60 * 60 * 1000); // dentro da janela
+
+      const series = Array.from({ length: 10 }, (_, i) => serieFake(`s${i}`, {
+        valorOrdenacao: 100 - i, // s0 melhor, s9 pior
+        potentialScore: 50 - i,
+        createdAt: i < 8 ? antigo : recente, // só s8/s9 são candidatas a "novas"
+      }));
+
+      const { consolidadas, potencial, novas } = recommendationService.montarCotas(series, agora);
+      expect(consolidadas).toHaveLength(5);
+      expect(potencial).toHaveLength(3);
+      expect(novas).toHaveLength(2);
+
+      const todosIds = [...consolidadas, ...potencial, ...novas].map((s) => s._id);
+      expect(new Set(todosIds).size).toBe(10); // sem duplicata
+      expect(todosIds).toHaveLength(10);
+    });
+
+    it('catálogo de 3: degrada sem quebrar (2 consolidadas / 1 potencial / 0 novas), sem duplicata', () => {
+      const agora = new Date('2026-08-20T00:00:00.000Z');
+      const series = Array.from({ length: 3 }, (_, i) => serieFake(`s${i}`, { valorOrdenacao: 30 - i, potentialScore: 10 - i }));
+
+      const { consolidadas, potencial, novas } = recommendationService.montarCotas(series, agora);
+      expect(consolidadas).toHaveLength(2);
+      expect(potencial).toHaveLength(1);
+      expect(novas).toHaveLength(0);
+
+      const todosIds = [...consolidadas, ...potencial, ...novas].map((s) => s._id);
+      expect(new Set(todosIds).size).toBe(3);
+    });
+
+    it('cota de novas SEM nenhuma obra dentro da janela de 90 dias: completa com as melhores restantes por valorOrdenacao (degradação)', () => {
+      const agora = new Date('2026-08-20T00:00:00.000Z');
+      const antigo = new Date('2020-01-01T00:00:00.000Z'); // todas fora da janela
+      const series = Array.from({ length: 10 }, (_, i) => serieFake(`s${i}`, {
+        valorOrdenacao: 100 - i, potentialScore: 50 - i, createdAt: antigo,
+      }));
+
+      const { consolidadas, potencial, novas } = recommendationService.montarCotas(series, agora);
+      expect(consolidadas).toHaveLength(5);
+      expect(potencial).toHaveLength(3);
+      expect(novas).toHaveLength(2); // completou com as 2 melhores restantes por valorOrdenacao, mesmo fora da janela
+
+      const todosIds = [...consolidadas, ...potencial, ...novas].map((s) => s._id);
+      expect(new Set(todosIds).size).toBe(10);
+    });
+
+    it('catálogo de 1: uma única série vira "consolidada", nada mais é pedido além do que existe', () => {
+      const agora = new Date('2026-08-20T00:00:00.000Z');
+      const { consolidadas, potencial, novas } = recommendationService.montarCotas([serieFake('unica')], agora);
+      expect(consolidadas).toHaveLength(1);
+      expect(potencial).toHaveLength(0);
+      expect(novas).toHaveLength(0);
+    });
+
+    it('série com score ausente (valorOrdenacao 0 / potentialScore 0) ainda aparece em alguma cota', () => {
+      const agora = new Date('2026-08-20T00:00:00.000Z');
+      const comScore = serieFake('com-score', { valorOrdenacao: 50, potentialScore: 50 });
+      const semScore = serieFake('sem-score', { valorOrdenacao: 0, potentialScore: 0 });
+      const { consolidadas, potencial, novas } = recommendationService.montarCotas([comScore, semScore], agora);
+      const todosIds = [...consolidadas, ...potencial, ...novas].map((s) => s._id);
+      expect(todosIds).toContain('sem-score');
+      expect(todosIds).toContain('com-score');
+    });
+  });
+
+  describe('diversidade (aplicarDiversidade / intercalarCotas — funções puras, sem banco)', () => {
+    function serieFake(id, channelId) {
+      return { _id: id, channelId };
+    }
+
+    it('sem 2 adjacentes do MESMO channelId quando existe alternativa — troca com o próximo elegível', () => {
+      const canalA = new mongoose.Types.ObjectId();
+      const canalB = new mongoose.Types.ObjectId();
+      // s0(A), s1(A) adjacentes — colisão; s2(B) é o próximo elegível pra trocar.
+      const lista = [serieFake('s0', canalA), serieFake('s1', canalA), serieFake('s2', canalB)];
+
+      const resultado = recommendationService.aplicarDiversidade(lista);
+      for (let i = 1; i < resultado.length; i++) {
+        const mesmoCanal = resultado[i - 1].channelId && resultado[i].channelId
+          && String(resultado[i - 1].channelId) === String(resultado[i].channelId);
+        expect(mesmoCanal).toBe(false);
+      }
+      expect(resultado.map((s) => s._id).sort()).toEqual(['s0', 's1', 's2']);
+    });
+
+    it('catálogo de 1 único canal: não trava (deixa a colisão e segue), mesmo conjunto de séries', () => {
+      const canalUnico = new mongoose.Types.ObjectId();
+      const lista = [serieFake('s0', canalUnico), serieFake('s1', canalUnico), serieFake('s2', canalUnico)];
+      const resultado = recommendationService.aplicarDiversidade(lista);
+      expect(resultado).toHaveLength(3);
+      expect(resultado.map((s) => s._id).sort()).toEqual(['s0', 's1', 's2']);
+    });
+
+    it('séries sem channelId (undefined) nunca contam como "mesmo canal" entre si — ordem original preservada', () => {
+      const lista = [serieFake('s0', undefined), serieFake('s1', undefined), serieFake('s2', undefined)];
+      const resultado = recommendationService.aplicarDiversidade(lista);
+      expect(resultado.map((s) => s._id)).toEqual(['s0', 's1', 's2']);
+    });
+
+    it('intercalarCotas preserva a ordem INTERNA de cada cota, só intercala a POSIÇÃO entre elas', () => {
+      const consolidadas = [serieFake('c0'), serieFake('c1')];
+      const potencial = [serieFake('p0')];
+      const novas = [serieFake('n0'), serieFake('n1')];
+      const resultado = recommendationService.intercalarCotas(consolidadas, potencial, novas);
+      expect(resultado.map((s) => s._id)).toEqual(['c0', 'p0', 'n0', 'c1', 'n1']);
+    });
+  });
+
+  describe('GET /api/content/recommendations', () => {
+    it('400 sem type', async () => {
+      const res = await request(app).get('/api/content/recommendations');
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBeTruthy();
+    });
+
+    it('400 com type inválido', async () => {
+      const res = await request(app).get('/api/content/recommendations?type=invalido');
+      expect(res.status).toBe(400);
+    });
+
+    it('200 com o MESMO shape do GET /series (mesmos campos; potentialScore/valorOrdenacao/confidence não vazam)', async () => {
+      const serie = await criarSerie({ title: 'Rota Shape', tags: ['acao13', 'aventura13', 'suspense10', 'drama14', 'fantasia9'] });
+      await criarScore(serie._id, { scoreFinal: 50, confidence: 0.5 });
+
+      const [resRecomendacao, resSeries] = await Promise.all([
+        request(app).get('/api/content/recommendations?type=hiqua'),
+        request(app).get('/api/content/series?type=hiqua'),
+      ]);
+      expect(resRecomendacao.status).toBe(200);
+      const item = resRecomendacao.body.find((s) => s._id === String(serie._id));
+      const itemOriginal = resSeries.body.find((s) => s._id === String(serie._id));
+      expect(item).toBeDefined();
+      expect(itemOriginal).toBeDefined();
+      expect(Object.keys(item).sort()).toEqual(Object.keys(itemOriginal).sort());
+      expect(item.potentialScore).toBeUndefined();
+      expect(item.valorOrdenacao).toBeUndefined();
+      expect(item.confidence).toBeUndefined();
+    });
+
+    it('anônimo com header X-Anonymous-Id: a ordem reflete o PRÓPRIO progresso (afinidade), mesmo mecanismo do Bloco 1', async () => {
+      const anonymousId = 'ffb0d1a0-2222-4aaa-8bbb-0123456789ab'; // UUID v4 — mesmo formato validado por utils/requestIdentity
+      const serieAlvo = await criarSerie({ title: 'Anonimo Alvo', tags: ['epico2', 'aventura14', 'suspense11', 'drama15', 'fantasia10'] });
+      const serieOutra = await criarSerie({ title: 'Anonimo Outra', tags: ['romance4', 'comedia3', 'familia4', 'amizade3', 'doce1'] });
+      // Ambas SEM SeriesScore — só a Afinidade decide a ordem entre elas.
+      await ReadingProgress.create({
+        anonymousId, seriesId: serieAlvo._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'hiqua', percent: 0.5,
+      });
+
+      const res = await request(app)
+        .get('/api/content/recommendations?type=hiqua')
+        .set('X-Anonymous-Id', anonymousId);
+      expect(res.status).toBe(200);
+      const ids = res.body.map((s) => s._id);
+      expect(ids.indexOf(String(serieAlvo._id))).toBeLessThan(ids.indexOf(String(serieOutra._id)));
+    });
+
+    it('erro do serviço (spy rejeitando buildRecommendations) → fallback com a ordem manual do GET /series e 200', async () => {
+      const serieZ = await criarSerie({ title: 'Fallback Z', order_index: 2 });
+      const serieA = await criarSerie({ title: 'Fallback A', order_index: 1 });
+
+      const spy = vi.spyOn(recommendationService, 'buildRecommendations')
+        .mockRejectedValueOnce(new Error('Falha simulada de recomendacao'));
+      try {
+        const res = await request(app).get('/api/content/recommendations?type=hiqua');
+        expect(res.status).toBe(200);
+        const ids = res.body.map((s) => s._id);
+        expect(ids).toContain(String(serieA._id));
+        expect(ids).toContain(String(serieZ._id));
+        // Ordem manual do GET /series (order_index asc): A (1) antes de Z (2).
+        expect(ids.indexOf(String(serieA._id))).toBeLessThan(ids.indexOf(String(serieZ._id)));
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+});

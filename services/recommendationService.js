@@ -18,12 +18,17 @@
  * Também executa o RULING da inatividade decidido no fim da T3 (ledger): ver
  * comentário de `coletarSinaisInatividade` abaixo.
  *
- * Task 5 (este commit): gatilhos fire-and-forget de recálculo por obra
- * (`dispararRecalculo`, mesmo molde do push do Bloco 2) e a varredura
- * periódica de 24h + inicial no boot (`iniciarVarreduraPeriodica`/
- * `pararVarreduraPeriodica`) — ver comentários de cada função no fim do
- * arquivo. As rotas que disparam `dispararRecalculo` estão listadas na spec,
- * seção "Rotas".
+ * Task 5: gatilhos fire-and-forget de recálculo por obra (`dispararRecalculo`,
+ * mesmo molde do push do Bloco 2) e a varredura periódica de 24h + inicial no
+ * boot (`iniciarVarreduraPeriodica`/`pararVarreduraPeriodica`) — ver
+ * comentários de cada função. As rotas que disparam `dispararRecalculo` estão
+ * listadas na spec, seção "Rotas".
+ *
+ * Task 6 (este commit): junta tudo — Afinidade por leitor (`computeAffinityProfile`
+ * + `computeAfinidade`, 0–25 pts, calculada NO REQUEST, NÃO persistida) e
+ * `buildRecommendations` (Etapa 10: distribuição 50/30/20 + Etapa 12: efeito
+ * do Confidence na ordenação + Etapa 8: diversidade). Ver comentários de cada
+ * função na seção "Task 6" abaixo, perto do fim do arquivo.
  *
  * Spec: docs/superpowers/specs/2026-08-20-algoritmo-recomendacao-design.md
  * Ledger: .superpowers/sdd/2026-08-20-algoritmo/progress.md
@@ -832,6 +837,322 @@ function pararVarreduraPeriodica() {
   }
 }
 
+// ============================================================================
+// Task 6 — Afinidade por leitor + rota de recomendação (spec: "Afinidade
+// (Etapa 4)", "Distribuição 50/30/20 (Etapa 10)", "Diversidade (Etapa 8)").
+// ============================================================================
+
+// Pesos das fontes da Afinidade (spec, "Afinidade (Etapa 4)"): favoritos ×3,
+// Super Reader ×4 (só logado), likes de SeriesVote ×2 (só like — dislike NÃO
+// soma), progresso de leitura ×1 (logado OU anônimo).
+const PESO_AFINIDADE_FAVORITO = 3;
+const PESO_AFINIDADE_SUPER_READER = 4;
+const PESO_AFINIDADE_LIKE = 2;
+const PESO_AFINIDADE_PROGRESSO = 1;
+const ESCALA_AFINIDADE = 25; // pts máximos da Afinidade dentro dos 100 do PDF
+const NEUTRO_AFINIDADE = ESCALA_AFINIDADE / 2; // "sem histórico → 12,5 pts neutros" (spec)
+
+/**
+ * Perfil de afinidade do leitor: histograma de TAGS, calculado NO REQUEST e
+ * NUNCA PERSISTIDO (spec, decisão "Afinidade (Etapa 4)" — LGPD by design:
+ * nada novo entra no export/exclusão do Centro de Privacidade porque é
+ * derivado, na hora, de coleções que já são exportadas/apagadas por outros
+ * fluxos do app).
+ *
+ * Cada fonte contribui o SEU peso para CADA tag de CADA série ENVOLVIDA —
+ * série DISTINTA, não documento: um leitor com 5 documentos de progresso na
+ * MESMA série conta essa série UMA vez, não 5×  (por isso usamos `.distinct`,
+ * não `.find`, para achar as séries de cada fonte). As 4 fontes:
+ *
+ *  - Favoritos ×3 — `Favorite.userId` é obrigatório no schema (visitante
+ *    anônimo não favorita), então esta fonte só roda com `userId`.
+ *  - Super Reader ×4 — SÓ LOGADO (spec: "só logado; contribuição anonimizada
+ *    não é rastreável"). `SuperReaderContribution.userId` vira `null` numa
+ *    contribuição ANONIMIZADA (exclusão de conta, LGPD do Bloco 3) — filtrar
+ *    por um `userId` real nunca bate com essas, então elas SIMPLESMENTE NÃO
+ *    aparecem no perfil de ninguém (perdem o vínculo, não são "roubadas" por
+ *    outro leitor por engano).
+ *  - Likes de SeriesVote ×2 — filtro `type: 'like'` explícito; dislike é
+ *    sinal NEGATIVO, não soma afinidade nenhuma.
+ *  - Progresso de leitura ×1 — a ÚNICA fonte que também aceita `anonymousId`:
+ *    mesmo mecanismo de identidade anônima do Bloco 1 (`utils/requestIdentity`,
+ *    header `X-Anonymous-Id`, já usado por `routes/progress.js`) — qualquer
+ *    documento de `ReadingProgress` da identidade (logada OU anônima) conta a
+ *    série dele.
+ *
+ * Sem `userId` NEM `anonymousId`, ou com identidade mas SEM nenhum histórico
+ * em nenhuma das 4 fontes: devolve `{}` (perfil vazio) — `computeAfinidade`
+ * trata isso como "sem histórico" (12,5 pts neutros pra toda série).
+ */
+async function computeAffinityProfile({ userId, anonymousId } = {}) {
+  const perfil = {};
+  const fontes = [];
+
+  if (userId) {
+    fontes.push({ model: Favorite, filtro: { userId }, peso: PESO_AFINIDADE_FAVORITO });
+    fontes.push({ model: SuperReaderContribution, filtro: { userId }, peso: PESO_AFINIDADE_SUPER_READER });
+    fontes.push({ model: SeriesVote, filtro: { userId, type: 'like' }, peso: PESO_AFINIDADE_LIKE });
+  }
+  if (userId || anonymousId) {
+    const filtroProgresso = userId ? { userId } : { anonymousId };
+    fontes.push({ model: ReadingProgress, filtro: filtroProgresso, peso: PESO_AFINIDADE_PROGRESSO });
+  }
+
+  for (const { model, filtro, peso } of fontes) {
+    const seriesIds = await model.distinct('seriesId', filtro);
+    if (!seriesIds.length) continue;
+    const series = await Series.find({ _id: { $in: seriesIds } }, 'tags').lean();
+    for (const serie of series) {
+      for (const tag of serie.tags || []) {
+        perfil[tag] = (perfil[tag] || 0) + peso;
+      }
+    }
+  }
+
+  return perfil;
+}
+
+/**
+ * Afinidade (0–25 pts, Etapa 4 do PDF): sobreposição normalizada entre as
+ * tags da série e o perfil (histograma) do leitor.
+ *
+ * Sem perfil (objeto vazio — leitor sem NENHUM histórico em nenhuma das 4
+ * fontes): 12,5 pts NEUTROS pra qualquer série (spec, "Afinidade (Etapa 4)").
+ *
+ * RULING (Task 6 — a spec delega explicitamente: "série SEM tags com perfil
+ * existente... DECISÃO DA SPEC NÃO COBRE"): série SEM tags (`tags: []`,
+ * acervo antigo ainda sem curadoria da Etapa 5) recebe o MESMO neutro (12,5),
+ * MESMO com perfil existente. O vazio aqui é da CURADORIA da obra, não do
+ * leitor — tratar como sobreposição 0 enterraria TODO o acervo antigo atrás
+ * de qualquer obra já tagueada, por uma lacuna que não é culpa da obra.
+ * Reportado ao ledger (.superpowers/sdd/2026-08-20-algoritmo/progress.md).
+ *
+ * Com perfil E série com tags: soma dos pesos do perfil nas tags da série
+ * (`sobreposicao`), dividida pela soma TOTAL de pesos do perfil (0–1), vezes
+ * 25. Se TODAS as tags do perfil aparecem na série, a fração é exatamente 1
+ * (25 pts cheios); se nenhuma bate, a fração é 0.
+ */
+function computeAfinidade(serie, perfil = {}) {
+  const temPerfil = perfil && Object.keys(perfil).length > 0;
+  if (!temPerfil) return NEUTRO_AFINIDADE;
+
+  const tags = (serie && serie.tags) || [];
+  if (tags.length === 0) return NEUTRO_AFINIDADE; // RULING acima
+
+  const somaTotal = Object.values(perfil).reduce((acc, peso) => acc + peso, 0);
+  if (somaTotal <= 0) return NEUTRO_AFINIDADE; // blindagem — pesos são sempre > 0, não deveria ocorrer
+
+  const sobreposicao = tags.reduce((acc, tag) => acc + (perfil[tag] || 0), 0);
+  return (sobreposicao / somaTotal) * ESCALA_AFINIDADE;
+}
+
+// Distribuição 50/30/20 (Etapa 10 do PDF, spec "Distribuição 50/30/20").
+const FRACAO_CONSOLIDADAS = 0.5;
+const FRACAO_POTENCIAL = 0.3;
+const DIAS_JANELA_NOVAS = 90;
+
+/**
+ * Cotas 50/30/20 (Etapa 10 do PDF): recebe as séries do catálogo do
+ * content_type já ENRIQUECIDAS com `valorOrdenacao`/`potentialScore`/
+ * `createdAt` (ver `buildRecommendations`) e devolve
+ * `{ consolidadas, potencial, novas }` — SEM sobreposição (dedupe garantido
+ * por construção: cada série entra em NO MÁXIMO uma cota, nunca duas).
+ *
+ * `consolidadas` = ceil(50% de N) melhores por `valorOrdenacao`.
+ * `potencial` = ceil(30% de N) melhores por `potentialScore`, dentre as que
+ * SOBRARAM depois de `consolidadas` — capado ao que sobrar (catálogo pequeno
+ * não pode pedir mais do que existe; sem o `Math.min`, N pequeno faria
+ * `consolidadas.length + potencial.length` estourar N).
+ * `novas` = o QUE SOBRAR pra completar N (~20%): séries com `createdAt`
+ * dentro dos últimos `DIAS_JANELA_NOVAS` dias (`agora` sempre injetado),
+ * melhores por `valorOrdenacao` dentro dessa janela; se a janela não tiver
+ * séries suficientes, COMPLETA com as melhores restantes por `valorOrdenacao`
+ * SEM o filtro de data — degradação natural (spec: "se não houver novas
+ * suficientes, complete com as melhores restantes").
+ *
+ * Exportada separadamente (mesmo padrão do resto do serviço — funções puras
+ * testáveis isoladamente, ex.: `aplicarPenalizacoesNaSoma`) para os testes de
+ * contagem por cota não dependerem de reconstruir o catálogo inteiro via
+ * `buildRecommendations`.
+ */
+function montarCotas(seriesEnriquecidas, agora = new Date()) {
+  const N = seriesEnriquecidas.length;
+  const usados = new Set();
+
+  const porValorDesc = [...seriesEnriquecidas].sort((a, b) => b.valorOrdenacao - a.valorOrdenacao);
+  const countConsolidadas = Math.min(N, Math.ceil(N * FRACAO_CONSOLIDADAS));
+  const consolidadas = porValorDesc.slice(0, countConsolidadas);
+  consolidadas.forEach((s) => usados.add(String(s._id)));
+
+  const disponiveisAposConsolidadas = seriesEnriquecidas.filter((s) => !usados.has(String(s._id)));
+  const countPotencialAlvo = Math.min(Math.ceil(N * FRACAO_POTENCIAL), disponiveisAposConsolidadas.length);
+  const potencial = [...disponiveisAposConsolidadas]
+    .sort((a, b) => b.potentialScore - a.potentialScore)
+    .slice(0, countPotencialAlvo);
+  potencial.forEach((s) => usados.add(String(s._id)));
+
+  const disponiveisAposPotencial = seriesEnriquecidas.filter((s) => !usados.has(String(s._id)));
+  const countNovasAlvo = N - consolidadas.length - potencial.length;
+
+  const limiteNovas = new Date(agora.getTime() - DIAS_JANELA_NOVAS * 24 * 60 * 60 * 1000);
+  const candidatasDentroDaJanela = disponiveisAposPotencial
+    .filter((s) => s.createdAt && s.createdAt.getTime() >= limiteNovas.getTime())
+    .sort((a, b) => b.valorOrdenacao - a.valorOrdenacao);
+
+  const novas = candidatasDentroDaJanela.slice(0, countNovasAlvo);
+  novas.forEach((s) => usados.add(String(s._id)));
+
+  // Degradação (spec): a janela de 90 dias não tinha candidatas suficientes
+  // → completa com as melhores restantes por valorOrdenacao (mesmo critério
+  // de "consolidadas" — isto não é uma 4ª cota, é o preenchimento natural
+  // da 3ª quando o catálogo não tem obras novas o bastante).
+  const faltam = countNovasAlvo - novas.length;
+  if (faltam > 0) {
+    const complemento = seriesEnriquecidas
+      .filter((s) => !usados.has(String(s._id)))
+      .sort((a, b) => b.valorOrdenacao - a.valorOrdenacao)
+      .slice(0, faltam);
+    novas.push(...complemento);
+    complemento.forEach((s) => usados.add(String(s._id)));
+  }
+
+  return { consolidadas, potencial, novas };
+}
+
+/**
+ * Intercala as 3 cotas (spec, "Diversidade (Etapa 8)": "intercalar cotas...
+ * em vez de blocos") — consolidada[0], potencial[0], nova[0], consolidada[1],
+ * potencial[1], nova[1]... A ordem INTERNA de cada cota (já ordenada por
+ * `montarCotas`) é preservada; só a POSIÇÃO relativa ENTRE cotas intercala.
+ * Cota mais curta simplesmente para de contribuir — sem furo no resultado.
+ */
+function intercalarCotas(consolidadas, potencial, novas) {
+  const tamanho = Math.max(consolidadas.length, potencial.length, novas.length);
+  const resultado = [];
+  for (let i = 0; i < tamanho; i++) {
+    if (consolidadas[i]) resultado.push(consolidadas[i]);
+    if (potencial[i]) resultado.push(potencial[i]);
+    if (novas[i]) resultado.push(novas[i]);
+  }
+  return resultado;
+}
+
+/**
+ * Duas séries são do "mesmo canal" só se AMBAS tiverem `channelId` definido
+ * e igual — `channelId` ausente (obra sem canal cadastrado) NUNCA conflita
+ * com nada, mesmo com outra série também sem `channelId`: não há "mesmo
+ * autor" real a proteger de repetição quando nenhum canal foi informado.
+ */
+function mesmoCanal(a, b) {
+  if (!a.channelId || !b.channelId) return false;
+  return String(a.channelId) === String(b.channelId);
+}
+
+/**
+ * Diversidade (Etapa 8 do PDF): um único passe da esquerda pra direita que
+ * evita 2 obras ADJACENTES do MESMO `channelId` — ao achar uma colisão em
+ * `i` (mesmo canal de `i-1`), troca de posição com o PRÓXIMO elegível à
+ * frente (primeiro `j > i` cujo `channelId` seja diferente do de `i-1`). Se
+ * não existir elegível (ex.: catálogo de um único canal), deixa a colisão e
+ * segue — spec: "se impossível, deixa e segue".
+ *
+ * A troca pode empurrar uma colisão NOVA para a posição `j` (contra o que
+ * estava em `j-1`) — o próprio avanço sequencial do `for` cobre isso sem
+ * lógica extra: quando `i` chegar em `j`, o par `(j-1, j)` é conferido de
+ * novo, como qualquer outro.
+ *
+ * Não muda o CONJUNTO da lista, só troca posições — dedupe continua
+ * garantido por `montarCotas` (a fonte de verdade de "quais séries entram").
+ */
+function aplicarDiversidade(lista) {
+  const resultado = [...lista];
+  for (let i = 1; i < resultado.length; i++) {
+    if (!mesmoCanal(resultado[i - 1], resultado[i])) continue;
+
+    let j = i + 1;
+    while (j < resultado.length && mesmoCanal(resultado[i - 1], resultado[j])) j++;
+
+    if (j < resultado.length) {
+      const tmp = resultado[i];
+      resultado[i] = resultado[j];
+      resultado[j] = tmp;
+    }
+    // else: nenhum elegível à frente (ex.: catálogo de 1 canal só) — deixa a
+    // colisão e segue, como a spec manda.
+  }
+  return resultado;
+}
+
+/**
+ * Reconstrói a "parte por obra" PÓS-penalização (0–65 pts) a partir do
+ * `scoreFinal` (0–100) JÁ PERSISTIDO, em vez de recomputar Qualidade +
+ * Retenção + Descoberta + penalizações do zero a cada request de recomendação
+ * (spec, Task 6: "use os componentes crus persistidos; reconstrua a soma
+ * pós-penalização a partir de scoreFinal×65/100 para não recomputar").
+ * `computeScoreFinal` faz o caminho inverso: `(somaPosPenalizacao/65)×100`.
+ */
+function reconstituirParteDaObra(scoreFinal) {
+  return (scoreFinal / 100) * ESCALA_SOMA_OBRA;
+}
+
+/**
+ * Monta a recomendação 50/30/20 de um `content_type` — a função que JUNTA
+ * tudo (spec, "Distribuição 50/30/20" + "Rotas"):
+ *
+ *   valorOrdenacao = parteDaObra × confidence + afinidade
+ *
+ * (Confidence Score, Etapa 12: "obra nova oscila menos o topo, mas continua
+ * entrando pela cota de descoberta" — a multiplicação por `confidence` é o
+ * que blinda o topo contra um score alto mas pouco confiável).
+ *
+ * 1. Carrega as séries PUBLICADAS do tipo + os `SeriesScore` delas.
+ * 2. Score AUSENTE (série publicada sem `SeriesScore` ainda — varredura não
+ *    rodou pra ela): trata como `scoreFinal 0` / `confidence 0` /
+ *    `potentialScore 0` — a série NÃO é excluída (spec: "score ausente →
+ *    trate como scoreFinal 0/confidence 0 mas NÃO exclua a série"); ela ainda
+ *    entra no catálogo e pode aparecer pela Afinidade ou pela degradação das
+ *    cotas.
+ * 3. Cotas 50/30/20 (`montarCotas`) + diversidade (`intercalarCotas` +
+ *    `aplicarDiversidade`).
+ * 4. Devolve as séries no MESMO shape do `GET /series` (lean, SEM os campos
+ *    internos `potentialScore`/`valorOrdenacao` usados só pra ordenar — spec,
+ *    "Fora de escopo": "Potential/Confidence expostos na API pública" fica
+ *    de fora).
+ *
+ * NÃO captura erro nenhum (spec: "Falha em QUALQUER etapa → lança; quem
+ * degrada é a ROTA") — qualquer rejeição de query propaga pro chamador.
+ */
+async function buildRecommendations({ contentType, userId, anonymousId, agora = new Date() } = {}) {
+  const series = await Series.find({ isPublished: true, content_type: contentType }).lean();
+  if (series.length === 0) return [];
+
+  const scores = await SeriesScore.find({ seriesId: { $in: series.map((s) => s._id) } }).lean();
+  const scorePorSerie = new Map(scores.map((s) => [String(s.seriesId), s]));
+
+  const perfil = await computeAffinityProfile({ userId, anonymousId });
+
+  const enriquecidas = series.map((serie) => {
+    const score = scorePorSerie.get(String(serie._id));
+    const parteDaObra = reconstituirParteDaObra(score?.scoreFinal || 0);
+    const confidence = score?.confidence || 0;
+    const afinidade = computeAfinidade(serie, perfil);
+    return {
+      ...serie,
+      potentialScore: score?.potentialScore || 0,
+      valorOrdenacao: parteDaObra * confidence + afinidade,
+    };
+  });
+
+  const { consolidadas, potencial, novas } = montarCotas(enriquecidas, agora);
+  const intercalado = intercalarCotas(consolidadas, potencial, novas);
+  const comDiversidade = aplicarDiversidade(intercalado);
+
+  // potentialScore/valorOrdenacao são campos internos de ordenação — nunca
+  // saem no shape público (spec, "Fora de escopo": Potential/Confidence não
+  // expostos na API).
+  return comDiversidade.map(({ potentialScore, valorOrdenacao, ...serie }) => serie);
+}
+
 module.exports = {
   contarLeitoresUnicos,
   buildQualidadeContexto,
@@ -852,4 +1173,10 @@ module.exports = {
   precisaVarreduraInicial,
   iniciarVarreduraPeriodica,
   pararVarreduraPeriodica,
+  computeAffinityProfile,
+  computeAfinidade,
+  montarCotas,
+  intercalarCotas,
+  aplicarDiversidade,
+  buildRecommendations,
 };

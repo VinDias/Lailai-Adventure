@@ -7,6 +7,7 @@ const SeriesVote = require('../models/SeriesVote');
 const verifyToken = require('../middlewares/verifyToken');
 const requireAdmin = require('../middlewares/requireAdmin');
 const optionalAuth = require('../middlewares/optionalAuth');
+const getIdentity = require('../utils/requestIdentity');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 
@@ -262,6 +263,50 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
   } catch (err) {
     logger.error('[Content] DELETE /series/:id', err);
     res.status(500).json({ error: 'Erro ao remover série.' });
+  }
+});
+
+// ─── RECOMMENDATIONS ────────────────────────────────────────────────────────
+
+const RECOMMENDATION_CONTENT_TYPES = ['hqcine', 'vcine', 'hiqua'];
+
+// GET /api/content/recommendations?type=hqcine|vcine|hiqua — Fase 4, Bloco 4
+// (Etapa 10 do PDF): lista de séries publicadas do tipo, na ordem da
+// recomendação 50/30/20 (services/recommendationService.buildRecommendations).
+// `optionalAuth` + a MESMA identidade anônima do progresso (Bloco 1,
+// utils/requestIdentity — header X-Anonymous-Id, ver routes/progress.js)
+// alimentam a Afinidade do leitor. QUALQUER falha do serviço (score ausente,
+// agregação, o que for) NUNCA vira 500 — degrada para a MESMA query manual
+// do GET /series acima (spec, seção "Rotas": "NUNCA 500 por falha de score —
+// degrada para a ordem manual"; ledger P3).
+router.get('/recommendations', optionalAuth, async (req, res) => {
+  const { type } = req.query;
+  if (!RECOMMENDATION_CONTENT_TYPES.includes(type)) {
+    return res.status(400).json({ error: `type é obrigatório e deve ser um de: ${RECOMMENDATION_CONTENT_TYPES.join(', ')}.` });
+  }
+
+  const identity = getIdentity(req) || {};
+
+  try {
+    const recomendadas = await require('../services/recommendationService').buildRecommendations({
+      contentType: type,
+      userId: identity.userId,
+      anonymousId: identity.anonymousId,
+    });
+    return res.json(recomendadas);
+  } catch (err) {
+    logger.error('[Content] GET /recommendations — degradando para a ordem manual', err);
+    try {
+      const fallback = await Series.find({ isPublished: true, content_type: type })
+        .sort({ order_index: 1, createdAt: -1 })
+        .lean();
+      return res.json(fallback);
+    } catch (fallbackErr) {
+      // A própria query de fallback falhou (ex.: banco fora do ar) — aí sim
+      // não há mais degradação possível.
+      logger.error('[Content] GET /recommendations — fallback também falhou', fallbackErr);
+      return res.status(500).json({ error: 'Erro ao buscar recomendações.' });
+    }
   }
 });
 
