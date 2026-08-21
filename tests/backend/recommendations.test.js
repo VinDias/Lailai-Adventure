@@ -2076,6 +2076,67 @@ describe('afinidade', () => {
       expect(recommendationService.computeAfinidade(serie, perfil)).toBe(0);
     });
   });
+
+  /**
+   * Achado ALTO A2 da revisão FINAL do Bloco 4 (fix round): o neutro fixo de
+   * 12,5 pts pra série sem tags era o TETO teórico (perfil concentrado numa
+   * única tag), mas o teto REAL de um leitor com histórico DIVERSO é bem
+   * menor — a sobreposição máxima possível é a soma dos pesos das tags de
+   * UMA obra dividida pela soma TOTAL do perfil (várias obras/temas), quase
+   * sempre <1. Com 12,5 fixo, acervo com curadoria incompleta "abria o
+   * feed" pra obras sem tags, à frente de obras que o leitor DEMONSTRAVELMENTE
+   * gosta. RULING: neutro = MÉDIA das afinidades já calculadas das obras COM
+   * tags do MESMO request — série sem tags intercala no nível TÍPICO daquele
+   * leitor, nunca acima nem abaixo do que ele já demonstrou. `computeAfinidade`
+   * (função pura) não muda — o neutro derivado vive só na montagem da lista
+   * (`computeNeutroDerivado`, chamada por `buildRecommendations`).
+   */
+  describe('computeNeutroDerivado (Item 2, fix round da revisão final — achado A2)', () => {
+    function serieFake(tags) {
+      return { tags };
+    }
+
+    it('leitor com perfil DIVERSO (espalhado por vários temas, nenhum dominante): obra sem tags recebe a MÉDIA das afinidades das obras COM tags do catálogo — NÃO o 12,5 fixo antigo — e fica DENTRO do intervalo (nem acima do maior, nem abaixo do menor)', () => {
+      // Perfil espalhado por 4 temas de pesos desiguais (soma = 18) — nenhuma
+      // tag isolada domina o perfil, cenário onde o 12,5 fixo mais destoava
+      // do real (a revisão mediu ≈10,6 num perfil parecido de 8 obras/2 temas).
+      const perfil = { acao: 8, aventura: 5, drama: 3, comedia: 2 };
+
+      const catalogo = [
+        serieFake(['acao', 'x1', 'x2', 'x3', 'x4']), // sobreposição 8 → 8/18×25
+        serieFake(['aventura', 'x5', 'x6', 'x7', 'x8']), // sobreposição 5 → 5/18×25
+        serieFake(['drama', 'comedia', 'x9', 'x10', 'x11']), // sobreposição 3+2=5 → 5/18×25
+        serieFake(['terror', 'x12', 'x13', 'x14', 'x15']), // fora do perfil → 0
+        serieFake([]), // obra sem tags do PRÓPRIO catálogo — não entra na média
+      ];
+
+      const individuais = [(8 / 18) * 25, (5 / 18) * 25, (5 / 18) * 25, 0];
+      const esperadoMedia = individuais.reduce((a, b) => a + b, 0) / individuais.length;
+
+      const neutro = recommendationService.computeNeutroDerivado(catalogo, perfil);
+      expect(neutro).toBeCloseTo(esperadoMedia, 10);
+      expect(neutro).toBeCloseTo(6.25, 10); // valor exato deste cenário — bem longe do 12,5 fixo antigo
+      expect(neutro).not.toBeCloseTo(12.5, 0);
+      // Nunca acima do maior nem abaixo do menor das afinidades reais — não
+      // "abre" nem "fecha" o feed além do que o leitor já demonstrou.
+      expect(neutro).toBeGreaterThanOrEqual(Math.min(...individuais));
+      expect(neutro).toBeLessThanOrEqual(Math.max(...individuais));
+    });
+
+    it('leitor SEM perfil: neutro derivado cai pro 12,5 fixo (mesmo comportamento de hoje — computeAfinidade já devolve 12,5 pra toda obra com tags sem histórico, a média delas também é 12,5)', () => {
+      const catalogo = [
+        serieFake(['acao', 'b', 'c', 'd', 'e']),
+        serieFake(['romance', 'f', 'g', 'h', 'i']),
+      ];
+      expect(recommendationService.computeNeutroDerivado(catalogo, {})).toBe(12.5);
+    });
+
+    it('catálogo do request SEM NENHUMA obra tagueada: neutro derivado cai pro 12,5 fixo (não há afinidade nenhuma pra tirar média)', () => {
+      const perfil = { acao: 10 };
+      const catalogo = [serieFake([]), serieFake([]), serieFake(undefined)];
+      expect(recommendationService.computeNeutroDerivado(catalogo, perfil)).toBe(12.5);
+    });
+  });
 });
 
 /**
@@ -2176,6 +2237,54 @@ describe('recomendacoes', () => {
 
       expect(idsAcao.indexOf(String(serieAcao._id))).toBeLessThan(idsAcao.indexOf(String(serieRomance._id)));
       expect(idsRomance.indexOf(String(serieRomance._id))).toBeLessThan(idsRomance.indexOf(String(serieAcao._id)));
+    });
+
+    /**
+     * Item 2 (achado A2, fix round): antes deste fix, obra SEM tags recebia
+     * 12,5 pts FIXOS de afinidade — se TODA afinidade real do catálogo fosse
+     * baixa (leitor sem match forte com nada), o 12,5 fixo podia superar a
+     * MELHOR afinidade real e a obra sem tags "abria o feed" (ficava em
+     * PRIMEIRO), à frente de obras que o leitor de fato demonstrou gostar.
+     * Com o neutro DERIVADO (média das afinidades reais do catálogo), isso é
+     * matematicamente impossível: a média nunca supera o máximo dos valores
+     * que a compõem — a obra sem tags nunca pode desbancar a obra de maior
+     * afinidade real por causa do placeholder.
+     */
+    it('Item 2 (fix round, achado A2): obra SEM tags nunca "abre o feed" — não desbanca a obra de maior afinidade REAL do catálogo por causa do neutro', async () => {
+      // Perfil via progresso de leitura (peso 1) em 3 obras de OUTRO
+      // content_type (vcine) — fora do catálogo desta recomendação (hiqua),
+      // então elas não competem na lista, só alimentam o perfil.
+      const tema1 = ['tema1fx', 'p1a', 'p1b', 'p1c', 'p1d'];
+      const tema2 = ['tema2fx', 'p2a', 'p2b', 'p2c', 'p2d'];
+      const tema3 = ['tema3fx', 'p3a', 'p3b', 'p3c', 'p3d'];
+      const perfilSerie1 = await Series.create({ title: 'Perfil Tema1', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: tema1 });
+      const perfilSerie2 = await Series.create({ title: 'Perfil Tema2', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: tema2 });
+      const perfilSerie3 = await Series.create({ title: 'Perfil Tema3', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: tema3 });
+
+      const leitor = new mongoose.Types.ObjectId();
+      await ReadingProgress.create({ userId: leitor, seriesId: perfilSerie1._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'vcine', percent: 0.5 });
+      await ReadingProgress.create({ userId: leitor, seriesId: perfilSerie2._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'vcine', percent: 0.5 });
+      await ReadingProgress.create({ userId: leitor, seriesId: perfilSerie3._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'vcine', percent: 0.5 });
+
+      // Catálogo da recomendação (hiqua): obra que bate um POUCO dos 3 temas
+      // (maior afinidade real do catálogo, mas ainda MODESTA), obra que não
+      // bate nada (afinidade 0), e uma obra SEM tags nenhuma.
+      const serieAlta = await criarSerie({ title: 'Catalogo Alta', tags: ['tema1fx', 'tema2fx', 'tema3fx', 'extra1', 'extra2'] });
+      const serieBaixa = await criarSerie({ title: 'Catalogo Baixa', tags: ['temaforadoperfil', 'q1', 'q2', 'q3', 'q4'] });
+      const serieSemTags = await criarSerie({ title: 'Catalogo Sem Tags' });
+      // Nenhum SeriesScore criado — valorOrdenacao = afinidade pura (parteDaObra×confidence = 0 para todas).
+
+      const resultado = await recommendationService.buildRecommendations({ contentType: 'hiqua', userId: leitor });
+      const ids = resultado.map((s) => String(s._id));
+
+      // serieAlta tem a MAIOR afinidade real do catálogo hiqua (bate 3 das
+      // 15 tags do perfil) — é, por construção, a primeira da cota
+      // "consolidadas" e por isso SEMPRE o primeiro item da lista final.
+      expect(ids[0]).toBe(String(serieAlta._id));
+      // serieSemTags (neutro = média de serieAlta e serieBaixa, estritamente
+      // MENOR que a afinidade de serieAlta sozinha) nunca pode ocupar essa
+      // primeira posição.
+      expect(ids.indexOf(String(serieSemTags._id))).toBeGreaterThan(0);
     });
 
     it('série publicada SEM SeriesScore ainda aparece na lista (não some do feed)', async () => {

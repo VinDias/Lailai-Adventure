@@ -1145,6 +1145,45 @@ function reconstituirParteDaObra(scoreFinal) {
 }
 
 /**
+ * FIX ROUND da revisão final do Bloco 4 (achado ALTO A2): neutro DERIVADO
+ * para série SEM tags, em vez do 12,5 fixo de `computeAfinidade`.
+ *
+ * Divisão de responsabilidade (ruling): `computeAfinidade` (função pura,
+ * SEM alteração neste fix) continua sendo a fonte de verdade da afinidade de
+ * uma obra COM tags — sobreposição normalizada, ou 12,5 quando o LEITOR não
+ * tem perfil algum. O neutro de uma obra SEM tags não é mais aquela mesma
+ * constante fixa: é a MÉDIA das afinidades já calculadas das obras COM tags
+ * do MESMO request — só `buildRecommendations` (que enxerga a lista inteira)
+ * tem essa informação, por isso o cálculo mora aqui, não em `computeAfinidade`.
+ *
+ * Por quê: 12,5 fixo era o teto TEÓRICO de uma obra sem tags, mas o teto REAL
+ * de um leitor com histórico diverso é bem menor — a sobreposição máxima
+ * possível é a soma dos pesos das tags que aparecem numa ÚNICA obra dividida
+ * pela soma TOTAL do perfil (várias obras/temas), quase sempre < 1. Com o
+ * neutro fixo em 12,5, um acervo com curadoria incompleta "abria o feed"
+ * para as obras sem tags, empurrando pra trás obras que o leitor
+ * DEMONSTRAVELMENTE gosta. Com o neutro derivado, a obra sem tags intercala
+ * no nível TÍPICO daquele leitor — nunca acima nem abaixo da média do que
+ * ele já demonstrou.
+ *
+ * Casos onde o neutro derivado degrada para o 12,5 fixo (mesmo comportamento
+ * de hoje, sem regressão):
+ *  - leitor SEM perfil (`perfil` vazio) — toda obra com tags já cai no 12,5
+ *    de `computeAfinidade` (sem histórico pra comparar), então a MÉDIA delas
+ *    também é 12,5 — nenhum código especial precisa checar isso à parte;
+ *  - catálogo do request SEM NENHUMA obra tagueada — não há afinidade
+ *    nenhuma calculada pra tirar média; cai no `NEUTRO_AFINIDADE` fixo.
+ */
+function computeNeutroDerivado(series, perfil) {
+  const afinidadesComTags = series
+    .filter((serie) => (serie.tags || []).length > 0)
+    .map((serie) => computeAfinidade(serie, perfil));
+  if (afinidadesComTags.length === 0) return NEUTRO_AFINIDADE;
+  const soma = afinidadesComTags.reduce((acc, valor) => acc + valor, 0);
+  return soma / afinidadesComTags.length;
+}
+
+/**
  * Monta a recomendação 50/30/20 de um `content_type` — a função que JUNTA
  * tudo (spec, "Distribuição 50/30/20" + "Rotas"):
  *
@@ -1161,9 +1200,13 @@ function reconstituirParteDaObra(scoreFinal) {
  *    trate como scoreFinal 0/confidence 0 mas NÃO exclua a série"); ela ainda
  *    entra no catálogo e pode aparecer pela Afinidade ou pela degradação das
  *    cotas.
- * 3. Cotas 50/30/20 (`montarCotas`) + diversidade (`intercalarCotas` +
+ * 3. Afinidade: obras COM tags usam `computeAfinidade` direto; obras SEM
+ *    tags usam o neutro DERIVADO de `computeNeutroDerivado` acima (fix round
+ *    da revisão final, achado A2) — calculado UMA vez por request, reusado
+ *    pra todas as obras sem tags dele.
+ * 4. Cotas 50/30/20 (`montarCotas`) + diversidade (`intercalarCotas` +
  *    `aplicarDiversidade`).
- * 4. Devolve as séries no MESMO shape do `GET /series` (lean, SEM os campos
+ * 5. Devolve as séries no MESMO shape do `GET /series` (lean, SEM os campos
  *    internos `potentialScore`/`valorOrdenacao` usados só pra ordenar — spec,
  *    "Fora de escopo": "Potential/Confidence expostos na API pública" fica
  *    de fora).
@@ -1179,12 +1222,14 @@ async function buildRecommendations({ contentType, userId, anonymousId, agora = 
   const scorePorSerie = new Map(scores.map((s) => [String(s.seriesId), s]));
 
   const perfil = await computeAffinityProfile({ userId, anonymousId });
+  const neutroDerivado = computeNeutroDerivado(series, perfil);
 
   const enriquecidas = series.map((serie) => {
     const score = scorePorSerie.get(String(serie._id));
     const parteDaObra = reconstituirParteDaObra(score?.scoreFinal || 0);
     const confidence = score?.confidence || 0;
-    const afinidade = computeAfinidade(serie, perfil);
+    const temTags = (serie.tags || []).length > 0;
+    const afinidade = temTags ? computeAfinidade(serie, perfil) : neutroDerivado;
     return {
       ...serie,
       potentialScore: score?.potentialScore || 0,
@@ -1224,6 +1269,7 @@ module.exports = {
   pararVarreduraPeriodica,
   computeAffinityProfile,
   computeAfinidade,
+  computeNeutroDerivado,
   montarCotas,
   intercalarCotas,
   aplicarDiversidade,
