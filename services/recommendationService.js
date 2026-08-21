@@ -981,8 +981,15 @@ const NEUTRO_AFINIDADE = ESCALA_AFINIDADE / 2; // "sem histórico → 12,5 pts n
  * em nenhuma das 4 fontes: devolve `{}` (perfil vazio) — `computeAfinidade`
  * trata isso como "sem histórico" (12,5 pts neutros pra toda série).
  */
-async function computeAffinityProfile({ userId, anonymousId } = {}) {
+async function computeAffinityProfileCompleto({ userId, anonymousId } = {}) {
   const perfil = {};
+  // Séries com QUALQUER interação do leitor (as mesmas 4 fontes do perfil) —
+  // usadas pelo neutro derivado para excluir da média o que ele JÁ consumiu
+  // (observação 1 da re-revisão final): as obras lidas são sistematicamente
+  // as de maior afinidade (as tags delas estão no perfil justamente porque
+  // foram lidas), então incluí-las inflava o neutro acima da melhor obra
+  // AINDA NÃO lida em catálogos quase todo consumidos.
+  const seriesConsumidas = new Set();
   const fontes = [];
 
   if (userId) {
@@ -998,6 +1005,7 @@ async function computeAffinityProfile({ userId, anonymousId } = {}) {
   for (const { model, filtro, peso } of fontes) {
     const seriesIds = await model.distinct('seriesId', filtro);
     if (!seriesIds.length) continue;
+    for (const id of seriesIds) seriesConsumidas.add(String(id));
     const series = await Series.find({ _id: { $in: seriesIds } }, 'tags').lean();
     for (const serie of series) {
       for (const tag of serie.tags || []) {
@@ -1006,6 +1014,12 @@ async function computeAffinityProfile({ userId, anonymousId } = {}) {
     }
   }
 
+  return { perfil, seriesConsumidas };
+}
+
+/** Compatibilidade: quem só precisa do histograma (testes/chamadas avulsas). */
+async function computeAffinityProfile(identidade = {}) {
+  const { perfil } = await computeAffinityProfileCompleto(identidade);
   return perfil;
 }
 
@@ -1269,13 +1283,21 @@ function reconstituirParteDaObra(scoreFinal) {
  *  - catálogo do request SEM NENHUMA obra tagueada — não há afinidade
  *    nenhuma calculada pra tirar média; cai no `NEUTRO_AFINIDADE` fixo.
  */
-function computeNeutroDerivado(series, perfil) {
-  const afinidadesComTags = series
-    .filter((serie) => (serie.tags || []).length > 0)
-    .map((serie) => computeAfinidade(serie, perfil));
-  if (afinidadesComTags.length === 0) return NEUTRO_AFINIDADE;
-  const soma = afinidadesComTags.reduce((acc, valor) => acc + valor, 0);
-  return soma / afinidadesComTags.length;
+function computeNeutroDerivado(series, perfil, seriesConsumidas = null) {
+  const comTags = series.filter((serie) => (serie.tags || []).length > 0);
+  // Exclui da média as obras que o leitor JÁ consumiu (observação 1 da
+  // re-revisão final): a média deve refletir o que ele encontraria de NOVO.
+  // Se ele já leu TODAS as tagueadas, cai na média completa — é o único
+  // sinal disponível e, nesse estado, a disputa é entre obras já lidas.
+  let base = comTags;
+  if (seriesConsumidas && seriesConsumidas.size > 0) {
+    const naoConsumidas = comTags.filter((serie) => !seriesConsumidas.has(String(serie._id)));
+    if (naoConsumidas.length > 0) base = naoConsumidas;
+  }
+  if (base.length === 0) return NEUTRO_AFINIDADE;
+  const afinidades = base.map((serie) => computeAfinidade(serie, perfil));
+  const soma = afinidades.reduce((acc, valor) => acc + valor, 0);
+  return soma / afinidades.length;
 }
 
 /**
@@ -1316,8 +1338,8 @@ async function buildRecommendations({ contentType, userId, anonymousId, agora = 
   const scores = await SeriesScore.find({ seriesId: { $in: series.map((s) => s._id) } }).lean();
   const scorePorSerie = new Map(scores.map((s) => [String(s.seriesId), s]));
 
-  const perfil = await computeAffinityProfile({ userId, anonymousId });
-  const neutroDerivado = computeNeutroDerivado(series, perfil);
+  const { perfil, seriesConsumidas } = await computeAffinityProfileCompleto({ userId, anonymousId });
+  const neutroDerivado = computeNeutroDerivado(series, perfil, seriesConsumidas);
 
   const enriquecidas = series.map((serie) => {
     const score = scorePorSerie.get(String(serie._id));
@@ -1363,6 +1385,7 @@ module.exports = {
   iniciarVarreduraPeriodica,
   pararVarreduraPeriodica,
   computeAffinityProfile,
+  computeAffinityProfileCompleto,
   computeAfinidade,
   computeNeutroDerivado,
   montarCotas,

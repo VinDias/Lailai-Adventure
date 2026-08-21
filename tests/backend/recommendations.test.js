@@ -1584,6 +1584,88 @@ describe('composicao', () => {
  * um ganho marginal. Os outros 5 gatilhos cobrem os sinais fortes; a
  * varredura de 24h absorve a deriva orgânica de views/releituras.
  */
+describe('neutro derivado exclui obras ja consumidas', () => {
+  beforeEach(() => db.clearDatabase());
+
+  it('leitor que leu quase todo o acervo tagueado: obra sem tags NAO fica acima da melhor tagueada ainda nao lida', async () => {
+    const recommendationService = require('../../services/recommendationService');
+    const Series = require('../../models/Series');
+    const ReadingProgress = require('../../models/ReadingProgress');
+    const Episode = require('../../models/Episode');
+    const mongoose = require('mongoose');
+
+    // 4 obras de terror tagueadas + 1 sem tags, mesmo tipo.
+    const tagueadas = [];
+    for (let i = 0; i < 4; i++) {
+      tagueadas.push(await Series.create({
+        title: `Terror Patologico ${i}`, genre: 'Terror', content_type: 'hiqua',
+        isPublished: true, tags: ['terror', 'sobrenatural', 'suspense', 'noir', `unica${i}`],
+      }));
+    }
+    const semTags = await Series.create({
+      title: 'Legado Patologico', genre: 'Legado', content_type: 'hiqua', isPublished: true,
+    });
+
+    // O leitor anonimo leu 3 das 4 tagueadas (a 4a e a "melhor nao lida").
+    const anonymousId = '99999999-8888-4777-a666-555555555555';
+    for (const serie of tagueadas.slice(0, 3)) {
+      const ep = await Episode.create({
+        seriesId: serie._id, episode_number: 1, title: 'Cap 1', duration: 300,
+        panels: [{ image_url: 'https://exemplo.local/p.png', order: 0 }],
+      });
+      await ReadingProgress.create({
+        anonymousId, seriesId: serie._id, episodeId: ep._id,
+        contentType: 'hiqua', percent: 0.95, position: 285,
+      });
+    }
+
+    const { perfil, seriesConsumidas } = await recommendationService.computeAffinityProfileCompleto({ anonymousId });
+    expect(seriesConsumidas.size).toBe(3);
+
+    const todas = await Series.find({ content_type: 'hiqua', isPublished: true }).lean();
+    const neutro = recommendationService.computeNeutroDerivado(todas, perfil, seriesConsumidas);
+    const naoLida = todas.find((s) => String(s._id) === String(tagueadas[3]._id));
+    const afinidadeNaoLida = recommendationService.computeAfinidade(naoLida, perfil);
+
+    // O neutro vem SO da nao lida (as 3 consumidas ficam fora da media) —
+    // igual, nunca acima, da melhor obra tagueada que o leitor ainda nao leu.
+    expect(neutro).toBeCloseTo(afinidadeNaoLida, 10);
+    expect(neutro).toBeLessThanOrEqual(afinidadeNaoLida + 1e-9);
+
+    // Sem a exclusao (media completa, comportamento antigo), o neutro ficaria
+    // ACIMA da nao lida — e o que este teste impede de regredir.
+    const neutroAntigo = recommendationService.computeNeutroDerivado(todas, perfil, null);
+    expect(neutroAntigo).toBeGreaterThan(afinidadeNaoLida);
+  });
+
+  it('leitor que leu TODAS as tagueadas: cai na media completa (unico sinal disponivel)', async () => {
+    const recommendationService = require('../../services/recommendationService');
+    const Series = require('../../models/Series');
+    const ReadingProgress = require('../../models/ReadingProgress');
+    const Episode = require('../../models/Episode');
+
+    const serie = await Series.create({
+      title: 'Unica Tagueada', genre: 'Terror', content_type: 'hiqua',
+      isPublished: true, tags: ['terror', 'sobrenatural', 'suspense', 'noir', 'gotico'],
+    });
+    const ep = await Episode.create({
+      seriesId: serie._id, episode_number: 1, title: 'Cap 1', duration: 300,
+      panels: [{ image_url: 'https://exemplo.local/p.png', order: 0 }],
+    });
+    const anonymousId = '99999999-8888-4777-a666-444444444444';
+    await ReadingProgress.create({
+      anonymousId, seriesId: serie._id, episodeId: ep._id,
+      contentType: 'hiqua', percent: 0.95, position: 285,
+    });
+
+    const { perfil, seriesConsumidas } = await recommendationService.computeAffinityProfileCompleto({ anonymousId });
+    const todas = await Series.find({ content_type: 'hiqua', isPublished: true }).lean();
+    const neutro = recommendationService.computeNeutroDerivado(todas, perfil, seriesConsumidas);
+    // Todas as tagueadas consumidas -> fallback para a media completa (a propria serie lida).
+    expect(neutro).toBeCloseTo(recommendationService.computeAfinidade(todas.find((s) => (s.tags || []).length > 0), perfil), 10);
+  });
+});
+
 describe('buildQualidadeContexto com filtro de tipo', () => {
   it('filtrado por content_type devolve os MESMOS maximos do tipo que a varredura completa (achado da revisao da T8)', async () => {
     const recommendationService = require('../../services/recommendationService');
