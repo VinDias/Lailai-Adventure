@@ -27,6 +27,7 @@ Séries de conteúdo (container de episódios).
 - `translations` — `{ en|es|zh: { genre, description } }`, preenchido automaticamente pelo `translationService` no save (título NÃO é traduzido — decisão do cliente)
 - `channelId` (Fase 3) — ref ao `Channel` do ilustrador; agrupa a obra no relatório de royalties
 - `releaseDay` (Fase 4, Bloco 2) — dia da semana quando novos episódios são esperados (0–6: Dom–Sáb, ou null); usado pela agenda `GET /api/content/agenda` (não há notificação programada — o push de capítulo novo dispara na publicação, não no releaseDay)
+- `tags` (Fase 4, Bloco 4) — `[String]`, `default: []`; alimenta a Afinidade do algoritmo de recomendação (`services/recommendationService.js`), **nunca exibida ao leitor** (`genre` continua sendo o rótulo visível). Validação (`validateTags`): **0 ou 5–15** tags, todas strings não vazias — 0 = obra antiga ainda sem curadoria, mínimo 5 só quando a obra recebe tags (evita curadoria parcial distorcer o perfil de afinidade). Normalização (`normalizeTags`, trim + minúsculas + dedupe) vive no **setter** do schema, não em `pre('validate')` — `findByIdAndUpdate(..., { runValidators: true })` roda setters no cast do update mas NÃO dispara hooks de documento, então só o setter cobre create E update
 
 ### `Episode.js`
 Episódios de uma série.
@@ -118,6 +119,20 @@ Registro de apoio direto ao autor de uma obra — criado **só no webhook** do S
 - `period` — `String` `'YYYY-MM'`, `required`; mês do **pagamento** (webhook), não da criação da sessão
 - `timestamps: true`
 - Índices (3): `stripeSessionId` unique (implícito do `unique: true` no campo); `{ channelId: 1, period: 1 }` (soma do relatório admin por canal/período); `{ userId: 1 }` (lista das próprias contribuições em `GET /api/superreader/me`)
+
+### `SeriesScore.js` (Fase 4, Bloco 4)
+Score pré-computado por obra — algoritmo de recomendação (`services/recommendationService.js`). **1 documento por série** (`seriesId` unique). Guarda só os componentes calculáveis SEM o contexto do leitor — Qualidade + Retenção + Descoberta = "parte por obra" (65 pts); Afinidade (25 pts, por leitor) e Diversidade (10 pts, pela lista) NÃO entram aqui, são calculadas no request.
+- `seriesId` — ref `Series`, `required`, **unique**
+- `contentType` — denormalizado de `Series.content_type`, só para a varredura por tipo não precisar de `$lookup`
+- `scoreFinal` — `Number 0–100`: reescala `(qualidade+retencao+descoberta)/65×100`, **JÁ APÓS** as penalizações. A ORDENAÇÃO da recomendação usa os **componentes crus** (65 pts + afinidade 25), não este reescalado — ele é só exibição/painel/a escala 0–100 do PDF
+- `qualidade` (0–30), `retencao` (0–25), `descoberta` (0–10) — componentes crus, pré-penalização
+- `potentialScore` — `Number 0–100`, escala própria (não soma com os 65 pts)
+- `confidence` — `Number 0–1` (`n/(n+20)`); NÃO altera `scoreFinal` nem `potentialScore`, usado só na ordenação da recomendação
+- `leitoresUnicos` — `Number`, identidades distintas (`userId` OU `anonymousId`) em `ReadingProgress` da série
+- `penalizacoes` — `[String]`, ex. `['retencao_baixa']`; vazio = nenhuma aplicada
+- `computedAt` — `Date` da última varredura/recálculo desta série
+- `timestamps: true`
+- Índices (2): `seriesId` unique (implícito); `{ contentType: 1, scoreFinal: -1 }` — varredura por tipo ordenada pelo melhor score (feeds e timer de 24h consultam por aqui)
 
 ---
 

@@ -7,10 +7,11 @@ const SeriesVote = require('../models/SeriesVote');
 const verifyToken = require('../middlewares/verifyToken');
 const requireAdmin = require('../middlewares/requireAdmin');
 const optionalAuth = require('../middlewares/optionalAuth');
+const getIdentity = require('../utils/requestIdentity');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 
-const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay'];
+const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags'];
 const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
   'audioTrack1Url', 'audioTrack1Lang', 'audioTrack2Url', 'audioTrack2Lang', 'audioTrack3Url', 'audioTrack3Lang', 'audioTrack4Url', 'audioTrack4Lang'];
 
@@ -128,7 +129,7 @@ router.get('/series/:id', async (req, res) => {
 // POST /api/content/series — criar série (admin)
 router.post('/series', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay } = req.body;
+    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay, tags } = req.body;
     if (!title || !genre || !content_type) {
       return res.status(400).json({ error: 'title, genre e content_type são obrigatórios.' });
     }
@@ -139,13 +140,19 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
     const translations = await translationService.buildTranslationsSafe({ genre, description }, `série "${title}"`);
 
     const series = await Series.create({
-      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay,
+      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay, tags,
       ...(channelId ? { channelId } : {}),
       ...(translations ? { translations } : {})
     });
     logger.info(`[Admin] Série criada: ${title}`);
     res.status(201).json(series);
   } catch (err) {
+    // tags (Bloco 4) tem validação no schema (0 ou 5–15, ver models/Series.js)
+    // — sem este tratamento, ValidationError cairia no catch genérico e
+    // viraria 500 em vez de 400.
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
+    }
     logger.error('[Content] POST /series', err);
     res.status(500).json({ error: 'Erro ao criar série.' });
   }
@@ -189,6 +196,12 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
 
     res.json(series);
   } catch (err) {
+    // Mesmo tratamento do POST: tags inválidas (0 ou 5–15, ver models/Series.js)
+    // geram ValidationError no runValidators do findByIdAndUpdate — sem isto
+    // cairia no catch genérico e viraria 500 em vez de 400.
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
+    }
     logger.error('[Content] PUT /series/:id', err);
     res.status(500).json({ error: 'Erro ao atualizar série.' });
   }
@@ -204,6 +217,12 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
  * muitos episódios e publicar a série nunca deve esperar o envio.
  */
 function redispararNotificacoesDaSerie(seriesId) {
+  // Gatilho de recálculo (Etapa 11 do PDF, ledger Task 5): a série voltou a
+  // publicar — mesmo ponto de disparo do push acima, 3º dos 6 "capítulo
+  // publicado" (a republicação de série é o que reativa capítulos que
+  // ficaram represados). Fire-and-forget, molde do Bloco 2.
+  require('../services/recommendationService').dispararRecalculo(seriesId, 'capitulo_publicado');
+
   (async () => {
     const notificationService = require('../services/notificationService');
     const episodios = await Episode.find({
@@ -247,6 +266,50 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
+// ─── RECOMMENDATIONS ────────────────────────────────────────────────────────
+
+const RECOMMENDATION_CONTENT_TYPES = ['hqcine', 'vcine', 'hiqua'];
+
+// GET /api/content/recommendations?type=hqcine|vcine|hiqua — Fase 4, Bloco 4
+// (Etapa 10 do PDF): lista de séries publicadas do tipo, na ordem da
+// recomendação 50/30/20 (services/recommendationService.buildRecommendations).
+// `optionalAuth` + a MESMA identidade anônima do progresso (Bloco 1,
+// utils/requestIdentity — header X-Anonymous-Id, ver routes/progress.js)
+// alimentam a Afinidade do leitor. QUALQUER falha do serviço (score ausente,
+// agregação, o que for) NUNCA vira 500 — degrada para a MESMA query manual
+// do GET /series acima (spec, seção "Rotas": "NUNCA 500 por falha de score —
+// degrada para a ordem manual"; ledger P3).
+router.get('/recommendations', optionalAuth, async (req, res) => {
+  const { type } = req.query;
+  if (!RECOMMENDATION_CONTENT_TYPES.includes(type)) {
+    return res.status(400).json({ error: `type é obrigatório e deve ser um de: ${RECOMMENDATION_CONTENT_TYPES.join(', ')}.` });
+  }
+
+  const identity = getIdentity(req) || {};
+
+  try {
+    const recomendadas = await require('../services/recommendationService').buildRecommendations({
+      contentType: type,
+      userId: identity.userId,
+      anonymousId: identity.anonymousId,
+    });
+    return res.json(recomendadas);
+  } catch (err) {
+    logger.error('[Content] GET /recommendations — degradando para a ordem manual', err);
+    try {
+      const fallback = await Series.find({ isPublished: true, content_type: type })
+        .sort({ order_index: 1, createdAt: -1 })
+        .lean();
+      return res.json(fallback);
+    } catch (fallbackErr) {
+      // A própria query de fallback falhou (ex.: banco fora do ar) — aí sim
+      // não há mais degradação possível.
+      logger.error('[Content] GET /recommendations — fallback também falhou', fallbackErr);
+      return res.status(500).json({ error: 'Erro ao buscar recomendações.' });
+    }
+  }
+});
+
 // ─── EPISODES ───────────────────────────────────────────────────────────────
 
 // GET /api/content/series/:id/episodes — episódios de uma série
@@ -282,6 +345,25 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
 
     // Telemetria de royalties (fire-and-forget): webtoon conta como leitura,
     // vídeo como view. Dedupe/anti-fraude ficam no engagementLogger.
+    //
+    // DECISÃO (Task 5, ledger — gatilho de recálculo "view/read" da Etapa 11
+    // do PDF): NÃO dispara recommendationService.dispararRecalculo aqui. Esta
+    // é a rota de MAIOR volume do backend inteiro — toda abertura de
+    // episódio passa por ela — e computeSeriesScore refaz o contexto de
+    // normalização varrendo o catálogo publicado do MESMO content_type,
+    // custo real O(catálogo do tipo) por gatilho (CORRIGIDO na revisão da T8
+    // e de novo no fix round da revisão final, Item 4 — a estimativa antiga
+    // deste comentário, "~10 agregações", estava errada; ver nota completa
+    // em services/progressService.js, dispararSeConcluido). Mesmo um cheque
+    // barato de "computedAt > 1h" antes de decidir ainda seria uma query
+    // extra na rota mais quente do app, por um ganho marginal: o efeito de
+    // UMA view isolada no score é minúsculo, e nenhum dado se perde (o
+    // EngagementEvent é gravado de qualquer jeito, logo abaixo — a
+    // releitura fica disponível para o próximo cálculo). Os outros 5
+    // gatilhos (voto, favorito, Super Reader, conclusão de leitura, capítulo
+    // publicado) cobrem os sinais fortes de imediato; a varredura periódica
+    // de 24h (services/recommendationService.iniciarVarreduraPeriodica)
+    // absorve a deriva orgânica de views/releituras ao longo do tempo.
     if (episode.seriesId) {
       const engagementLogger = require('../services/engagementLogger');
       engagementLogger.logEvent({
@@ -325,6 +407,10 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
       require('../services/notificationService')
         .notifyEpisodePublished(episode._id)
         .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+
+      // 1º dos 6 pontos de disparo do push (Task 5, ledger): mesmo gatilho
+      // de recálculo, mesmo molde fire-and-forget.
+      require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
     }
 
     res.status(201).json(episode);
@@ -359,6 +445,9 @@ router.put('/episodes/:id', verifyToken, requireAdmin, async (req, res) => {
       require('../services/notificationService')
         .notifyEpisodePublished(episode._id)
         .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+
+      // 2º dos 6 pontos de disparo do push (Task 5, ledger).
+      require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
     }
 
     res.json(episode);
@@ -403,6 +492,9 @@ router.post('/episodes/:id/panels', verifyToken, requireAdmin, async (req, res) 
       require('../services/notificationService')
         .notifyEpisodePublished(episode._id)
         .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+
+      // 4º dos 6 pontos de disparo do push (Task 5, ledger).
+      require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
     }
 
     res.json({ success: true, panelCount: episode.panels.length, episode });
@@ -531,10 +623,21 @@ router.post('/series/:id/vote', verifyToken, async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     res.json({ success: true, type: vote.type });
+
+    // Gatilho de recálculo (Etapa 11 do PDF, ledger Task 5): dispara SEMPRE.
+    // O upsert acima não distingue "voto novo" de "voto repetido/trocado"
+    // sem uma leitura extra antes de escrever — a spec autoriza "se a rota
+    // não distingue, dispare sempre e documente" (barato e idempotente:
+    // recalcular de novo com o mesmo voto não muda o resultado).
+    require('../services/recommendationService').dispararRecalculo(req.params.id, 'voto_serie');
   } catch (err) {
     // Corrida de upsert (dois primeiros-votos simultâneos) gera E11000:
     // o voto foi gravado pela outra requisição — sucesso idempotente.
-    if (err && err.code === 11000) return res.json({ success: true, type: req.body.type });
+    if (err && err.code === 11000) {
+      res.json({ success: true, type: req.body.type });
+      require('../services/recommendationService').dispararRecalculo(req.params.id, 'voto_serie');
+      return;
+    }
     logger.error('[Content] POST /series/:id/vote', err);
     res.status(500).json({ error: 'Erro ao registrar voto.' });
   }

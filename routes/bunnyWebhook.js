@@ -92,6 +92,9 @@ router.post('/webhook', express.json(), verifyBunnyWebhook, async (req, res) => 
         require('../services/notificationService')
           .notifyEpisodePublished(episode._id)
           .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+
+        // 5º dos 6 pontos de disparo do push (Task 5, ledger).
+        require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
       }
     } else {
       logger.warn(`[Bunny Webhook] Nenhum episódio encontrado com bunnyVideoId: ${VideoGuid}`);
@@ -467,6 +470,9 @@ router.get('/video-status/:videoId', (req, res) => {
           require('../services/notificationService')
             .notifyEpisodePublished(episode._id)
             .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+
+          // 6º dos 6 pontos de disparo do push (Task 5, ledger).
+          require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
         }
 
         res.json({ bunnyStatus: video.status, mongoStatus, episode });

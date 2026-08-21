@@ -18,6 +18,42 @@ async function aplicarEsalvar(doc, { seriesId, contentType, percent, position })
   return doc;
 }
 
+/**
+ * Gatilho de recálculo (Etapa 11 do PDF, Fase 4 Bloco 4, Task 5): "conclusão
+ * de leitura" — dispara quando o documento SALVO tem `completed: true`.
+ * NÃO é "todo save": `saveProgress` é chamado a cada scroll do leitor (a
+ * maioria dos saves tem `completed: false` — não dispara nada). Releitura de
+ * quem já concluiu pode re-disparar (o doc continua `completed: true` num
+ * save seguinte) — aceito e documentado (ledger): `computeSeriesScore`
+ * recomputa do zero, sem efeito colateral CUMULATIVO em rodar de novo
+ * (idempotente). Fire-and-forget, molde do push do Bloco 2 — nunca lança,
+ * nunca atrasa a resposta de `saveProgress`.
+ *
+ * CORREÇÃO (fix round da revisão final do Bloco 4, Item 4): um comentário
+ * anterior chamava esse re-disparo de "barato", herdado da estimativa
+ * original da T5 ("~10 agregações" por recálculo — ver nota antiga em
+ * `routes/content.js`). Essa estimativa estava ERRADA desde a T8: cada
+ * `computeSeriesScore` avulso reconstrói o contexto de normalização varrendo
+ * o catálogo publicado do MESMO `content_type` (`buildQualidadeContexto`),
+ * custo real O(catálogo do tipo) por gatilho — medido em ~142 queries com um
+ * catálogo de 20 obras, ANTES da otimização deste fix round. O Item 4 fez
+ * `computeQualidade`/`computePotential` reusarem as métricas que esse scan
+ * já calcula (`contexto.porSerie`) em vez de recomputar a PRÓPRIA série mais
+ * duas vezes — elimina 2 das N+2 chamadas de `computeMetricasBrutas` por
+ * gatilho avulso (e, numa varredura completa via `computeAllScores`, elimina
+ * 2N das antigas 3N chamadas totais). O custo estrutural O(catálogo do tipo)
+ * em si CONTINUA — não dá pra evitar sem persistir métricas por série (fora
+ * de escopo, spec "Fora de escopo") — por isso "idempotente e aceito", não
+ * mais "barato": é uma releitura tolerada apesar do custo real, não porque
+ * o custo seja baixo.
+ */
+function dispararSeConcluido(resultado, seriesId) {
+  if (resultado.completed) {
+    require('./recommendationService').dispararRecalculo(seriesId, 'progresso_concluido');
+  }
+  return resultado;
+}
+
 /** Salva (ou atualiza) o progresso de um episódio para a identidade dada. */
 async function saveProgress(identity, dados) {
   const { seriesId, episodeId, contentType, percent, position = 0 } = dados;
@@ -45,11 +81,14 @@ async function saveProgress(identity, dados) {
   // é quem calcula `completed` e garante a regra de identidade única.
   const doc = await ReadingProgress.findOne({ ...identity, episodeId });
   if (doc) {
-    return aplicarEsalvar(doc, { seriesId, contentType, percent, position });
+    return dispararSeConcluido(await aplicarEsalvar(doc, { seriesId, contentType, percent, position }), seriesId);
   }
 
   try {
-    return await ReadingProgress.create({ ...identity, seriesId, episodeId, contentType, percent, position });
+    return dispararSeConcluido(
+      await ReadingProgress.create({ ...identity, seriesId, episodeId, contentType, percent, position }),
+      seriesId,
+    );
   } catch (err) {
     // Corrida: outro PUT quase simultâneo (player que salva periodicamente, duas
     // abas ou dois aparelhos) criou o mesmo documento entre o nosso findOne e o
@@ -59,7 +98,7 @@ async function saveProgress(identity, dados) {
     if (err.code === 11000) {
       const concorrente = await ReadingProgress.findOne({ ...identity, episodeId });
       if (concorrente) {
-        return aplicarEsalvar(concorrente, { seriesId, contentType, percent, position });
+        return dispararSeConcluido(await aplicarEsalvar(concorrente, { seriesId, contentType, percent, position }), seriesId);
       }
     }
     throw err;

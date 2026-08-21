@@ -80,6 +80,21 @@ Apoio direto do leitor ao autor de uma obra (80% autor / 20% plataforma), separa
 
 ---
 
+## Algoritmo de Recomendação — Score e Tags (Fase 4, Bloco 4)
+
+Score por obra (0–100) e distribuição 50/30/20 nos 3 feeds (HQCine/VCine/Hi-Qua). Reaproveita a infraestrutura existente — **nenhuma variável de ambiente nova**.
+
+### Nenhum passo manual pós-deploy
+O primeiro boot depois do deploy já dispara a varredura inicial sozinho: `server.js` chama `recommendationService.iniciarVarreduraPeriodica()` ao conectar no MongoDB, que checa se existe alguma série publicada sem `SeriesScore` (ou com score vencido, mais velho que 24h) e, se sim, roda `computeAllScores()` em segundo plano — os scores **nascem sozinhos**, sem seed nem comando manual. Depois disso, a varredura se repete a cada 24h e cada ação forte (voto, favorito, Super Reader, capítulo publicado, conclusão de leitura) recalcula a obra afetada na hora.
+
+### Curadoria de tags é opcional e progressiva
+Tags internas (`Series.tags`) alimentam só a Afinidade do algoritmo — nunca aparecem para o leitor (o campo `genre` continua sendo o rótulo visível). Acervo sem tags (`tags: []`, o default) funciona normalmente: toda obra sem tags recebe **12,5 pts neutros** de Afinidade (metade dos 25 possíveis), em vez de ser penalizada por falta de curadoria. Adicionar tags a uma obra é opcional e pode ser feito aos poucos, série por série, no admin (chips no formulário de criar/editar série, mínimo 5 quando informadas) — não é passo obrigatório do deploy nem exige tocar o acervo inteiro de uma vez.
+
+### Setting de limiares de penalização NÃO existe
+Os limiares das penalizações (retenção baixa <30% da escala, abandono ≥60% dos leitores presos no capítulo 1, inatividade >60 dias sem capítulo novo) estão fixos em código (`services/recommendationService.js`) — **não existe** nenhuma chave em `Setting` nem rota para ajustá-los em produção. Registrado como dívida na spec (`docs/superpowers/specs/2026-08-20-algoritmo-recomendacao-design.md`, seção "Fora de escopo"); mudar um limiar hoje exige editar o código e fazer deploy.
+
+---
+
 ## Ativar Notificações Push na VPS
 
 ### Gerar Chaves VAPID (uma única vez)

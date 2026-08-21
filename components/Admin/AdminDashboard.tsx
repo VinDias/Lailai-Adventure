@@ -63,7 +63,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [newSeries, setNewSeries] = useState({
     title: '', genre: '', description: '',
     cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '',
-    releaseDay: null as number | null
+    releaseDay: null as number | null,
+    tags: [] as string[]
   });
   // Canais de ilustradores (Fase 3 — atribuição de royalties por obra)
   const [channels, setChannels] = useState<any[]>([]);
@@ -72,7 +73,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   // Edição de série existente (título/gênero/descrição sem recriar)
   const [editingSeries, setEditingSeries] = useState<any>(null);
-  const [editSeriesForm, setEditSeriesForm] = useState({ title: '', genre: '', description: '', isPremium: false, channelId: '', releaseDay: null as number | null });
+  const [editSeriesForm, setEditSeriesForm] = useState({ title: '', genre: '', description: '', isPremium: false, channelId: '', releaseDay: null as number | null, tags: [] as string[] });
   const [savingSeries, setSavingSeries] = useState(false);
   const [editSeriesMsg, setEditSeriesMsg] = useState('');
 
@@ -91,6 +92,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       isPremium: Boolean(item.isPremium),
       channelId: item.channelId ?? '',
       releaseDay: item.releaseDay === undefined ? null : item.releaseDay,
+      tags: Array.isArray(item.tags) ? item.tags : [],
     });
     setEditSeriesMsg('');
     api.listChannels().then(setChannels).catch(() => setChannels([]));
@@ -109,6 +111,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         description: editSeriesForm.description,
         isPremium: editSeriesForm.isPremium,
         releaseDay: editSeriesForm.releaseDay,
+        tags: editSeriesForm.tags,
         ...(editSeriesForm.channelId ? { channelId: editSeriesForm.channelId } : {}),
       });
       setContentList(prev => prev.map(s => (s._id || s.id) === id ? { ...s, ...updated } : s));
@@ -824,7 +827,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         } catch { /* não crítico */ }
       }
       setContentList(prev => [created, ...prev]);
-      setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '', releaseDay: null });
+      setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '', releaseDay: null, tags: [] });
       setCoverFile(null);
       setCreateMsg('Série criada com sucesso!');
       setTimeout(() => { setCreateMsg(''); setShowCreateModal(false); }, 1500);
@@ -1964,6 +1967,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <span className="text-sm font-bold text-[var(--text-color)]">Conteúdo Premium</span>
               </label>
 
+              <TagsChipInput value={newSeries.tags} onChange={tags => setNewSeries(s => ({ ...s, tags }))} />
+
               {/* Canal do ilustrador — atribuição de royalties (Fase 3) */}
               <div>
                 <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Canal / Ilustrador (royalties)</label>
@@ -2099,6 +2104,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                   {RELEASE_DAYS.map(d => <option key={d.value} value={d.value} className="bg-zinc-900 text-white">{d.label}</option>)}
                 </select>
               </div>
+              <TagsChipInput value={editSeriesForm.tags} onChange={tags => setEditSeriesForm(f => ({ ...f, tags }))} />
+
               <label className="flex items-center gap-3 cursor-pointer">
                 <input type="checkbox" checked={editSeriesForm.isPremium} onChange={e => setEditSeriesForm(f => ({ ...f, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
                 <span className="text-sm font-bold text-[var(--text-color)]">Conteúdo Premium</span>
@@ -2240,6 +2247,62 @@ const StatCard = ({ label, value, icon }: any) => (
     <div className="text-[10px] font-black text-zinc-500 uppercase mt-2 tracking-widest">{label}</div>
   </div>
 );
+
+// Tags internas do algoritmo de recomendação (Bloco 4) — nunca exibidas ao
+// leitor (genre segue sendo o rótulo visível). Chip input simples: digita e
+// Enter/vírgula adiciona, X remove. Minúsculas e dedupe replicam na borda da
+// UI a mesma normalização do backend (models/Series.js), só para feedback
+// imediato — quem valida de verdade é o model.
+const TagsChipInput = ({ value, onChange }: { value: string[]; onChange: (tags: string[]) => void }) => {
+  const [draft, setDraft] = useState('');
+
+  const addTag = (raw: string) => {
+    const limpa = raw.trim().toLowerCase();
+    if (!limpa || value.length >= 15 || value.includes(limpa)) { setDraft(''); return; }
+    onChange([...value, limpa]);
+    setDraft('');
+  };
+
+  const removeTag = (tag: string) => onChange(value.filter(t => t !== tag));
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      addTag(draft);
+    }
+  };
+
+  return (
+    <div>
+      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Tags internas (algoritmo de recomendação)</label>
+      <div className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-3 py-2 flex flex-wrap gap-2 items-center focus-within:border-rose-500 transition-colors">
+        {value.map(tag => (
+          <span key={tag} className="flex items-center gap-1 px-3 py-1 bg-rose-600/20 text-rose-400 rounded-full text-xs font-bold">
+            {tag}
+            <button type="button" onClick={() => removeTag(tag)} aria-label={`Remover tag ${tag}`} className="hover:text-white transition-colors">
+              <X size={12} />
+            </button>
+          </span>
+        ))}
+        <input
+          type="text"
+          aria-label="Adicionar tag"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={value.length === 0 ? 'Digite e pressione Enter...' : ''}
+          className="flex-1 min-w-[100px] bg-transparent text-[var(--text-color)] text-sm font-bold outline-none py-1"
+        />
+      </div>
+      <div className="flex items-center justify-between mt-1">
+        <p className="text-[10px] text-zinc-600 font-bold">{value.length}/15</p>
+        {value.length > 0 && value.length < 5 && (
+          <p className="text-[10px] text-amber-500 font-bold">Mínimo 5 quando usar tags</p>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const FormField = ({ label, value, onChange, required = false }: { label: string; value: string; onChange: (v: string) => void; required?: boolean }) => (
   <div>

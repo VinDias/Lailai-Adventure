@@ -10,9 +10,9 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `HQCine.tsx` | Navegação e seleção de episódios de quadrinhos cinematográficos (com banner de anúncio para free e curtida/favorito por obra) |
-| `VFilm.tsx` | Player e navegação de filmes verticais (VCine) |
-| `HiQua.tsx` | Navegação e seleção de séries de webtoon |
+| `HQCine.tsx` | Navegação e seleção de episódios de quadrinhos cinematográficos (com banner de anúncio para free e curtida/favorito por obra). Fase 4, Bloco 4: a grade carrega via `api.getRecommendations('hqcine')` (ordem do algoritmo de recomendação); erro OU lista vazia caem no fallback `api.getSeries()` filtrado por `content_type` (a ordem manual de hoje) — a recomendação nunca pode derrubar o feed |
+| `VFilm.tsx` | Player e navegação de filmes verticais (VCine). Fase 4, Bloco 4: mesmo padrão de carga do `HQCine.tsx` — `api.getRecommendations('vcine')` com fallback para `api.getSeries()` |
+| `HiQua.tsx` | Navegação e seleção de séries de webtoon. Fase 4, Bloco 4: mesmo padrão de carga do `HQCine.tsx` — `api.getRecommendations('hiqua')` com fallback para `api.getSeries()` |
 | `MyFavorites.tsx` | Tela "Meus Favoritos" — lista de obras favoritadas pela conta |
 
 > Removidos em jul/2026 (código morto, sem imports): `HQCineHome.tsx`, `ComicFeed.tsx`, `HiQuaFeed.tsx`, `UserTab.tsx`.
@@ -67,7 +67,7 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `Admin/AdminDashboard.tsx` | Painel administrativo completo — inclui estatísticas, gerenciamento de séries/episódios, uploads diretos para Bunny CDN, gestão de campanhas de anúncios, gerenciamento de usuários e rastreamento de pagamentos. Na seção de edição de série, novo campo `releaseDay` (select 0–6 ou null) para agenda e notificações push. |
+| `Admin/AdminDashboard.tsx` | Painel administrativo completo — inclui estatísticas, gerenciamento de séries/episódios, uploads diretos para Bunny CDN, gestão de campanhas de anúncios, gerenciamento de usuários e rastreamento de pagamentos. Na seção de edição de série, novo campo `releaseDay` (select 0–6 ou null) para agenda e notificações push. Fase 4, Bloco 4: componente interno `TagsChipInput` (não é arquivo próprio) nos formulários de criar/editar série — chips com Enter/vírgula, normaliza minúsculas no próprio `addTag` (o schema normaliza de novo no backend), bloqueia acima de 15 e dedupe no cliente, aviso "Mínimo 5 quando usar tags" abaixo de 5 chips (a validação de fato é no backend — `models/Series.js`) |
 
 ## UI Geral
 

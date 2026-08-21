@@ -16,7 +16,19 @@ dotenv.config();
 const mongoose = require('mongoose');
 
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/lorflux')
-  .then(() => console.log('✅ MongoDB conectado'))
+  .then(() => {
+    console.log('✅ MongoDB conectado');
+    // Fase 4, Bloco 4 (algoritmo): varredura periódica de 24h + varredura
+    // inicial se houver SeriesScore ausente/velho (ver
+    // services/recommendationService.js). Fire-and-forget e isolado nesta
+    // própria promise (não retornado, não encadeado no .catch abaixo) —
+    // uma falha aqui NUNCA pode derrubar o boot do servidor. A guarda
+    // `NODE_ENV === 'test'` já está dentro do serviço: testes que fazem
+    // `require('server')` não ganham timer.
+    require('./services/recommendationService')
+      .iniciarVarreduraPeriodica()
+      .catch(err => console.error('[Algoritmo] Falha ao iniciar varredura periodica', err));
+  })
   .catch(err => {
     console.error('❌ Erro ao conectar MongoDB:', err);
     process.exit(1);

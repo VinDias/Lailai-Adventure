@@ -13,6 +13,10 @@ vi.mock('../../components/Ads', () => ({ default: () => null }));
 vi.mock('../../services/api', () => ({
   api: {
     getSeries: vi.fn(),
+    // Fase 4 Bloco 4: os feeds tentam getRecommendations primeiro e caem no
+    // fallback getSeries acima quando não mockado (undefined) — mantém estes
+    // testes, escritos para o comportamento pré-algoritmo, passando intactos.
+    getRecommendations: vi.fn(),
     getSeriesContent: vi.fn(),
     getEpisodesBySeries: vi.fn(),
     getContinueList: vi.fn().mockResolvedValue([]),
