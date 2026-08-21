@@ -2435,6 +2435,105 @@ describe('recomendacoes', () => {
     });
   });
 
+  /**
+   * Achado MÉDIO M1 da revisão FINAL do Bloco 4 (fix round): a regra
+   * "alternar temas e estilos" (4ª regra de diversidade do PDF, Etapa 8) não
+   * existia no passe — só canal adjacente. RULING: predicado de conflito
+   * combinado `mesmoCanal(a,b) OU temaForte(a,b)`, onde `temaForte` = as
+   * duas têm tags E a interseção > 50% do MENOR conjunto de tags. Mesma
+   * mecânica de swap-forward de `aplicarDiversidade`; canal continua com
+   * precedência de fato porque a busca do candidato usa o MESMO predicado
+   * combinado (um candidato só é aceito se não bater nem por canal nem por
+   * tema — nunca cria colisão de canal nova).
+   */
+  describe('temaForte / conflitoAdjacente (Item 3, fix round da revisão final — achado M1)', () => {
+    it('exatamente 50% de interseção do MENOR conjunto NÃO dispara (exclusive)', () => {
+      const a = { tags: ['t1', 't2', 't3', 't4'] }; // 4 tags — o menor conjunto
+      const b = { tags: ['t1', 't2', 'x1', 'x2', 'x3', 'x4'] }; // 2 em comum com a
+      // interseção=2, menor=4 → 2 > 4×0,5=2 é FALSO (exatos 50%, não dispara).
+      expect(recommendationService.temaForte(a, b)).toBe(false);
+    });
+
+    it('mais de 50% de interseção do MENOR conjunto dispara (inclusive acima)', () => {
+      const a = { tags: ['t1', 't2', 't3', 't4'] };
+      const b = { tags: ['t1', 't2', 't3', 'x1', 'x2', 'x3'] }; // 3 em comum (75% de a)
+      expect(recommendationService.temaForte(a, b)).toBe(true);
+    });
+
+    it('obra SEM tags nunca conflita por tema, mesmo com a outra tendo tags idênticas ou também vazias', () => {
+      const semTags = { tags: [] };
+      const comTags = { tags: ['t1', 't2', 't3', 't4', 't5'] };
+      expect(recommendationService.temaForte(semTags, comTags)).toBe(false);
+      expect(recommendationService.temaForte(comTags, semTags)).toBe(false);
+      expect(recommendationService.temaForte(semTags, { tags: [] })).toBe(false);
+    });
+
+    it('mede pela obra MENOR: pouca sobreposição relativa a uma obra com MUITAS tags ainda dispara se dominar a obra pequena', () => {
+      const pequena = { tags: ['t1', 't2', 't3'] }; // 3 tags
+      const grande = { tags: ['t1', 't2', 'g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'g7', 'g8', 'g9', 'g10'] }; // 12 tags, 2 em comum
+      // interseção=2, menor=3 → 2 > 1,5 → true (66% da pequena, só 16% da grande).
+      expect(recommendationService.temaForte(pequena, grande)).toBe(true);
+    });
+
+    it('cenário MEDIDO da revisão: 3 obras de terror + 3 de romance, canais TODOS diferentes — sem 2 terror (nem 2 romance) adjacentes quando existe alternativa', () => {
+      const canais = Array.from({ length: 6 }, () => new mongoose.Types.ObjectId());
+      const tagsTerror = ['terror', 'tt1', 'tt2', 'tt3', 'tt4']; // idênticas entre as 3 — 100% de overlap
+      const tagsRomance = ['romance', 'rr1', 'rr2', 'rr3', 'rr4'];
+
+      // Pior caso de entrada: os 3 terror juntos, depois os 3 romance juntos.
+      const lista = [
+        { _id: 't0', channelId: canais[0], tags: tagsTerror },
+        { _id: 't1', channelId: canais[1], tags: tagsTerror },
+        { _id: 't2', channelId: canais[2], tags: tagsTerror },
+        { _id: 'r0', channelId: canais[3], tags: tagsRomance },
+        { _id: 'r1', channelId: canais[4], tags: tagsRomance },
+        { _id: 'r2', channelId: canais[5], tags: tagsRomance },
+      ];
+
+      const resultado = recommendationService.aplicarDiversidade(lista);
+      for (let i = 1; i < resultado.length; i++) {
+        expect(recommendationService.conflitoAdjacente(resultado[i - 1], resultado[i])).toBe(false);
+      }
+      expect(resultado.map((s) => s._id).sort()).toEqual(['r0', 'r1', 'r2', 't0', 't1', 't2']);
+    });
+
+    it('canal continua tendo precedência de fato: um candidato que só bate por CANAL (sem tema) continua sendo rejeitado na busca, mesmo tendo tema diferente e estar mais perto', () => {
+      const canalX = new mongoose.Types.ObjectId();
+      const canalY = new mongoose.Types.ObjectId();
+      const tagsTerror = ['terror', 'tt1', 'tt2', 'tt3', 'tt4'];
+      const tagsOutroTema = ['comedia', 'cc1', 'cc2', 'cc3', 'cc4'];
+
+      // s0(X,terror) colide com s1(X,sem tags) por CANAL. s2 também é canal
+      // X — colide por canal MESMO tendo um tema diferente de s0 (sem
+      // conflito de tema nenhum) — tem que ser pulado. Só s3 (canal Y, sem
+      // tags) é seguro nos dois eixos.
+      const lista = [
+        { _id: 's0', channelId: canalX, tags: tagsTerror },
+        { _id: 's1', channelId: canalX, tags: [] },
+        { _id: 's2', channelId: canalX, tags: tagsOutroTema },
+        { _id: 's3', channelId: canalY, tags: [] },
+      ];
+
+      const resultado = recommendationService.aplicarDiversidade(lista);
+      // A busca pulou s2 (colide por canal, mesmo SEM colidir por tema) e
+      // foi direto pra s3 — prova que o predicado combinado nunca deixa um
+      // swap CRIAR uma colisão de canal nova.
+      expect(resultado[1]._id).toBe('s3');
+    });
+
+    it('catálogo de tema único (todas as obras do MESMO tema forte, canais todos diferentes): não trava — deixa a colisão e segue, mesmo conjunto de séries', () => {
+      const tagsUnico = ['acao', 'aa1', 'aa2', 'aa3', 'aa4'];
+      const lista = [
+        { _id: 's0', channelId: new mongoose.Types.ObjectId(), tags: tagsUnico },
+        { _id: 's1', channelId: new mongoose.Types.ObjectId(), tags: tagsUnico },
+        { _id: 's2', channelId: new mongoose.Types.ObjectId(), tags: tagsUnico },
+      ];
+      const resultado = recommendationService.aplicarDiversidade(lista);
+      expect(resultado).toHaveLength(3);
+      expect(resultado.map((s) => s._id).sort()).toEqual(['s0', 's1', 's2']);
+    });
+  });
+
   describe('GET /api/content/recommendations', () => {
     it('400 sem type', async () => {
       const res = await request(app).get('/api/content/recommendations');

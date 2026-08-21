@@ -1098,12 +1098,59 @@ function mesmoCanal(a, b) {
 }
 
 /**
+ * FIX ROUND da revisão final do Bloco 4 (achado MÉDIO M1): "tema forte"
+ * entre duas obras — a 4ª regra do PDF ("alternar temas e estilos") que
+ * faltava no passe de diversidade (só canal adjacente existia até aqui).
+ *
+ * Duas obras têm tema forte só se AMBAS tiverem tags — obra sem tags (acervo
+ * sem curadoria) NUNCA conflita por tema, mesmo adjacente a outra sem tags
+ * (mesmo espírito do `mesmoCanal`: sem dado, sem conflito) — E a
+ * INTERSEÇÃO de tags for MAIOR que 50% do MENOR conjunto de tags das duas.
+ * "Menor conjunto" de propósito: uma obra com poucas tags (ex.: 5) e outra
+ * com muitas (ex.: 15) — se 3 das 5 tags da primeira (60%) aparecem também
+ * na segunda, as duas são tematicamente próximas o bastante pra conflitar,
+ * MESMO que 3/15 (20%) pareça pouco do lado da obra com mais tags. Medir
+ * pela MENOR evita que uma obra super-tagueada nunca "conflite" com nada
+ * (o denominador grande esconderia qualquer sobreposição).
+ */
+function temaForte(a, b) {
+  const tagsA = a.tags || [];
+  const tagsB = b.tags || [];
+  if (tagsA.length === 0 || tagsB.length === 0) return false;
+
+  const setB = new Set(tagsB);
+  const intersecao = tagsA.filter((tag) => setB.has(tag)).length;
+  const menorConjunto = Math.min(tagsA.length, tagsB.length);
+  return intersecao > menorConjunto * 0.5;
+}
+
+/**
+ * Predicado de conflito COMBINADO entre duas obras ADJACENTES (fix round,
+ * achado M1): mesmo canal OU tema forte — qualquer um dos dois já basta pra
+ * `aplicarDiversidade` tratar o par como colisão a resolver.
+ */
+function conflitoAdjacente(a, b) {
+  return mesmoCanal(a, b) || temaForte(a, b);
+}
+
+/**
  * Diversidade (Etapa 8 do PDF): um único passe da esquerda pra direita que
- * evita 2 obras ADJACENTES do MESMO `channelId` — ao achar uma colisão em
- * `i` (mesmo canal de `i-1`), troca de posição com o PRÓXIMO elegível à
- * frente (primeiro `j > i` cujo `channelId` seja diferente do de `i-1`). Se
- * não existir elegível (ex.: catálogo de um único canal), deixa a colisão e
- * segue — spec: "se impossível, deixa e segue".
+ * evita 2 obras ADJACENTES em conflito — MESMO `channelId` OU tema forte
+ * (`conflitoAdjacente` acima, fix round M1: antes só checava canal) — ao
+ * achar uma colisão em `i` (conflito com `i-1`), troca de posição com o
+ * PRÓXIMO elegível à frente (primeiro `j > i` que NÃO conflita com `i-1`
+ * pelo MESMO predicado combinado). Se não existir elegível (ex.: catálogo de
+ * um único canal, ou todas as obras restantes do mesmo tema forte), deixa a
+ * colisão e segue — spec: "se impossível, deixa e segue".
+ *
+ * Canal continua tendo precedência DE FATO, não só em teoria: como a busca
+ * do candidato `j` usa o MESMO `conflitoAdjacente` (não um predicado teórico
+ * separado por regra), um candidato só é aceito se ele NÃO bate nem por
+ * canal nem por tema — logo um swap desta função NUNCA pode criar uma
+ * colisão de canal nova (o candidato já foi filtrado contra isso antes de
+ * entrar no lugar). Uma obra sem tags nunca conflita por tema (ver
+ * `temaForte`), então só pode ser reposicionada por causa de canal — o
+ * comportamento pré-M1 continua idêntico pra ela.
  *
  * A troca pode empurrar uma colisão NOVA para a posição `j` (contra o que
  * estava em `j-1`) — o próprio avanço sequencial do `for` cobre isso sem
@@ -1116,18 +1163,18 @@ function mesmoCanal(a, b) {
 function aplicarDiversidade(lista) {
   const resultado = [...lista];
   for (let i = 1; i < resultado.length; i++) {
-    if (!mesmoCanal(resultado[i - 1], resultado[i])) continue;
+    if (!conflitoAdjacente(resultado[i - 1], resultado[i])) continue;
 
     let j = i + 1;
-    while (j < resultado.length && mesmoCanal(resultado[i - 1], resultado[j])) j++;
+    while (j < resultado.length && conflitoAdjacente(resultado[i - 1], resultado[j])) j++;
 
     if (j < resultado.length) {
       const tmp = resultado[i];
       resultado[i] = resultado[j];
       resultado[j] = tmp;
     }
-    // else: nenhum elegível à frente (ex.: catálogo de 1 canal só) — deixa a
-    // colisão e segue, como a spec manda.
+    // else: nenhum elegível à frente (canal único, ou tema forte
+    // dominante) — deixa a colisão e segue, como a spec manda.
   }
   return resultado;
 }
@@ -1272,6 +1319,9 @@ module.exports = {
   computeNeutroDerivado,
   montarCotas,
   intercalarCotas,
+  mesmoCanal,
+  temaForte,
+  conflitoAdjacente,
   aplicarDiversidade,
   buildRecommendations,
 };
