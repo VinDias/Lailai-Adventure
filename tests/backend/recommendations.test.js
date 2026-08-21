@@ -447,7 +447,11 @@ describe('qualidade proporcional', () => {
 
   it('3) flagged fora: eventos flagged NÃO contam como releitura', async () => {
     const serie = await criarSerie({ title: 'Releituras Flagged' });
-    await seedLeitoresAnonimos(serie._id, 1, 'hiqua');
+    // Item 1 do fix round: o denominador agora é leitoresLogados — 1 leitor
+    // ANÔNIMO não bastaria mais (daria 0/0 blindado, não 3/1). Semeia 1
+    // leitor LOGADO pra manter o denominador 1, provando só a lógica de
+    // releitura/flagged (o que este teste sempre existiu pra provar).
+    await seedLeitoresLogados(serie._id, 1, 'hiqua');
 
     const userId = new mongoose.Types.ObjectId();
     await seedEngagementEvents(serie._id, [
@@ -460,7 +464,7 @@ describe('qualidade proporcional', () => {
     ]);
 
     const resultado = await recommendationService.computeQualidade(serie, {});
-    // 3 eventos não-flagged do mesmo usuário, 1 leitor único → (3-1)/1 = 2.
+    // 3 eventos não-flagged do mesmo usuário, 1 leitor logado → (3-1)/1 = 2.
     expect(resultado.metricas.releiturasPorLeitor).toBe(2);
   });
 
@@ -677,6 +681,84 @@ describe('qualidade proporcional', () => {
       expect(resultadoAtacada.metricas.favoritosPorLeitor).toBe(0);
       expect(resultadoHonesta.metricas.favoritosPorLeitor).toBeCloseTo(0.3, 10);
       expect(resultadoHonesta.qualidade).toBeGreaterThan(resultadoAtacada.qualidade);
+    });
+  });
+
+  /**
+   * Achado ALTO A1 da revisão FINAL do Bloco 4 (fix round): o denominador
+   * das 4 métricas era `leitoresUnicos` (logados+anônimos), mas os
+   * numeradores são estruturalmente só-logados (Favorite/SeriesVote exigem
+   * token; SR exige userId real no checkout; releituras já são por userId).
+   * Progresso ANÔNIMO é grátis (sem `accountLimiter`, sem token) — inflar o
+   * denominador com ele só diluía a taxa, sem nenhuma ação real por trás:
+   * uma obra com MAIS visitantes anônimos que uma obra idêntica em
+   * comportamento logado acabava PIOR na Qualidade, uma realimentação
+   * negativa orgânica. RULING: denominador vira `leitoresUserIds.length`
+   * (logados) para as 4 métricas da Qualidade — MESMA população dos
+   * numeradores. `leitoresUnicos` (logados+anônimos) CONTINUA persistido e
+   * usado no Confidence Score — só o denominador INTERNO da Qualidade
+   * mudou. Ver `computeMetricasBrutas` em services/recommendationService.js.
+   */
+  describe('denominador logado (Item 1, fix round da revisão final)', () => {
+    it('cenário MEDIDO da revisão: obra com 27 anônimos A MAIS que uma obra idêntica em comportamento logado tem a MESMA qualidade (anônimos não diluem mais o denominador)', async () => {
+      const tipo = 'hqcine';
+      const serieA = await criarSerie({ title: 'Denominador Logado A (27 anonimos extra)', content_type: tipo });
+      const serieB = await criarSerie({ title: 'Denominador Logado B (sem anonimos)', content_type: tipo });
+
+      // Obra A: 3 leitores logados, TODOS favoritam e curtem, MAIS 27
+      // leitores anônimos que só leram (nenhuma ação, progresso grátis).
+      const leitoresA = await seedLeitoresLogados(serieA._id, 3, tipo);
+      await seedFavoritos(serieA._id, leitoresA);
+      await seedVotos(serieA._id, { likesUserIds: leitoresA });
+      await seedLeitoresAnonimos(serieA._id, 27, tipo);
+
+      // Obra B: EXATAMENTE o mesmo comportamento logado (3 leitores, todos
+      // favoritam e curtem), SEM nenhum leitor anônimo.
+      const leitoresB = await seedLeitoresLogados(serieB._id, 3, tipo);
+      await seedFavoritos(serieB._id, leitoresB);
+      await seedVotos(serieB._id, { likesUserIds: leitoresB });
+
+      const contexto = await recommendationService.buildQualidadeContexto();
+      const resultadoA = await recommendationService.computeQualidade(serieA, contexto);
+      const resultadoB = await recommendationService.computeQualidade(serieB, contexto);
+
+      // Denominador agora é leitoresLogados (3 nas duas) — taxas idênticas,
+      // apesar dos 27 anônimos extras de A.
+      expect(resultadoA.metricas.favoritosPorLeitor).toBeCloseTo(1, 10);
+      expect(resultadoB.metricas.favoritosPorLeitor).toBeCloseTo(1, 10);
+      expect(resultadoA.metricas.likesPorLeitor).toBeCloseTo(1, 10);
+      expect(resultadoB.metricas.likesPorLeitor).toBeCloseTo(1, 10);
+      expect(resultadoA.qualidade).toBeCloseTo(resultadoB.qualidade, 10);
+
+      // Anônimos SEGUEM contando em leitoresUnicos — só o denominador
+      // INTERNO da Qualidade parou de contá-los.
+      expect(resultadoA.leitoresUnicos).toBe(30); // 3 logados + 27 anônimos
+      expect(resultadoB.leitoresUnicos).toBe(3);
+
+      // leitoresUnicos (com anônimos) segue persistido e alimentando o
+      // Confidence Score normalmente — A tem mais confiança que B por ter
+      // mais identidades de leitura, mesmo com Qualidade igual.
+      const scoreA = await recommendationService.computeSeriesScore(serieA._id);
+      const scoreB = await recommendationService.computeSeriesScore(serieB._id);
+      expect(scoreA.leitoresUnicos).toBe(30);
+      expect(scoreB.leitoresUnicos).toBe(3);
+      expect(scoreA.confidence).toBeCloseTo(30 / (30 + 20), 10);
+      expect(scoreB.confidence).toBeCloseTo(3 / (3 + 20), 10);
+      expect(scoreA.confidence).toBeGreaterThan(scoreB.confidence);
+    });
+
+    it('zero leitores LOGADOS mas com leitores anônimos: as 4 métricas ficam 0 (sem dividir por zero), leitoresUnicos reflete os anônimos', async () => {
+      const serie = await criarSerie({ title: 'Zero Logados Com Anonimos' });
+      await seedLeitoresAnonimos(serie._id, 10, 'hiqua');
+
+      const resultado = await recommendationService.computeQualidade(serie, {});
+      expect(resultado.leitoresUnicos).toBe(10);
+      expect(resultado.qualidade).toBe(0);
+      expect(resultado.metricas.superReaderPorLeitor).toBe(0);
+      expect(resultado.metricas.favoritosPorLeitor).toBe(0);
+      expect(resultado.metricas.likesPorLeitor).toBe(0);
+      expect(resultado.metricas.releiturasPorLeitor).toBe(0);
+      Object.values(resultado.metricas).forEach((v) => expect(Number.isFinite(v)).toBe(true));
     });
   });
 });

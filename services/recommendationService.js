@@ -149,12 +149,52 @@ async function contarReleituras(seriesObjectId) {
 }
 
 /**
- * Métricas brutas (por leitor único, ainda SEM normalizar pelo catálogo) das
- * 4 componentes da Qualidade. Privada — usada tanto por `buildQualidadeContexto`
- * (para achar o máximo do content_type) quanto por `computeQualidade` (para o
- * valor da própria série), garantindo que as duas contam do mesmo jeito.
+ * Métricas brutas (por leitor, ainda SEM normalizar pelo catálogo) das 4
+ * componentes da Qualidade. Privada — usada tanto por `buildQualidadeContexto`
+ * (para achar o máximo do content_type) quanto por `computeQualidade`/
+ * `computePotential` (para o valor da própria série), garantindo que todas
+ * contam do mesmo jeito.
  *
- * Leitores únicos 0 → todas as métricas 0 (sem divisão por zero).
+ * FIX ROUND da revisão final do Bloco 4 (achado ALTO A1): o denominador das 4
+ * taxas abaixo é `leitoresLogados` (`leitoresUserIds.length`) — NÃO
+ * `leitoresUnicos` (logados+anônimos). Motivo: os numeradores são
+ * ESTRUTURALMENTE só-logados — Favorito e Like exigem `userId` (gate da T2,
+ * abaixo) e o próprio schema; Super Reader exige `userId` real no checkout
+ * (anonimizado perde o vínculo); releituras já contam por `userId` do
+ * `EngagementEvent`. Dividir numerador só-logado por um denominador que
+ * inclui visitantes anônimos (progresso grátis, sem token) dilui a taxa por
+ * PURO volume de visita, sem nenhuma ação real correspondente — medido na
+ * revisão: uma obra com 27 visitantes anônimos a mais que uma obra idêntica
+ * em comportamento logado levava 10× de penalização, uma realimentação
+ * negativa orgânica (mais gente abre a obra → métrica de qualidade CAI).
+ * `leitoresUnicos` (logados+anônimos) CONTINUA sendo devolvido aqui e é o
+ * valor PERSISTIDO no `SeriesScore.leitoresUnicos` e usado no Confidence
+ * Score (Etapa 12) — esse cálculo não muda, ele é sobre "quantas identidades
+ * geraram sinal de leitura", não sobre a proporção interna da Qualidade.
+ * Retenção (`computeRetencao`) também NÃO muda — lá cada sub-métrica já
+ * inclui anônimos em numerador E denominador de forma consistente (o
+ * documento de `ReadingProgress` inteiro é a unidade, não uma ação
+ * exclusiva de logado), populações compatíveis desde o início.
+ *
+ * Este fix fecha, de fato, A MAIOR PARTE da DÍVIDA registrada no fim da T2
+ * (ledger): "diluição do denominador via ReadingProgress ANÔNIMO grátis" (um
+ * atacante inflava o denominador de um RIVAL só com progresso anônimo —
+ * grátis, sem passar pelo `accountLimiter` — sem precisar de nenhuma ação
+ * adicional). Numericamente: SR (peso 45%) + Favoritos (25%) + Likes (20%)
+ * = 90% do peso interno da Qualidade tinham numerador gateado a uma AÇÃO
+ * real e adicional (pagar/favoritar/curtir) mas, até este fix, DIVIDIDOS por
+ * um denominador que qualquer visitante inflava de graça — essa fatia
+ * (90%) deixa de ser diluível por progresso anônimo puro. Releituras (10%
+ * restante) mede reincidência de LEITURA em si, não uma ação adicional
+ * separada — o vetor residual ali é falsificar CONTAS logadas relendo
+ * (mitigado pelo `accountLimiter` da T2, não por este fix), não progresso
+ * anônimo — por isso fica de fora do "fecha a dívida" e a dívida original
+ * segue registrada (agora só para esse resíduo).
+ *
+ * Leitores logados 0 → todas as métricas 0 (sem divisão por zero) — mesmo
+ * com leitores anônimos existindo (eles não geram numerador algum nas 4
+ * métricas gateadas/reader-based, então a taxa é honestamente 0, não
+ * indefinida).
  *
  * Busca a lista de userIds leitores da série (não só a contagem) porque
  * Favorito e Like precisam dela para o gate de "ação real de leitor" abaixo
@@ -167,10 +207,11 @@ async function computeMetricasBrutas(seriesId) {
     ReadingProgress.distinct('anonymousId', { seriesId: seriesObjectId, anonymousId: { $ne: null } }),
   ]);
   const leitoresUnicos = leitoresUserIds.length + leitoresAnonimos.length;
+  const leitoresLogados = leitoresUserIds.length;
 
-  if (leitoresUnicos === 0) {
+  if (leitoresLogados === 0) {
     return {
-      leitoresUnicos: 0,
+      leitoresUnicos,
       superReaderPorLeitor: 0,
       favoritosPorLeitor: 0,
       likesPorLeitor: 0,
@@ -203,10 +244,10 @@ async function computeMetricasBrutas(seriesId) {
 
   return {
     leitoresUnicos,
-    superReaderPorLeitor: superReaderCount / leitoresUnicos,
-    favoritosPorLeitor: favoritosCount / leitoresUnicos,
-    likesPorLeitor: likesLiquidos / leitoresUnicos,
-    releiturasPorLeitor: releiturasCount / leitoresUnicos,
+    superReaderPorLeitor: superReaderCount / leitoresLogados,
+    favoritosPorLeitor: favoritosCount / leitoresLogados,
+    likesPorLeitor: likesLiquidos / leitoresLogados,
+    releiturasPorLeitor: releiturasCount / leitoresLogados,
   };
 }
 
