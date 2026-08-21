@@ -216,6 +216,12 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
  * muitos episódios e publicar a série nunca deve esperar o envio.
  */
 function redispararNotificacoesDaSerie(seriesId) {
+  // Gatilho de recálculo (Etapa 11 do PDF, ledger Task 5): a série voltou a
+  // publicar — mesmo ponto de disparo do push acima, 3º dos 6 "capítulo
+  // publicado" (a republicação de série é o que reativa capítulos que
+  // ficaram represados). Fire-and-forget, molde do Bloco 2.
+  require('../services/recommendationService').dispararRecalculo(seriesId, 'capitulo_publicado');
+
   (async () => {
     const notificationService = require('../services/notificationService');
     const episodios = await Episode.find({
@@ -294,6 +300,20 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
 
     // Telemetria de royalties (fire-and-forget): webtoon conta como leitura,
     // vídeo como view. Dedupe/anti-fraude ficam no engagementLogger.
+    //
+    // DECISÃO (Task 5, ledger — gatilho de recálculo "view/read" da Etapa 11
+    // do PDF): NÃO dispara recommendationService.dispararRecalculo aqui. Esta
+    // é a rota de MAIOR volume do backend inteiro — toda abertura de
+    // episódio passa por ela — e computeSeriesScore refaz ~10 agregações
+    // sobre a série. Mesmo um cheque barato de "computedAt > 1h" antes de
+    // decidir ainda seria uma query extra na rota mais quente do app, por um
+    // ganho marginal: o efeito de UMA view isolada no score é minúsculo, e
+    // nenhum dado se perde (o EngagementEvent é gravado de qualquer jeito,
+    // logo abaixo — a releitura fica disponível para o próximo cálculo). Os
+    // outros 5 gatilhos (voto, favorito, Super Reader, conclusão de leitura,
+    // capítulo publicado) cobrem os sinais fortes de imediato; a varredura
+    // periódica de 24h (services/recommendationService.iniciarVarreduraPeriodica)
+    // absorve a deriva orgânica de views/releituras ao longo do tempo.
     if (episode.seriesId) {
       const engagementLogger = require('../services/engagementLogger');
       engagementLogger.logEvent({
@@ -337,6 +357,10 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
       require('../services/notificationService')
         .notifyEpisodePublished(episode._id)
         .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+
+      // 1º dos 6 pontos de disparo do push (Task 5, ledger): mesmo gatilho
+      // de recálculo, mesmo molde fire-and-forget.
+      require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
     }
 
     res.status(201).json(episode);
@@ -371,6 +395,9 @@ router.put('/episodes/:id', verifyToken, requireAdmin, async (req, res) => {
       require('../services/notificationService')
         .notifyEpisodePublished(episode._id)
         .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+
+      // 2º dos 6 pontos de disparo do push (Task 5, ledger).
+      require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
     }
 
     res.json(episode);
@@ -415,6 +442,9 @@ router.post('/episodes/:id/panels', verifyToken, requireAdmin, async (req, res) 
       require('../services/notificationService')
         .notifyEpisodePublished(episode._id)
         .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
+
+      // 4º dos 6 pontos de disparo do push (Task 5, ledger).
+      require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
     }
 
     res.json({ success: true, panelCount: episode.panels.length, episode });
@@ -543,10 +573,21 @@ router.post('/series/:id/vote', verifyToken, async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     res.json({ success: true, type: vote.type });
+
+    // Gatilho de recálculo (Etapa 11 do PDF, ledger Task 5): dispara SEMPRE.
+    // O upsert acima não distingue "voto novo" de "voto repetido/trocado"
+    // sem uma leitura extra antes de escrever — a spec autoriza "se a rota
+    // não distingue, dispare sempre e documente" (barato e idempotente:
+    // recalcular de novo com o mesmo voto não muda o resultado).
+    require('../services/recommendationService').dispararRecalculo(req.params.id, 'voto_serie');
   } catch (err) {
     // Corrida de upsert (dois primeiros-votos simultâneos) gera E11000:
     // o voto foi gravado pela outra requisição — sucesso idempotente.
-    if (err && err.code === 11000) return res.json({ success: true, type: req.body.type });
+    if (err && err.code === 11000) {
+      res.json({ success: true, type: req.body.type });
+      require('../services/recommendationService').dispararRecalculo(req.params.id, 'voto_serie');
+      return;
+    }
     logger.error('[Content] POST /series/:id/vote', err);
     res.status(500).json({ error: 'Erro ao registrar voto.' });
   }

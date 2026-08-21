@@ -18,6 +18,24 @@ async function aplicarEsalvar(doc, { seriesId, contentType, percent, position })
   return doc;
 }
 
+/**
+ * Gatilho de recálculo (Etapa 11 do PDF, Fase 4 Bloco 4, Task 5): "conclusão
+ * de leitura" — dispara quando o documento SALVO tem `completed: true`.
+ * NÃO é "todo save": `saveProgress` é chamado a cada scroll do leitor (a
+ * maioria dos saves tem `completed: false` — não dispara nada). Releitura de
+ * quem já concluiu pode re-disparar (o doc continua `completed: true` num
+ * save seguinte) — barato e idempotente, aceito e documentado (ledger):
+ * `computeSeriesScore` recomputa do zero, sem efeito colateral cumulativo em
+ * rodar de novo. Fire-and-forget, molde do push do Bloco 2 — nunca lança,
+ * nunca atrasa a resposta de `saveProgress`.
+ */
+function dispararSeConcluido(resultado, seriesId) {
+  if (resultado.completed) {
+    require('./recommendationService').dispararRecalculo(seriesId, 'progresso_concluido');
+  }
+  return resultado;
+}
+
 /** Salva (ou atualiza) o progresso de um episódio para a identidade dada. */
 async function saveProgress(identity, dados) {
   const { seriesId, episodeId, contentType, percent, position = 0 } = dados;
@@ -45,11 +63,14 @@ async function saveProgress(identity, dados) {
   // é quem calcula `completed` e garante a regra de identidade única.
   const doc = await ReadingProgress.findOne({ ...identity, episodeId });
   if (doc) {
-    return aplicarEsalvar(doc, { seriesId, contentType, percent, position });
+    return dispararSeConcluido(await aplicarEsalvar(doc, { seriesId, contentType, percent, position }), seriesId);
   }
 
   try {
-    return await ReadingProgress.create({ ...identity, seriesId, episodeId, contentType, percent, position });
+    return dispararSeConcluido(
+      await ReadingProgress.create({ ...identity, seriesId, episodeId, contentType, percent, position }),
+      seriesId,
+    );
   } catch (err) {
     // Corrida: outro PUT quase simultâneo (player que salva periodicamente, duas
     // abas ou dois aparelhos) criou o mesmo documento entre o nosso findOne e o
@@ -59,7 +80,7 @@ async function saveProgress(identity, dados) {
     if (err.code === 11000) {
       const concorrente = await ReadingProgress.findOne({ ...identity, episodeId });
       if (concorrente) {
-        return aplicarEsalvar(concorrente, { seriesId, contentType, percent, position });
+        return dispararSeConcluido(await aplicarEsalvar(concorrente, { seriesId, contentType, percent, position }), seriesId);
       }
     }
     throw err;

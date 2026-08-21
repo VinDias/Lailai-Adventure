@@ -1484,3 +1484,294 @@ describe('composicao', () => {
     });
   });
 });
+
+/**
+ * Task 5: gatilhos fire-and-forget de recálculo (Etapa 11 do PDF) + varredura
+ * periódica de 24h. Mesmo molde do disparo de push do Bloco 2
+ * (routes/content.js, `notifyEpisodePublished(...).catch(err => logger.error(...))`):
+ * fire-and-forget DEPOIS do efeito principal, nunca lança, nunca muda
+ * status/shape da resposta da rota. Ver services/recommendationService.js —
+ * `dispararRecalculo`, `iniciarVarreduraPeriodica`, `pararVarreduraPeriodica`.
+ *
+ * DECISÃO DO GATILHO "view/read" (Etapa 11 do PDF menciona releitura/view
+ * entre os gatilhos): propositalmente SEM teste/implementação de disparo
+ * síncrono aqui — routes/content.js (GET /episodes/:id) documenta a decisão
+ * no próprio ponto onde o engagementLogger é chamado: é a rota de maior
+ * volume do backend (toda abertura de episódio) e mesmo um cheque barato de
+ * "computedAt > 1h" seria uma query a mais na rota mais quente do app, por
+ * um ganho marginal. Os outros 5 gatilhos cobrem os sinais fortes; a
+ * varredura de 24h absorve a deriva orgânica de views/releituras.
+ */
+describe('gatilhos', () => {
+  let mongoose;
+  let Series;
+  let SeriesScore;
+  let recommendationService;
+
+  beforeAll(() => {
+    mongoose = require('mongoose');
+    Series = require('../../models/Series');
+    SeriesScore = require('../../models/SeriesScore');
+    recommendationService = require('../../services/recommendationService');
+  });
+
+  function criarSerie(overrides = {}) {
+    return Series.create({
+      title: 'Serie Gatilho', genre: 'Teste', content_type: 'hiqua', isPublished: true, ...overrides,
+    });
+  }
+
+  /** Aguarda o fire-and-forget: poll curto até o SeriesScore da série existir
+   *  com `computedAt >= desde` (mesmo idioma de tests/backend/notifications.test.js —
+   *  `vi.waitFor` com intervalo curto, sem espera fixa longa). */
+  async function esperarRecalculo(seriesId, desde) {
+    await vi.waitFor(async () => {
+      const doc = await SeriesScore.findOne({ seriesId }).lean();
+      expect(doc).not.toBeNull();
+      expect(doc.computedAt.getTime()).toBeGreaterThanOrEqual(desde.getTime());
+    }, { timeout: 2000, interval: 20 });
+  }
+
+  it('1) favoritar via rota dispara o recálculo do SeriesScore da série', async () => {
+    const serie = await criarSerie({ title: 'Gatilho Favorito' });
+    const antes = new Date();
+
+    const res = await request(app)
+      .post(`/api/favorites/${serie._id}`)
+      .set('Authorization', `Bearer ${auth.getToken('user')}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ favorited: true });
+
+    await esperarRecalculo(serie._id, antes);
+  });
+
+  it('2) votar (like) em série via rota dispara o recálculo do SeriesScore da série', async () => {
+    const serie = await criarSerie({ title: 'Gatilho Voto' });
+    const antes = new Date();
+
+    const res = await request(app)
+      .post(`/api/content/series/${serie._id}/vote`)
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ type: 'like' });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, type: 'like' });
+
+    await esperarRecalculo(serie._id, antes);
+  });
+
+  it('3a) saveProgress com completed:true (percent >= 0,9) dispara o recálculo', async () => {
+    const serie = await criarSerie({ title: 'Gatilho Progresso Concluido' });
+    const episodeId = new mongoose.Types.ObjectId();
+    const antes = new Date();
+
+    const res = await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ seriesId: String(serie._id), episodeId: String(episodeId), contentType: 'hiqua', percent: 0.95 });
+    expect(res.status).toBe(200);
+    expect(res.body.completed).toBe(true);
+
+    await esperarRecalculo(serie._id, antes);
+  });
+
+  it('3b) saveProgress comum (percent 0,3, completed:false) NÃO dispara o recálculo', async () => {
+    const serie = await criarSerie({ title: 'Gatilho Progresso Incompleto' });
+    const episodeId = new mongoose.Types.ObjectId();
+
+    const res = await request(app)
+      .put('/api/me/progress')
+      .set('Authorization', `Bearer ${auth.getToken('user')}`)
+      .send({ seriesId: String(serie._id), episodeId: String(episodeId), contentType: 'hiqua', percent: 0.3 });
+    expect(res.status).toBe(200);
+    expect(res.body.completed).toBe(false);
+
+    // Sem `vi.waitFor` aqui de propósito: o teste afirma uma AUSÊNCIA — dá
+    // um respiro curto para um disparo indevido (se existisse) terminar, e
+    // confirma que nada foi gravado.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const doc = await SeriesScore.findOne({ seriesId: serie._id });
+    expect(doc).toBeNull();
+  });
+
+  describe('4) webhook Super Reader dispara o recálculo', () => {
+    // Mesmo padrão de tests/backend/superReader.test.js (describe "webhook"):
+    // o handler valida a ASSINATURA de verdade (stripe.webhooks.constructEvent
+    // com STRIPE_WEBHOOK_SECRET) — geramos uma assinatura REAL com
+    // generateTestHeaderString para um segredo de teste, nada é mockado.
+    const stripeTestUtil = require('stripe')('sk_test_dummy_key_apenas_para_assinar_webhooks_em_teste');
+    const TEST_WEBHOOK_SECRET = 'whsec_test_recomendacao_gatilho';
+    let segredoOriginal;
+
+    beforeAll(() => {
+      segredoOriginal = process.env.STRIPE_WEBHOOK_SECRET;
+      process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
+    });
+
+    afterAll(() => {
+      process.env.STRIPE_WEBHOOK_SECRET = segredoOriginal;
+    });
+
+    function assinar(payload) {
+      return stripeTestUtil.webhooks.generateTestHeaderString({ payload, secret: TEST_WEBHOOK_SECRET });
+    }
+
+    function postWebhookEvent(evento) {
+      const payload = JSON.stringify(evento);
+      return request(app)
+        .post('/api/payment/webhook')
+        .set('Content-Type', 'application/json')
+        .set('stripe-signature', assinar(payload))
+        .send(payload);
+    }
+
+    it('checkout.session.completed de Super Reader dispara o recálculo da série apoiada', async () => {
+      const serie = await criarSerie({ title: 'Gatilho Super Reader' });
+      const sessionId = `cs_test_gatilho_sr_${new mongoose.Types.ObjectId()}`;
+      const antes = new Date();
+
+      const evento = {
+        id: `evt_gatilho_sr_${sessionId}`,
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: sessionId,
+            customer: null,
+            subscription: null,
+            amount_total: 500,
+            currency: 'brl',
+            metadata: {
+              tipo: 'super_reader',
+              userId: String(new mongoose.Types.ObjectId()),
+              seriesId: String(serie._id),
+              channelId: String(new mongoose.Types.ObjectId()),
+            },
+          },
+        },
+      };
+
+      const res = await postWebhookEvent(evento);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ received: true });
+
+      await esperarRecalculo(serie._id, antes);
+    });
+  });
+
+  it('5) falha do recálculo NÃO afeta a resposta da rota (fire-and-forget real, catch interno absorve o erro)', async () => {
+    const serie = await criarSerie({ title: 'Gatilho Falha Recalculo' });
+
+    // Mesmo alvo de spy já usado no describe "composicao" (computeAllScores,
+    // resumo erros:1) — SeriesScore.findOneAndUpdate é o passo final de
+    // computeSeriesScore, rejeitá-lo simula uma falha real do recálculo sem
+    // precisar reescrever dispararRecalculo para ser espionável por fora.
+    const spy = vi.spyOn(SeriesScore, 'findOneAndUpdate').mockRejectedValueOnce(new Error('Falha simulada de recalculo'));
+
+    try {
+      const res = await request(app)
+        .post(`/api/favorites/${serie._id}`)
+        .set('Authorization', `Bearer ${auth.getToken('user')}`);
+
+      // A rota responde normalmente — o favorito foi gravado e a resposta
+      // não sabe (nem precisa saber) que o recálculo, em paralelo, falhou.
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ favorited: true });
+
+      await vi.waitFor(() => expect(spy).toHaveBeenCalled(), { timeout: 2000, interval: 20 });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('6) publicar um episódio (POST /api/content/episodes) dispara o recálculo da série — um dos 6 pontos do push; os outros 5 pelo mesmo padrão (leitura de código)', async () => {
+    const serie = await criarSerie({ title: 'Gatilho Capitulo Publicado' });
+    const antes = new Date();
+
+    const res = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ seriesId: String(serie._id), episode_number: 1, title: 'Cap 1', status: 'published' });
+    expect(res.status).toBe(201);
+    expect(res.body.status).toBe('published');
+
+    await esperarRecalculo(serie._id, antes);
+  });
+
+  describe('7) iniciarVarreduraPeriodica / pararVarreduraPeriodica', () => {
+    afterEach(() => {
+      // Higiene: nenhum teste deste describe pode deixar timer vazando,
+      // real ou falso, para os arquivos de teste seguintes.
+      recommendationService.pararVarreduraPeriodica();
+    });
+
+    it('NODE_ENV=test: no-op — nunca cria o timer de 24h', async () => {
+      expect(process.env.NODE_ENV).toBe('test'); // guarda-viva: garante que este teste testa o cenário certo
+      const spy = vi.spyOn(global, 'setInterval');
+      try {
+        await expect(recommendationService.iniciarVarreduraPeriodica()).resolves.toBeUndefined();
+        expect(spy).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('idempotente fora de NODE_ENV=test: duas chamadas seguidas criam UM único timer', async () => {
+      const nodeEnvOriginal = process.env.NODE_ENV;
+      // Fake timers restritos a setInterval/clearInterval: o resto do teste
+      // (query real ao mongodb-memory-server) continua com timers/I-O REAIS
+      // — travar o relógio inteiro (Date/setTimeout) prenderia o driver do
+      // Mongo, que depende de timers próprios internamente.
+      vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+      // Sem isto, a checagem real de "precisa varredura inicial" acharia
+      // (quase certamente) alguma série publicada sem score entre as
+      // dezenas criadas pelos describes deste arquivo, e disparia um
+      // computeAllScores() de verdade em segundo plano — sem valor para
+      // este teste (que só verifica a criação do timer) e arriscando uma
+      // query contra o Mongo já fechado quando `afterAll` deste arquivo
+      // rodar. Resolve como "nenhuma série precisa" independente do que
+      // exista no banco.
+      const spyExists = vi.spyOn(Series, 'exists').mockResolvedValueOnce(null);
+
+      try {
+        process.env.NODE_ENV = 'production';
+        await recommendationService.iniciarVarreduraPeriodica();
+        await recommendationService.iniciarVarreduraPeriodica();
+        expect(vi.getTimerCount()).toBe(1);
+      } finally {
+        recommendationService.pararVarreduraPeriodica();
+        vi.useRealTimers();
+        process.env.NODE_ENV = nodeEnvOriginal;
+        spyExists.mockRestore();
+      }
+    });
+
+    it('precisaVarreduraInicial: true quando existe série publicada sem SeriesScore', async () => {
+      const serie = await criarSerie({ title: 'Precisa Varredura Sem Score' });
+      // Nenhum SeriesScore para esta série — precisa varrer.
+      const precisa = await recommendationService.precisaVarreduraInicial();
+      const doc = await SeriesScore.findOne({ seriesId: serie._id });
+      expect(doc).toBeNull();
+      expect(precisa).toBe(true);
+    });
+
+    it('precisaVarreduraInicial: false quando TODAS as séries publicadas têm score recente', async () => {
+      await db.clearDatabase();
+      const agora = new Date('2026-08-20T12:00:00.000Z');
+      const serie = await criarSerie({ title: 'Precisa Varredura Score Recente' });
+      await recommendationService.computeSeriesScore(serie._id, { agora });
+
+      const precisa = await recommendationService.precisaVarreduraInicial(agora);
+      expect(precisa).toBe(false);
+    });
+
+    it('precisaVarreduraInicial: true quando o único score existente está velho (>24h)', async () => {
+      await db.clearDatabase();
+      const calculadoEm = new Date('2026-08-19T00:00:00.000Z');
+      const agora = new Date('2026-08-20T12:00:00.000Z'); // 36h depois — passou das 24h
+      const serie = await criarSerie({ title: 'Precisa Varredura Score Velho' });
+      await recommendationService.computeSeriesScore(serie._id, { agora: calculadoEm });
+
+      const precisa = await recommendationService.precisaVarreduraInicial(agora);
+      expect(precisa).toBe(true);
+    });
+  });
+});

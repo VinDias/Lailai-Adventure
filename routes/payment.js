@@ -109,8 +109,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           logger.warn(`[SuperReader] Sessão ${session.id} com payment_status=${session.payment_status} — não registrada (aguardando pagamento).`);
           return res.json({ received: true });
         }
-        await superReaderService.registrarContribuicao(session);
+        const contribuicao = await superReaderService.registrarContribuicao(session);
         logger.info(`[SuperReader] Contribuição registrada: ${session.amount_total} ${session.currency} (canal ${session.metadata.channelId})`);
+
+        // Gatilho de recálculo (Etapa 11 do PDF, Task 5): fire-and-forget,
+        // SEM await — o webhook do Stripe não pode esperar o recálculo para
+        // responder (e o Stripe reenvia se a resposta demorar demais).
+        require('../services/recommendationService').dispararRecalculo(contribuicao.seriesId, 'super_reader');
+
         return res.json({ received: true });
       }
 

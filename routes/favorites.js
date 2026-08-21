@@ -48,11 +48,23 @@ router.post('/:seriesId', verifyToken, async (req, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     res.json({ favorited: true });
+
+    // Gatilho de recálculo (Etapa 11 do PDF, Fase 4 Bloco 4, Task 5):
+    // dispara SEMPRE — a rota é idempotente e sempre responde
+    // `favorited: true`, sem saber se criou ou só confirmou um favorito já
+    // existente (spec: "se a rota sempre responde favorited:true sem saber
+    // se criou, dispare sempre e documente"). Fire-and-forget, molde do
+    // push do Bloco 2 — nunca lança, nunca atrasa a resposta.
+    require('../services/recommendationService').dispararRecalculo(req.params.seriesId, 'favorito');
   } catch (err) {
     // Upsert não é atômico contra inserts concorrentes: dois toques quase
     // simultâneos (duas abas/aparelhos) podem gerar E11000 — o favorito já
     // existe, então é sucesso idempotente, não erro.
-    if (err && err.code === 11000) return res.json({ favorited: true });
+    if (err && err.code === 11000) {
+      res.json({ favorited: true });
+      require('../services/recommendationService').dispararRecalculo(req.params.seriesId, 'favorito');
+      return;
+    }
     logger.error('[Favorites] POST /:seriesId', err);
     res.status(500).json({ error: 'Erro ao favoritar série.' });
   }

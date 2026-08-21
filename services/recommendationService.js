@@ -18,6 +18,13 @@
  * Também executa o RULING da inatividade decidido no fim da T3 (ledger): ver
  * comentário de `coletarSinaisInatividade` abaixo.
  *
+ * Task 5 (este commit): gatilhos fire-and-forget de recálculo por obra
+ * (`dispararRecalculo`, mesmo molde do push do Bloco 2) e a varredura
+ * periódica de 24h + inicial no boot (`iniciarVarreduraPeriodica`/
+ * `pararVarreduraPeriodica`) — ver comentários de cada função no fim do
+ * arquivo. As rotas que disparam `dispararRecalculo` estão listadas na spec,
+ * seção "Rotas".
+ *
  * Spec: docs/superpowers/specs/2026-08-20-algoritmo-recomendacao-design.md
  * Ledger: .superpowers/sdd/2026-08-20-algoritmo/progress.md
  *   P4 — eventos flagged do anti-fraude ficam FORA de toda contagem.
@@ -729,6 +736,102 @@ async function computeAllScores({ agora = new Date() } = {}) {
   return { total: series.length, erros };
 }
 
+/**
+ * Task 5 (spec, "Recálculo — Etapa 11"): gatilhos fire-and-forget nas rotas
+ * existentes recalculam A OBRA (não o catálogo inteiro) sempre que um sinal
+ * forte acontece — voto, favorito, Super Reader, conclusão de leitura,
+ * capítulo publicado. MESMO MOLDE do disparo de push do Bloco 2
+ * (routes/content.js, `notifyEpisodePublished(...).catch(err => logger.error(...))`):
+ * um wrapper único aqui evita repetir o `.catch` em ~10 pontos de disparo e
+ * carimba a ORIGEM no log, para o painel de erros dizer qual gatilho falhou.
+ *
+ * NUNCA lança — a promise devolvida por `computeSeriesScore` é sempre
+ * "resolvida" do ponto de vista do chamador (o `.catch` interno absorve o
+ * erro); a rota que disparou o recálculo não é afetada de forma alguma,
+ * mesmo se o recálculo falhar.
+ */
+function dispararRecalculo(seriesId, origem) {
+  computeSeriesScore(seriesId).catch((erro) => {
+    logger.error(`[Algoritmo] Recalculo falhou (${origem})`, erro && erro.message);
+  });
+}
+
+// Varredura geral (spec, "Recálculo — Etapa 11"): "varredura geral a cada
+// 24h + no boot se houver série publicada sem score OU com score >24h".
+const VARREDURA_INTERVALO_MS = 24 * 60 * 60 * 1000;
+
+// Handle do setInterval — módulo-level de propósito: iniciarVarreduraPeriodica
+// precisa ser IDEMPOTENTE (chamadas repetidas não empilham timers, ex.: um
+// reload de módulo em dev, ou um teste que chama duas vezes por engano).
+let timerVarredura = null;
+
+/**
+ * "Cheque barato" (spec) antes de decidir se o BOOT precisa rodar
+ * `computeAllScores()` — não varre o catálogo inteiro só para decidir se vai
+ * varrer o catálogo inteiro. Devolve `true` se existir QUALQUER série
+ * publicada cujo SeriesScore esteja AUSENTE (nunca calculado) OU VELHO
+ * (`computedAt` mais antigo que `VARREDURA_INTERVALO_MS`).
+ *
+ * Implementação: `seriesComScoreRecente` é o conjunto de seriesId com score
+ * DENTRO da janela de 24h — uma série publicada que não aparece nesse
+ * conjunto está, por definição, sem score OU com score velho (as duas
+ * condições da spec, num único `$nin`). Dois index scans baratos (distinct +
+ * exists), nunca um cálculo por série — essa parte cara é `computeAllScores`
+ * em si, chamada só se isto devolver `true`.
+ *
+ * `agora` é sempre injetável (regra do ledger: datas SEMPRE injetáveis).
+ */
+async function precisaVarreduraInicial(agora = new Date()) {
+  const limite = new Date(agora.getTime() - VARREDURA_INTERVALO_MS);
+  const seriesComScoreRecente = await SeriesScore.distinct('seriesId', { computedAt: { $gte: limite } });
+  const faltando = await Series.exists({ isPublished: true, _id: { $nin: seriesComScoreRecente } });
+  return Boolean(faltando);
+}
+
+/**
+ * Liga a varredura periódica de 24h (`computeAllScores`, com catch+log —
+ * NUNCA lança) e, se houver série publicada sem score ou com score velho
+ * (`precisaVarreduraInicial`), dispara também uma varredura inicial no BOOT
+ * (fire-and-forget, não bloqueia o retorno desta função).
+ *
+ * Guardas (spec + ledger):
+ *  - `NODE_ENV === 'test'` → no-op. Sem isto, TODO arquivo de teste que faz
+ *    `require('server')` (são ~14 hoje) ganharia um `setInterval` de 24h
+ *    real rodando em paralelo com a suíte — o memory-server nem sobrevive
+ *    24h, mas o timer ficaria "vazando" (processo do vitest não fecha
+ *    limpo) e o boot chamaria `computeAllScores()` sobre um catálogo de
+ *    teste a cada arquivo, sem nenhum valor para a suíte.
+ *  - Idempotente: `timerVarredura` já setado → retorna sem criar outro
+ *    `setInterval` (a checagem acontece ANTES do primeiro `await` da
+ *    função, então duas chamadas em sequência — mesmo sem `await` entre
+ *    elas — nunca duplicam o timer).
+ *  - `.unref()` no timer: não segura o processo vivo sozinho (mesmo padrão
+ *    de timers de infraestrutura do Node) — se o resto do app encerrar, a
+ *    varredura periódica não impede o processo de sair.
+ */
+async function iniciarVarreduraPeriodica() {
+  if (process.env.NODE_ENV === 'test') return; // ver docstring acima
+  if (timerVarredura) return; // idempotente — ver docstring acima
+
+  timerVarredura = setInterval(() => {
+    computeAllScores().catch((erro) => logger.error('[Algoritmo] Varredura periodica (24h) falhou', erro && erro.message));
+  }, VARREDURA_INTERVALO_MS);
+  if (typeof timerVarredura.unref === 'function') timerVarredura.unref();
+
+  const precisaRodarAgora = await precisaVarreduraInicial();
+  if (precisaRodarAgora) {
+    computeAllScores().catch((erro) => logger.error('[Algoritmo] Varredura inicial (boot) falhou', erro && erro.message));
+  }
+}
+
+/** Higiene (testes, restart controlado): desliga a varredura periódica. No-op se não estiver ligada. */
+function pararVarreduraPeriodica() {
+  if (timerVarredura) {
+    clearInterval(timerVarredura);
+    timerVarredura = null;
+  }
+}
+
 module.exports = {
   contarLeitoresUnicos,
   buildQualidadeContexto,
@@ -745,4 +848,8 @@ module.exports = {
   computeScoreFinal,
   computeSeriesScore,
   computeAllScores,
+  dispararRecalculo,
+  precisaVarreduraInicial,
+  iniciarVarreduraPeriodica,
+  pararVarreduraPeriodica,
 };
