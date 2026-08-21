@@ -541,7 +541,7 @@ const App: React.FC = () => {
           desmontado; se um favorito acontecer nessa janela, o convite fica
           para o próximo favorito (a flag só é gravada quando o cartão aparece). */}
       {user && !superReaderThanks && <PushPrompt />}
-      {superReaderThanks && <SuperReaderThanks onClose={() => setSuperReaderThanks(false)} />}
+      {user && superReaderThanks && <SuperReaderThanks onClose={() => setSuperReaderThanks(false)} />}
       <ConsentBanner onOpenPolicy={() => openPolicy('privacy')} />
       <LegalPolicy open={legalOpen} onClose={() => setLegalOpen(false)} initialTab={legalTab} />
     </div>
