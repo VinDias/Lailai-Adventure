@@ -5,12 +5,18 @@
  * proporcional POR LEITOR ÚNICO e normalizada pelo melhor do mesmo
  * `content_type`).
  *
- * Task 3 (este commit): Retenção (0–25, Etapa 3 do PDF — redistribuição
- * 45/33/22 do ledger P2, tempo médio de leitura não coletado) e Penalizações
- * (Etapa 9 — multiplicadores sobre a soma pré-escala, piso de 20%).
- * `descoberta`, `scoreFinal`, `potentialScore` e `confidence` continuam no
- * default (0) — chegam na Task 4, quando a soma Q+R+D existir de verdade e
- * `aplicarPenalizacoesNaSoma` (exportada aqui) puder reescalar para 0–100.
+ * Task 3: Retenção (0–25, Etapa 3 do PDF — redistribuição 45/33/22 do ledger
+ * P2, tempo médio de leitura não coletado) e Penalizações (Etapa 9 —
+ * multiplicadores sobre a soma pré-escala, piso de 20%).
+ *
+ * Task 4 (este commit): Descoberta (0–10, Etapa 6), Potential Score (0–100,
+ * Etapa 7), Confidence Score (0–1, Etapa 12) e a composição final —
+ * `scoreFinal = (qualidade+retencao+descoberta)/65×100`, penalizações
+ * aplicadas SOBRE a soma crua ANTES de reescalar. `computeSeriesScore` grava
+ * TODOS os campos do SeriesScore agora; `computeAllScores` devolve o resumo
+ * `{ total, erros }` (erro de UMA série não para a varredura — loga e segue).
+ * Também executa o RULING da inatividade decidido no fim da T3 (ledger): ver
+ * comentário de `coletarSinaisInatividade` abaixo.
  *
  * Spec: docs/superpowers/specs/2026-08-20-algoritmo-recomendacao-design.md
  * Ledger: .superpowers/sdd/2026-08-20-algoritmo/progress.md
@@ -25,6 +31,7 @@ const Favorite = require('../models/Favorite');
 const SeriesVote = require('../models/SeriesVote');
 const EngagementEvent = require('../models/EngagementEvent');
 const Episode = require('../models/Episode');
+const logger = require('../utils/logger');
 
 // Peso interno da Qualidade (Etapa 2 do PDF, confirmado pelo cliente).
 const PESO_SUPER_READER = 0.45;
@@ -439,18 +446,31 @@ async function computeFracaoAbandono(seriesObjectId, totalLeitores) {
 
 /**
  * Inatividade (Etapa 9): dias desde o Episode PUBLICADO mais recente da
- * série (`Infinity` se nunca houve nenhum) e se existe QUALQUER
- * EngagementEvent não-flagged da série (P4 do ledger: flagged nunca conta
- * como atividade — nem aqui).
+ * série e se existe QUALQUER EngagementEvent não-flagged da série (P4 do
+ * ledger: flagged nunca conta como atividade — nem aqui).
+ *
+ * RULING do fim da T3 (ledger, achado MÉDIO): sem NENHUM episódio publicado,
+ * "dias sem capítulo" não pode ser `Infinity` trivial — isso penalizaria
+ * toda obra nova vazia só por ainda não ter capítulo, independente da idade
+ * da PRÓPRIA obra. Sem episódio, usamos a idade da série (agora −
+ * `Series.createdAt`) como proxy de "dias sem capítulo": uma obra
+ * recém-criada sem capítulo ainda não teve tempo de ser abandonada; uma
+ * obra antiga (>60 dias de existência) que nunca publicou nada É abandono
+ * real. `estaInativa` abaixo continua EXATAMENTE igual — só este valor de
+ * entrada muda — então o teste "engajamento recente sempre blinda" da T3
+ * permanece válido nos dois casos (com ou sem episódio).
+ *
+ * `serie` precisa de `.createdAt` (mesmo contrato de computeQualidade/
+ * computeRetencao — doc do Mongoose ou objeto lean/simples funcionam).
  */
-async function coletarSinaisInatividade(seriesObjectId, agora) {
+async function coletarSinaisInatividade(serie, seriesObjectId, agora) {
   const [episodioRecente, engajamentoRecente] = await Promise.all([
     Episode.findOne({ seriesId: seriesObjectId, status: 'published' }).sort({ createdAt: -1 }).select('createdAt').lean(),
     EngagementEvent.findOne({ seriesId: seriesObjectId, flagged: false }).select('_id').lean(),
   ]);
   const diasSemCapitulo = episodioRecente
     ? (agora.getTime() - episodioRecente.createdAt.getTime()) / (24 * 60 * 60 * 1000)
-    : Infinity;
+    : (agora.getTime() - serie.createdAt.getTime()) / (24 * 60 * 60 * 1000);
   return { diasSemCapitulo, temEngajamentoRecente: Boolean(engajamentoRecente) };
 }
 
@@ -482,7 +502,7 @@ async function computePenalizacoes(serie, { agora = new Date(), retencao, leitor
     if (abandonoEhRapido(fracaoPresos)) penalizacoes.push('abandono_rapido');
   }
 
-  const { diasSemCapitulo, temEngajamentoRecente } = await coletarSinaisInatividade(seriesObjectId, agora);
+  const { diasSemCapitulo, temEngajamentoRecente } = await coletarSinaisInatividade(serie, seriesObjectId, agora);
   if (estaInativa(diasSemCapitulo, temEngajamentoRecente)) penalizacoes.push('inatividade');
 
   return penalizacoes;
@@ -511,11 +531,126 @@ function aplicarPenalizacoesNaSoma(somaPreEscala, penalizacoes) {
   return Math.max(posPenalizacao, piso);
 }
 
+// Descoberta (Etapa 6 do PDF). Fronteiras — o PDF só dá as faixas; qual lado
+// é inclusive é decisão nossa, documentada e testada dos dois lados (ledger):
+// idade EXATA de 30/60/90 dias ainda pontua na faixa de CIMA (mais pontos);
+// só o dia seguinte cai pra faixa de baixo.
+const DIAS_DESCOBERTA_RECENTE = 30; // idade <= 30 dias — INCLUSIVE
+const PONTOS_DESCOBERTA_RECENTE = 10;
+const DIAS_DESCOBERTA_MEDIA = 60; // idade <= 60 dias — INCLUSIVE
+const PONTOS_DESCOBERTA_MEDIA = 7;
+const DIAS_DESCOBERTA_ANTIGA = 90; // idade <= 90 dias — INCLUSIVE
+const PONTOS_DESCOBERTA_ANTIGA = 4;
+const ESCALA_DESCOBERTA = 10; // pts máximos da Descoberta dentro dos 100 do PDF
+
 /**
- * Task 2/3: grava em SeriesScore o que já existe — qualidade, retenção,
- * penalizações, leitoresUnicos, contentType, computedAt. Descoberta,
- * Potential, Confidence e scoreFinal ficam no default (0/[]) até a Task 4
- * completar a soma Q+R+D e reescalar com `aplicarPenalizacoesNaSoma`.
+ * Descoberta (0–10 pts, Etapa 6 do PDF): bônus de "novidade" — quanto mais
+ * nova a obra, mais pontos. Idade = agora − `Series.createdAt`, em dias
+ * corridos (fronteiras documentadas nas constantes acima).
+ *
+ * `serie` só precisa de `.createdAt` (mesmo contrato de computeQualidade/
+ * computeRetencao); `agora` é SEMPRE injetado pelo chamador (regra do
+ * ledger). Função síncrona/pura — sem I/O, já recebe `serie` pronto.
+ */
+function computeDescoberta(serie, agora) {
+  const idadeDias = (agora.getTime() - serie.createdAt.getTime()) / (24 * 60 * 60 * 1000);
+  if (idadeDias <= DIAS_DESCOBERTA_RECENTE) return PONTOS_DESCOBERTA_RECENTE;
+  if (idadeDias <= DIAS_DESCOBERTA_MEDIA) return PONTOS_DESCOBERTA_MEDIA;
+  if (idadeDias <= DIAS_DESCOBERTA_ANTIGA) return PONTOS_DESCOBERTA_ANTIGA;
+  return 0;
+}
+
+// Peso interno do Potential Score (Etapa 7 do PDF, confirmado pelo cliente).
+// Escala PRÓPRIA de 0–100 — não soma com os 65 pts da "parte por obra".
+const PESO_POTENTIAL_LIKES = 0.25;
+const PESO_POTENTIAL_FAVORITOS = 0.25;
+const PESO_POTENTIAL_SUPER_READER = 0.30;
+const PESO_POTENTIAL_RETENCAO = 0.20;
+const ESCALA_POTENTIAL = 100;
+
+/**
+ * Potential Score (0–100 pts, Etapa 7 do PDF): Likes/leitor 25% · Favoritos/
+ * leitor 25% · Super Reader/leitor 30% · Retenção 20%. As 3 primeiras taxas
+ * são as MESMAS métricas por-leitor-único da Qualidade — `computeMetricasBrutas`
+ * já aplica o gate de "ação real de leitor" (achado ALTO da T2: favorito/
+ * like só conta de quem também leu a obra) — normalizadas pelo mesmo
+ * `contexto` (máximo do content_type, ver `buildQualidadeContexto`). A
+ * Retenção entra como a FRAÇÃO 0–1 já calculada por `computeRetencao`
+ * (`retencaoPontos / ESCALA_RETENCAO`) — não normaliza pelo catálogo (mesma
+ * decisão da Retenção em si: "retenção é absoluta por natureza").
+ *
+ * NÃO inclui Releituras — o Potential do PDF só tem estas 4 componentes (3
+ * taxas + retenção), diferente da Qualidade que tem 4 (SR/Fav/Likes/
+ * Releituras).
+ *
+ * `serie` precisa de `_id` e `content_type`; `contexto` vem de
+ * `buildQualidadeContexto()` (mesmo contrato de computeQualidade — sem
+ * contexto ou tipo ausente, normalização cai para 0, nunca NaN/Infinity);
+ * `retencaoPontos` é o `.retencao` (0–25) já calculado por `computeRetencao`
+ * para a MESMA série (evita recalcular a agregação de Retenção aqui).
+ */
+async function computePotential(serie, contexto = {}, retencaoPontos = 0) {
+  const metricas = await computeMetricasBrutas(serie._id);
+  const max = contexto[serie.content_type] || {};
+  const normalizar = (valor, maximo) => (maximo > 0 ? valor / maximo : 0);
+
+  const likesNorm = normalizar(metricas.likesPorLeitor, max.likesPorLeitor);
+  const favoritosNorm = normalizar(metricas.favoritosPorLeitor, max.favoritosPorLeitor);
+  const superReaderNorm = normalizar(metricas.superReaderPorLeitor, max.superReaderPorLeitor);
+  const retencaoFracao = retencaoPontos / ESCALA_RETENCAO;
+
+  return (
+    likesNorm * PESO_POTENTIAL_LIKES
+    + favoritosNorm * PESO_POTENTIAL_FAVORITOS
+    + superReaderNorm * PESO_POTENTIAL_SUPER_READER
+    + retencaoFracao * PESO_POTENTIAL_RETENCAO
+  ) * ESCALA_POTENTIAL;
+}
+
+// "Meia-confiança" em 20 leitores únicos (spec, Confidence Score — Etapa 12).
+const K_CONFIDENCE = 20;
+
+/**
+ * Confidence (0–1, Etapa 12 do PDF): `n/(n+K)` — quanto mais leitores
+ * únicos, mais "confiável" o score da obra. NÃO altera `scoreFinal` nem
+ * `potentialScore` (spec) — persistido só para a Task 6 usar na ORDENAÇÃO da
+ * recomendação (`parteDaObra×confidence + afinidade`). `n=0` → 0 (sem leitor,
+ * sem confiança nenhuma); `n=K` → 0,5 (meia-confiança, por definição de K);
+ * monotônica crescente em n (mais leitores nunca reduz a confiança); nunca
+ * atinge 1 (assíntota), mesmo com n muito maior que K.
+ */
+function computeConfidence(leitoresUnicos) {
+  return leitoresUnicos / (leitoresUnicos + K_CONFIDENCE);
+}
+
+// "Parte por obra" da spec: Qualidade 30 + Retenção 25 + Descoberta 10 = 65
+// pts pré-computados e persistidos (Afinidade 25 e Diversidade 10 entram só
+// no request de recomendação da Task 6 — fora do SeriesScore).
+const ESCALA_SOMA_OBRA = ESCALA_QUALIDADE + ESCALA_RETENCAO + ESCALA_DESCOBERTA;
+
+/**
+ * Composição final: reescala a "parte por obra" (0–65) para 0–100. Soma
+ * crua = qualidade + retenção + descoberta; as penalizações (Etapa 9,
+ * `aplicarPenalizacoesNaSoma` — multiplicador composto, piso de 20%) atuam
+ * SOBRE essa soma crua, ANTES de reescalar — nunca depois.
+ * `scoreFinal = (somaPosPenalizacao/65)×100`.
+ *
+ * Função PURA — sem I/O — testável isoladamente com componentes conhecidos.
+ * A ORDENAÇÃO da recomendação (Task 6) usa os componentes CRUS (65 pts +
+ * afinidade 25), não este valor reescalado — ele é só para exibição/painel/
+ * a escala 0–100 do PDF (spec, "Modelo SeriesScore").
+ */
+function computeScoreFinal(qualidade, retencao, descoberta, penalizacoes) {
+  const somaCrua = qualidade + retencao + descoberta;
+  const somaPosPenalizacao = aplicarPenalizacoesNaSoma(somaCrua, penalizacoes);
+  return (somaPosPenalizacao / ESCALA_SOMA_OBRA) * 100;
+}
+
+/**
+ * Grava em SeriesScore TODOS os campos calculáveis sem o contexto do leitor
+ * — qualidade, retenção, descoberta, penalizações, potentialScore,
+ * confidence, scoreFinal, leitoresUnicos, contentType, computedAt (spec,
+ * "Modelo SeriesScore"). Upsert idempotente (1 doc por série).
  *
  * `contexto` é opcional — se não vier (chamada avulsa, fora de uma
  * varredura), constrói o próprio via `buildQualidadeContexto()`;
@@ -523,7 +658,8 @@ function aplicarPenalizacoesNaSoma(somaPreEscala, penalizacoes) {
  * recalcular o catálogo inteiro a cada série.
  *
  * `agora` é sempre injetável (regra do ledger: datas SEMPRE injetáveis) —
- * vira `computedAt` E alimenta a checagem de inatividade das penalizações.
+ * vira `computedAt`, alimenta a Descoberta e a checagem de inatividade das
+ * penalizações.
  */
 async function computeSeriesScore(seriesId, { agora = new Date(), contexto } = {}) {
   const serie = await Series.findById(seriesId).lean();
@@ -536,7 +672,11 @@ async function computeSeriesScore(seriesId, { agora = new Date(), contexto } = {
   const ctx = contexto || await buildQualidadeContexto();
   const { qualidade } = await computeQualidade(serie, ctx);
   const { retencao, leitoresUnicos } = await computeRetencao(serie);
+  const descoberta = computeDescoberta(serie, agora);
   const penalizacoes = await computePenalizacoes(serie, { agora, retencao, leitoresUnicos });
+  const potentialScore = await computePotential(serie, ctx, retencao);
+  const confidence = computeConfidence(leitoresUnicos);
+  const scoreFinal = computeScoreFinal(qualidade, retencao, descoberta, penalizacoes);
 
   return SeriesScore.findOneAndUpdate(
     { seriesId },
@@ -545,11 +685,11 @@ async function computeSeriesScore(seriesId, { agora = new Date(), contexto } = {
         contentType: serie.content_type,
         qualidade,
         retencao,
+        descoberta,
+        scoreFinal,
+        potentialScore,
+        confidence,
         leitoresUnicos,
-        descoberta: 0,
-        scoreFinal: 0,
-        potentialScore: 0,
-        confidence: 0,
         penalizacoes,
         computedAt: agora,
       },
@@ -559,22 +699,34 @@ async function computeSeriesScore(seriesId, { agora = new Date(), contexto } = {
 }
 
 /**
- * Esqueleto (Task 2): varre todas as séries publicadas e chama
- * `computeSeriesScore` para cada uma, reaproveitando UM contexto de
- * normalização para a varredura inteira (Etapa 2 do PDF: "calculado uma vez
- * por varredura"). Sequencial de propósito — o catálogo é pequeno (spec,
- * "Fora de escopo": cache/paginação da recomendação não é necessário nesta
- * escala) e evita disparar N queries em paralelo contra o Mongo.
+ * Varre todas as séries publicadas e chama `computeSeriesScore` para cada
+ * uma, reaproveitando UM contexto de normalização para a varredura inteira
+ * (Etapa 2 do PDF: "calculado uma vez por varredura"). Sequencial de
+ * propósito — o catálogo é pequeno (spec, "Fora de escopo": cache/paginação
+ * da recomendação não é necessário nesta escala) e evita disparar N queries
+ * em paralelo contra o Mongo.
+ *
+ * Erro em UMA série NÃO para a varredura (spec, "Recálculo — Etapa 11"): a
+ * varredura geral (timer 24h/boot) não pode travar por causa de uma série em
+ * estado inconsistente. Loga via `utils/logger` e segue para a próxima;
+ * devolve o resumo `{ total, erros }` (total = séries publicadas varridas,
+ * erros = quantas falharam) para o chamador decidir se precisa de um alerta
+ * maior.
  */
 async function computeAllScores({ agora = new Date() } = {}) {
   const contexto = await buildQualidadeContexto();
   const series = await Series.find({ isPublished: true }, '_id').lean();
 
-  const resultados = [];
+  let erros = 0;
   for (const s of series) {
-    resultados.push(await computeSeriesScore(s._id, { agora, contexto }));
+    try {
+      await computeSeriesScore(s._id, { agora, contexto });
+    } catch (erro) {
+      erros += 1;
+      logger.error(`[Recomendacao] Falha ao computar SeriesScore da serie ${s._id}: ${erro && erro.message}`);
+    }
   }
-  return resultados;
+  return { total: series.length, erros };
 }
 
 module.exports = {
@@ -587,6 +739,10 @@ module.exports = {
   abandonoEhRapido,
   estaInativa,
   aplicarPenalizacoesNaSoma,
+  computeDescoberta,
+  computePotential,
+  computeConfidence,
+  computeScoreFinal,
   computeSeriesScore,
   computeAllScores,
 };
