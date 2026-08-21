@@ -10,7 +10,7 @@ const optionalAuth = require('../middlewares/optionalAuth');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 
-const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay'];
+const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags'];
 const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
   'audioTrack1Url', 'audioTrack1Lang', 'audioTrack2Url', 'audioTrack2Lang', 'audioTrack3Url', 'audioTrack3Lang', 'audioTrack4Url', 'audioTrack4Lang'];
 
@@ -128,7 +128,7 @@ router.get('/series/:id', async (req, res) => {
 // POST /api/content/series — criar série (admin)
 router.post('/series', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay } = req.body;
+    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay, tags } = req.body;
     if (!title || !genre || !content_type) {
       return res.status(400).json({ error: 'title, genre e content_type são obrigatórios.' });
     }
@@ -139,13 +139,19 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
     const translations = await translationService.buildTranslationsSafe({ genre, description }, `série "${title}"`);
 
     const series = await Series.create({
-      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay,
+      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay, tags,
       ...(channelId ? { channelId } : {}),
       ...(translations ? { translations } : {})
     });
     logger.info(`[Admin] Série criada: ${title}`);
     res.status(201).json(series);
   } catch (err) {
+    // tags (Bloco 4) tem validação no schema (0 ou 5–15, ver models/Series.js)
+    // — sem este tratamento, ValidationError cairia no catch genérico e
+    // viraria 500 em vez de 400.
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
+    }
     logger.error('[Content] POST /series', err);
     res.status(500).json({ error: 'Erro ao criar série.' });
   }
@@ -189,6 +195,12 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
 
     res.json(series);
   } catch (err) {
+    // Mesmo tratamento do POST: tags inválidas (0 ou 5–15, ver models/Series.js)
+    // geram ValidationError no runValidators do findByIdAndUpdate — sem isto
+    // cairia no catch genérico e viraria 500 em vez de 400.
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
+    }
     logger.error('[Content] PUT /series/:id', err);
     res.status(500).json({ error: 'Erro ao atualizar série.' });
   }

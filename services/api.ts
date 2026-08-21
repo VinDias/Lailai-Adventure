@@ -406,7 +406,7 @@ class ApiService {
     });
   }
 
-  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean; releaseDay: number | null }>) {
+  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean; releaseDay: number | null; tags: string[] }>) {
     return this.request<any>(`/content/series/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
