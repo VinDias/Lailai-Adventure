@@ -223,8 +223,16 @@ async function computeMetricasBrutas(seriesId) {
  * tipo tem aquela métrica > 0 ainda (computeQualidade trata max 0 como
  * "sem normalização possível", componente fica 0, nunca NaN/Infinity).
  */
-async function buildQualidadeContexto() {
-  const series = await Series.find({ isPublished: true }, '_id content_type').lean();
+async function buildQualidadeContexto(contentType) {
+  // A normalização é POR content_type (spec, "Proporcionalidade"): o máximo de
+  // um tipo nunca entra na conta de outro. Um recálculo avulso (gatilho de
+  // voto/favorito/etc.) só precisa dos máximos do tipo da própria série —
+  // filtrar aqui corta a varredura de O(catálogo inteiro) para O(catálogo do
+  // tipo) por gatilho, com resultado idêntico (achado da revisão da T8).
+  // Sem argumento (varredura 24h/boot), varre tudo como antes.
+  const filtro = { isPublished: true };
+  if (contentType) filtro.content_type = contentType;
+  const series = await Series.find(filtro, '_id content_type').lean();
   const porSerie = await Promise.all(series.map(async (s) => ({
     contentType: s.content_type,
     metricas: await computeMetricasBrutas(s._id),
@@ -681,7 +689,7 @@ async function computeSeriesScore(seriesId, { agora = new Date(), contexto } = {
     throw erro;
   }
 
-  const ctx = contexto || await buildQualidadeContexto();
+  const ctx = contexto || await buildQualidadeContexto(serie.content_type);
   const { qualidade } = await computeQualidade(serie, ctx);
   const { retencao, leitoresUnicos } = await computeRetencao(serie);
   const descoberta = computeDescoberta(serie, agora);

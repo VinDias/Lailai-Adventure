@@ -1502,6 +1502,22 @@ describe('composicao', () => {
  * um ganho marginal. Os outros 5 gatilhos cobrem os sinais fortes; a
  * varredura de 24h absorve a deriva orgânica de views/releituras.
  */
+describe('buildQualidadeContexto com filtro de tipo', () => {
+  it('filtrado por content_type devolve os MESMOS maximos do tipo que a varredura completa (achado da revisao da T8)', async () => {
+    const recommendationService = require('../../services/recommendationService');
+    const completo = await recommendationService.buildQualidadeContexto();
+    const soHiqua = await recommendationService.buildQualidadeContexto('hiqua');
+    // O filtro corta a varredura, nunca o resultado: para o tipo pedido, os
+    // maximos sao identicos aos da varredura completa; outros tipos nao vem.
+    if (completo.hiqua) {
+      expect(soHiqua.hiqua).toEqual(completo.hiqua);
+    }
+    for (const tipo of Object.keys(soHiqua)) {
+      expect(tipo).toBe('hiqua');
+    }
+  });
+});
+
 describe('gatilhos', () => {
   let mongoose;
   let Series;
