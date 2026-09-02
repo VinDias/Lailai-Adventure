@@ -279,14 +279,17 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy, onGuest }) => {
             className="text-zinc-500 hover:text-rose-500 font-bold transition-colors text-sm">
             {mode === 'login' ? t('auth.noAccount') : t('auth.haveAccount')}
           </button>
-          {/* Modo visitante (acesso sem conta): discreto, só no login — quem já
-              está em cadastro/recuperação decidiu ter conta. */}
+          {/* Modo visitante (acesso sem conta): só no login. Pedido do cliente
+              em 01/09/2026: maior e visível — leitores não estavam achando. */}
           {mode === 'login' && onGuest && (
-            <button onClick={onGuest} className="text-zinc-600 hover:text-rose-500 font-bold transition-colors text-xs">
+            <button
+              onClick={onGuest}
+              className="w-full py-3.5 mt-1 rounded-2xl border border-white/15 bg-white/5 text-zinc-200 hover:text-white hover:bg-white/10 font-black text-sm uppercase tracking-widest transition-all"
+            >
               {t('auth.exploreGuest')}
             </button>
           )}
-          <div className="text-[10px] text-zinc-600 mt-2 flex gap-3">
+          <div className="text-[10px] text-zinc-600 mt-2 flex gap-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }}>
             <button type="button" onClick={() => onOpenPolicy?.('privacy')} className="hover:text-rose-500 transition-colors">{t('auth.privacyLabel')}</button>
             <span>·</span>
             <button type="button" onClick={() => onOpenPolicy?.('terms')} className="hover:text-rose-500 transition-colors">{t('auth.termsLabel')}</button>

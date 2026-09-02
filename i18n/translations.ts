@@ -554,9 +554,11 @@ export const TRANSLATIONS: Record<Lang, Record<TranslationKey, string>> = { pt, 
 
 // Rótulos do seletor de idioma. PORT-BR (e não "PT") a pedido do cliente:
 // deixa claro que a tradução é português do Brasil.
+// Rótulos unificados com os botões do leitor (decisão do cliente, 01/09/2026):
+// Port/Eng/Esp/Zhon em todo o app.
 export const LANG_OPTIONS: { code: Lang; label: string }[] = [
-  { code: 'pt', label: 'PORT-BR' },
-  { code: 'en', label: 'EN' },
-  { code: 'es', label: 'ES' },
-  { code: 'zh', label: '中文' },
+  { code: 'pt', label: 'Port' },
+  { code: 'en', label: 'Eng' },
+  { code: 'es', label: 'Esp' },
+  { code: 'zh', label: 'Zhon' },
 ];
