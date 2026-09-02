@@ -99,10 +99,15 @@ router.put('/:id', verifyToken, async (req, res) => {
       const novoDono = await User.findOne({ email: String(ownerEmail).toLowerCase().trim() });
       if (!novoDono) return res.status(404).json({ error: 'Usuário com esse e-mail não encontrado.' });
 
-      // Troca de dono arquiva a thread vigente ANTES de mudar ownerId — o
-      // histórico privado do ex-dono não pode vazar para o sucessor.
-      await MensagemPortal.arquivarThreadDoCanal(channel._id);
-      channel.ownerId = novoDono._id;
+      // ownerEmail do MESMO dono vigente (ex.: form do admin pré-populado)
+      // não é troca — no-op: não arquiva a thread nem mexe em ownerId.
+      const mesmoDono = channel.ownerId && channel.ownerId.equals(novoDono._id);
+      if (!mesmoDono) {
+        // Troca de dono arquiva a thread vigente ANTES de mudar ownerId — o
+        // histórico privado do ex-dono não pode vazar para o sucessor.
+        await MensagemPortal.arquivarThreadDoCanal(channel._id);
+        channel.ownerId = novoDono._id;
+      }
     }
 
     if (name) channel.name = name;

@@ -164,6 +164,82 @@ describe('PUT /api/content/series/:id — edição (admin)', () => {
   });
 });
 
+// Fase 5 Bloco 1 — genre virou required condicional a isPublished
+// (models/Series.js), mas `required: function()` não roda no caminho de
+// update (findByIdAndUpdate + runValidators não vê o documento completo).
+// A rota precisa recusar o ESTADO FINAL (doc atual mesclado com o payload)
+// sem gênero quando esse estado final é publicado — achado do revisor da
+// Task 1 (fix round).
+describe('PUT /api/content/series/:id — genre required condicional a isPublished', () => {
+  const Series = require('../../models/Series');
+
+  it('publicar draft sem genre → 400 (não publica)', async () => {
+    const draft = await Series.create({ title: 'Draft Sem Genero Para Publicar', content_type: 'hiqua', isPublished: false });
+
+    const res = await request(app)
+      .put(`/api/content/series/${draft._id}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ isPublished: true });
+
+    expect(res.status).toBe(400);
+
+    const inalterada = await Series.findById(draft._id).lean();
+    expect(inalterada.isPublished).toBe(false);
+  });
+
+  it('genre: "" em série publicada → 400 (sonda do revisor — regressão do required:true antigo)', async () => {
+    const create = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Publicada Genero Vazio', genre: 'Aventura', content_type: 'hiqua', isPublished: true });
+    expect(create.status).toBe(201);
+
+    const res = await request(app)
+      .put(`/api/content/series/${create.body._id}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ genre: '' });
+
+    expect(res.status).toBe(400);
+
+    const inalterada = await Series.findById(create.body._id).lean();
+    expect(inalterada.genre).toBe('Aventura');
+  });
+
+  it('genre: null em série publicada → 400', async () => {
+    const create = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Publicada Genero Null', genre: 'Comédia', content_type: 'hiqua', isPublished: true });
+    expect(create.status).toBe(201);
+
+    const res = await request(app)
+      .put(`/api/content/series/${create.body._id}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ genre: null });
+
+    expect(res.status).toBe(400);
+
+    const inalterada = await Series.findById(create.body._id).lean();
+    expect(inalterada.genre).toBe('Comédia');
+  });
+
+  it('controle: série publicada com genre válido continua editável normalmente', async () => {
+    const create = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Publicada Genero Valido', genre: 'Drama', content_type: 'hiqua', isPublished: true });
+    expect(create.status).toBe(201);
+
+    const res = await request(app)
+      .put(`/api/content/series/${create.body._id}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ genre: 'Suspense' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.genre).toBe('Suspense');
+  });
+});
+
 describe('DELETE /api/content/series/:id — remoção (admin)', () => {
   it('admin remove série', async () => {
     const create = await request(app)

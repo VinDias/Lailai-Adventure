@@ -163,11 +163,26 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const updates = pick(req.body, SERIES_FIELDS);
 
+    // Busca única do documento atual — reaproveitada pela validação de
+    // genre abaixo, pelas traduções e pela detecção de republicação.
+    const current = await Series.findById(req.params.id).select('genre description isPublished').lean();
+    if (!current) return res.status(404).json({ error: 'Série não encontrada.' });
+
+    // genre é required condicional a isPublished (ver models/Series.js),
+    // mas required: function() do Mongoose não enxerga o documento
+    // persistido no caminho de update — findByIdAndUpdate roda o validator
+    // no contexto da query, não do doc, então nada barraria publicar sem
+    // gênero ou apagar o gênero de uma série já publicada. Calculamos o
+    // ESTADO FINAL (doc atual mesclado com o payload) e barramos aqui.
+    const generoFinal = 'genre' in updates ? updates.genre : current.genre;
+    const publicadoFinal = 'isPublished' in updates ? updates.isPublished : current.isPublished;
+    if (publicadoFinal === true && (!generoFinal || !String(generoFinal).trim())) {
+      return res.status(400).json({ error: 'Série publicada precisa de gênero preenchido.' });
+    }
+
     // Gênero/descrição mudaram → refaz as traduções com os valores mesclados
     // (o campo não enviado mantém o valor atual do documento).
     if ('genre' in updates || 'description' in updates) {
-      const current = await Series.findById(req.params.id).select('genre description').lean();
-      if (!current) return res.status(404).json({ error: 'Série não encontrada.' });
       const translationService = require('../services/translationService');
       const translations = await translationService.buildTranslationsSafe({
         genre: updates.genre ?? current.genre,
@@ -180,12 +195,7 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
     // update) para detectar a transição falso→verdadeiro: série que volta a
     // publicar "destrava" capítulos que ficaram sem notificar enquanto ela
     // estava despublicada (o claim de notifyEpisodePublished os poupou).
-    let estavaDespublicada = false;
-    if ('isPublished' in updates) {
-      const antes = await Series.findById(req.params.id).select('isPublished').lean();
-      if (!antes) return res.status(404).json({ error: 'Série não encontrada.' });
-      estavaDespublicada = !antes.isPublished;
-    }
+    const estavaDespublicada = !current.isPublished;
 
     const series = await Series.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });

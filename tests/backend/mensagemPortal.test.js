@@ -154,4 +154,22 @@ describe('PUT /api/channels/:id (ownerEmail) — arquiva a thread do canal', () 
     const atualizada = await MensagemPortal.findById(msg._id).lean();
     expect(atualizada.arquivadaEm).not.toBeNull();
   });
+
+  it('ownerEmail do MESMO dono vigente é no-op: NÃO arquiva a thread (fix round — form pré-populado)', async () => {
+    const canal = await criarCanal('user', 'Canal Mesmo Dono Nao Arquiva');
+    const msg = await MensagemPortal.create(mensagemBase({ canalId: canal._id, ownerUserId: getId('user') }));
+    expect(msg.arquivadaEm).toBeNull();
+
+    const res = await request(app)
+      .put(`/api/channels/${canal._id}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ ownerEmail: getUsers().user.email, description: 'save sem trocar dono' });
+    expect(res.status).toBe(200);
+
+    const inalterada = await MensagemPortal.findById(msg._id).lean();
+    expect(inalterada.arquivadaEm).toBeNull();
+
+    const canalAtual = await Channel.findById(canal._id).lean();
+    expect(canalAtual.ownerId.toString()).toBe(getId('user'));
+  });
 });
