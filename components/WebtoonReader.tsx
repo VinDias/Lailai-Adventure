@@ -33,8 +33,11 @@ interface PanelItem {
   translationLayers?: TranslationLayer[];
 }
 
+// Rótulos FIXOS dos botões de idioma do leitor — decisão do cliente em
+// 01/09/2026 ("fechar de vez essa parte"): Port/Eng/Esp/Zhon, iguais em todo
+// o app, sem editor no admin e sem customização por episódio.
 const DEFAULT_LANG_LABELS: Record<string, string> = {
-  pt: 'PT', en: 'EN', es: 'ES', zh: 'ZH',
+  pt: 'Port', en: 'Eng', es: 'Esp', zh: 'Zhon',
   ja: 'JA', ko: 'KO', fr: 'FR', de: 'DE', it: 'IT',
 };
 
@@ -54,7 +57,6 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
   // local aceita qualquer código; só os 4 da UI sincronizam de volta.
   const [language, setLanguage] = useState<string>(uiLang);
   const [availableLanguages, setAvailableLanguages] = useState<{ code: string; label: string }[]>([{ code: 'pt', label: 'PT' }]);
-  const [customLabels, setCustomLabels] = useState<Record<string, string>>({});
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
   const [showHeader, setShowHeader] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -179,20 +181,14 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
             if (tl.language) langSet.add(tl.language);
           }));
 
-          const rawLabels = episode.webtoonLanguageLabels || {};
-          const labels: Record<string, string> = {};
-          Object.entries(rawLabels).forEach(([code, value]) => {
-            const v = typeof value === 'string' ? value.trim() : '';
-            if (v) {
-              labels[code] = v;
-              langSet.add(code);
-            }
-          });
-          setCustomLabels(labels);
+          // Botão aparece só quando o idioma tem tradução de verdade (PT é o
+          // original). Os rótulos por episódio (webtoonLanguageLabels) foram
+          // aposentados junto com o editor do admin — o campo segue no banco
+          // por compatibilidade, mas não é mais lido.
           setAvailableLanguages(
             Array.from(langSet).map(code => ({
               code,
-              label: labels[code] || DEFAULT_LANG_LABELS[code] || code.toUpperCase()
+              label: DEFAULT_LANG_LABELS[code] || code.toUpperCase()
             }))
           );
 
