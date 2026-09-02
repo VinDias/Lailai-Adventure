@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const Series = require('../models/Series');
 const Episode = require('../models/Episode');
@@ -188,13 +189,12 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
     // gênero ou apagar o gênero de uma série já publicada. Calculamos o
     // ESTADO FINAL (doc atual mesclado com o payload) e barramos aqui.
     const generoFinal = 'genre' in updates ? updates.genre : current.genre;
-    // Carona da Task 2 (dívida da T1): a comparação era === true estrita —
-    // um PUT com isPublished: 'true' (string) ou 1 escapava do gate, porque
-    // o Mongoose faz cast desses formatos pra true no update mas a
-    // comparação estrita não os reconhecia. Normaliza os formatos aceitos
-    // pelo cast do SchemaType Boolean antes de comparar.
+    // A comparação precisa reconhecer TODOS os formatos que o cast de
+    // Boolean do Mongoose converte para true no update ('true', 1, '1',
+    // 'yes', ...) — lista manual divergiria do cast real (foi o caso:
+    // 'yes' escapava). Fonte única: o Set convertToTrue do próprio Mongoose.
     const publicadoFinal = 'isPublished' in updates
-      ? [true, 'true', 1, '1'].includes(updates.isPublished)
+      ? mongoose.Schema.Types.Boolean.convertToTrue.has(updates.isPublished)
       : current.isPublished;
     if (publicadoFinal === true && (!generoFinal || !String(generoFinal).trim())) {
       return res.status(400).json({ error: 'Série publicada precisa de gênero preenchido.' });
@@ -220,7 +220,9 @@ router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
     const series = await Series.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
 
-    if (estavaDespublicada && updates.isPublished === true) {
+    // publicadoFinal (e não === true estrito) para o redisparo acompanhar o
+    // mesmo critério do gate: qualquer formato que o cast publica, redispara.
+    if (estavaDespublicada && 'isPublished' in updates && publicadoFinal) {
       redispararNotificacoesDaSerie(series._id);
     }
 

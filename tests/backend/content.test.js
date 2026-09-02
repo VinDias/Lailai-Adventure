@@ -3,6 +3,7 @@
  * Tipos de usuário: unauthenticated, user, premium, admin, superadmin
  */
 const request = require('supertest');
+const mongoose = require('mongoose');
 const db = require('../helpers/db');
 const { createUsers, getToken, getId } = require('../helpers/auth');
 
@@ -205,6 +206,25 @@ describe('PUT /api/content/series/:id — genre required condicional a isPublish
 
     const inalterada = await Series.findById(draft._id).lean();
     expect(inalterada.isPublished).toBe(false);
+  });
+
+  // Achado da re-revisão da T2: a lista manual [true,'true',1,'1'] omitia
+  // 'yes', que o convertToTrue do Mongoose também casta para true. O gate
+  // agora consulta o Set do próprio Mongoose — cada formato castável barra.
+  it('todo formato que o cast do Mongoose publica é barrado sem genre (inclusive "yes")', async () => {
+    for (const valor of [...mongoose.Schema.Types.Boolean.convertToTrue]) {
+      const draft = await Series.create({ title: `Draft Cast ${String(valor)}`, content_type: 'hiqua', isPublished: false });
+
+      const res = await request(app)
+        .put(`/api/content/series/${draft._id}`)
+        .set('Authorization', `Bearer ${getToken('admin')}`)
+        .send({ isPublished: valor });
+
+      expect(res.status, `isPublished: ${JSON.stringify(valor)} deveria dar 400`).toBe(400);
+
+      const inalterada = await Series.findById(draft._id).lean();
+      expect(inalterada.isPublished, `isPublished: ${JSON.stringify(valor)} publicou`).toBe(false);
+    }
   });
 
   it('genre: "" em série publicada → 400 (sonda do revisor — regressão do required:true antigo)', async () => {
