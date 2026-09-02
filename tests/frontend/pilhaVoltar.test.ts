@@ -1,25 +1,36 @@
 /**
- * Testes — utils/pilhaVoltar.ts: pilha de camadas sincronizada com o
- * History API, para o botão voltar do Android fechar overlays (um por vez)
+ * Testes — utils/pilhaVoltar.ts: sentinela única de histórico (no máximo UMA
+ * entrada física, independente de quantas camadas estejam empilhadas
+ * logicamente) para o botão voltar do Android fechar overlays (um por vez)
  * em vez de fechar o app direto.
  *
  * Sobre o mock de history.back(): jsdom processa history.back() de forma
- * ASSÍNCRONA (comprovado à parte: o popstate real só chega dezenas/centenas
- * de ms depois — nem um setTimeout(0) nem um microtask bastam). Deixar isso
- * rolar de verdade nos testes seria lento e instável (um popstate perdido
- * podia chegar atrasado no MEIO de um teste seguinte, já que a pilha do
- * módulo é um singleton compartilhado por todo o arquivo). Por isso
- * history.back é mockado (sem operação) em todo teste, e o "voltar do
- * Android" é simulado diretamente com
+ * ASSÍNCRONA (comprovado à parte, e também em Chromium real: o popstate
+ * real leva algum tempo pra chegar — nem um microtask nem um macrotask
+ * curto bastam). Deixar isso rolar de verdade nos testes seria lento e
+ * instável. Por isso history.back é mockado (sem operação) em todo teste
+ * daqui, e o "voltar do Android" é simulado diretamente com
  * window.dispatchEvent(new PopStateEvent('popstate')) — o listener do
  * módulo não tem como diferenciar esse evento de um disparado de verdade
- * pelo navegador.
+ * pelo navegador. O desregistro de camada agora NUNCA chama history.back()
+ * na hora (é o próprio ponto da correção — ver cabeçalho do módulo) — ele
+ * agenda uma reavaliação por microtask, então testes que dependem dela
+ * usam `await flush()` (um `await Promise.resolve()`) para deixá-la rodar
+ * antes de checar o resultado.
+ *
+ * A corrida real que motivou o redesenho (fechar uma camada e abrir outra
+ * no MESMO commit React — ex.: abrir um episódio de dentro do modal de
+ * detalhe da série fecha o modal e abre o player ao mesmo tempo) foi
+ * validada separadamente em Chromium real via Playwright (não dá pra
+ * reproduzir com fidelidade em jsdom, que não implementa a assincronia real
+ * do history.back() do jeito que os navegadores implementam) — ver o
+ * relatório da tarefa.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { registrarCamada, useCamadaVoltar } from '../../utils/pilhaVoltar';
+import { registrarCamada, useCamadaVoltar, __resetParaTeste } from '../../utils/pilhaVoltar';
 
 // Mocks da integração leve (descrita mais abaixo) — ficam no topo por causa
 // do hoisting do vi.mock, mas só são usados pelo describe de integração.
@@ -46,18 +57,25 @@ import { api } from '../../services/api';
 import HQCine from '../../components/HQCine';
 
 const disparaVoltar = () => window.dispatchEvent(new PopStateEvent('popstate'));
+// Deixa a microtask agendada por um desregistro (queueMicrotask) rodar.
+const flush = () => Promise.resolve();
 
 describe('pilhaVoltar', () => {
   let backSpy: ReturnType<typeof vi.spyOn>;
   let pushSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    // Sem isso, o back() real de um teste podia disparar um popstate
-    // atrasado (assíncrono, ver comentário do topo) durante outro teste.
+    // O módulo guarda pilha/sentinelaAtiva/consumindo como singleton (ver
+    // __resetParaTeste) — sem zerar, um teste que deixa camada aberta de
+    // propósito (pra testar outra coisa) vazaria sentinelaAtiva=true pro
+    // próximo teste.
+    __resetParaTeste();
+    // Sem isso, o back() real (assíncrono, ver comentário do topo) podia
+    // disparar um popstate atrasado durante outro teste.
     backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
     // pushState continua rodando de verdade (é síncrono, sem risco de
-    // vazar entre testes) — só observado, para os testes que checam quantas
-    // vezes o módulo empilhou.
+    // vazar entre testes) — só observado, para checar quantas vezes o
+    // módulo empilhou/re-empilhou a sentinela.
     pushSpy = vi.spyOn(window.history, 'pushState');
   });
 
@@ -65,103 +83,133 @@ describe('pilhaVoltar', () => {
     vi.restoreAllMocks();
   });
 
-  it('registrar → popstate → fechar chamado e pilha vazia', () => {
-    const fechar = vi.fn();
-    registrarCamada(fechar);
+  it('transição 0→1 camadas faz exatamente 1 pushState (cria a sentinela)', () => {
+    registrarCamada(vi.fn());
     expect(pushSpy).toHaveBeenCalledTimes(1);
-
-    disparaVoltar();
-    expect(fechar).toHaveBeenCalledTimes(1);
-
-    // pilha já vazia: outro popstate não pode lançar nem fechar de novo
-    // (também cobre o caso de state órfão sobrando de um reload).
-    expect(() => disparaVoltar()).not.toThrow();
-    expect(fechar).toHaveBeenCalledTimes(1);
   });
 
-  it('duas camadas: popstate fecha só a de cima; o segundo fecha a de baixo', () => {
+  it('segunda camada NÃO faz pushState (reaproveita a sentinela já ativa)', () => {
+    registrarCamada(vi.fn());
+    registrarCamada(vi.fn());
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('popstate com 2 camadas fecha só o topo e re-empilha a sentinela (1 pushState a mais)', () => {
     const fechar1 = vi.fn();
     const fechar2 = vi.fn();
     registrarCamada(fechar1);
     registrarCamada(fechar2);
+    pushSpy.mockClear();
 
     disparaVoltar();
     expect(fechar2).toHaveBeenCalledTimes(1);
     expect(fechar1).not.toHaveBeenCalled();
-
-    disparaVoltar();
-    expect(fechar1).toHaveBeenCalledTimes(1);
+    expect(pushSpy).toHaveBeenCalledTimes(1); // re-empilhou pra a camada restante
   });
 
-  it('fechamento programático (desregistro) consome a entrada sem disparar fechar de outra camada', () => {
+  it('popstate com 1 camada fecha e NÃO re-empilha (próximo voltar sai do app)', () => {
+    const fechar = vi.fn();
+    registrarCamada(fechar);
+    pushSpy.mockClear();
+
+    disparaVoltar();
+    expect(fechar).toHaveBeenCalledTimes(1);
+    expect(pushSpy).not.toHaveBeenCalled();
+  });
+
+  it('duas camadas, dois voltares seguidos: o 1º fecha o topo (re-empilha), o 2º fecha a de baixo (não re-empilha)', () => {
     const fechar1 = vi.fn();
     const fechar2 = vi.fn();
     registrarCamada(fechar1);
-    const desregistrar2 = registrarCamada(fechar2);
+    registrarCamada(fechar2);
+    pushSpy.mockClear();
 
-    // Ex.: clique no X da camada de cima — não é um popstate.
-    desregistrar2();
-    expect(backSpy).toHaveBeenCalledTimes(1); // consumiu a entrada dela
-    expect(fechar2).not.toHaveBeenCalled(); // desregistro não chama fechar de novo
-
-    // O popstate que esse history.back() geraria de verdade (mockado aqui,
-    // ver beforeEach) precisa ser absorvido em silêncio pela flag interna —
-    // sem ela, fecharia a camada 1 por engano (o problema bidirecional
-    // documentado no módulo).
     disparaVoltar();
+    expect(fechar2).toHaveBeenCalledTimes(1);
     expect(fechar1).not.toHaveBeenCalled();
+    expect(pushSpy).toHaveBeenCalledTimes(1);
 
-    // Um voltar de verdade, na sequência, tem que fechar a camada 1 normalmente.
+    pushSpy.mockClear();
     disparaVoltar();
     expect(fechar1).toHaveBeenCalledTimes(1);
+    expect(pushSpy).not.toHaveBeenCalled();
   });
 
-  it('popstate com pilha vazia não lança (ex.: state órfão de reload)', () => {
-    expect(() => disparaVoltar()).not.toThrow();
-    expect(() => disparaVoltar()).not.toThrow();
-  });
+  it('fechar uma camada e abrir outra no MESMO tick síncrono (caso modal→player): zero back() e zero pushState extra', async () => {
+    const fecharModal = vi.fn();
+    const desregistrarModal = registrarCamada(fecharModal);
+    pushSpy.mockClear();
 
-  it('desregistro depois que a própria camada já fechou por popstate não chama history.back de novo', () => {
-    const fechar = vi.fn();
-    const desregistrar = registrarCamada(fechar);
+    // Mesma sequência síncrona que o React garante dentro de um commit:
+    // todos os cleanups (desregistro do modal) antes de todos os setups
+    // novos (registro do player) — sem nenhum await entre os dois.
+    desregistrarModal();
+    const fecharPlayer = vi.fn();
+    registrarCamada(fecharPlayer);
 
-    disparaVoltar(); // "voltar" de verdade fecha a camada
-    expect(fechar).toHaveBeenCalledTimes(1);
-    backSpy.mockClear();
+    // A reavaliação da sentinela (queueMicrotask) só roda depois disso.
+    await flush();
 
-    // Cleanup do useEffect rodando depois (ex.: desmontagem) — a entrada já
-    // foi consumida pela navegação real acima, não há o que consumir de novo.
-    desregistrar();
     expect(backSpy).not.toHaveBeenCalled();
+    expect(pushSpy).not.toHaveBeenCalled(); // reaproveitou a sentinela existente
+    expect(fecharModal).not.toHaveBeenCalled();
+    expect(fecharPlayer).not.toHaveBeenCalled();
+
+    // E o próximo voltar de verdade fecha o player (não sai do app).
+    disparaVoltar();
+    expect(fecharPlayer).toHaveBeenCalledTimes(1);
+    expect(fecharModal).not.toHaveBeenCalled();
   });
 
-  it('StrictMode: registrar → desregistrar → registrar no mesmo tick deixa só UMA entrada ativa', () => {
+  it('fechamento programático da última camada: back() só depois da microtask, nunca na hora', async () => {
+    const desregistrar = registrarCamada(vi.fn());
+    desregistrar();
+
+    expect(backSpy).not.toHaveBeenCalled(); // não é síncrono — é o ponto da correção
+    await flush();
+    expect(backSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('recuperação: back() pendente + registrar antes do popstate atrasado chegar → o swallow repõe a sentinela', async () => {
+    const desregistrar = registrarCamada(vi.fn());
+    desregistrar();
+    await flush(); // dispara o back() pendente (mockado — não gera popstate sozinho aqui)
+    expect(backSpy).toHaveBeenCalledTimes(1);
+    pushSpy.mockClear();
+
+    // Usuário reabre algo antes do popstate atrasado (assíncrono, na vida
+    // real) chegar de volta.
+    const fecharNova = vi.fn();
+    registrarCamada(fecharNova);
+    expect(pushSpy).not.toHaveBeenCalled(); // reaproveitou a sentinela (ainda ativa)
+
+    // O popstate atrasado finalmente chega.
+    disparaVoltar();
+    expect(fecharNova).not.toHaveBeenCalled(); // engolido — é o eco do nosso back()
+    expect(pushSpy).toHaveBeenCalledTimes(1); // repôs a sentinela pra camada que sobrou
+  });
+
+  it('popstate com pilha vazia e nada pendente não lança (ex.: state órfão de reload)', () => {
+    expect(() => disparaVoltar()).not.toThrow();
+    expect(() => disparaVoltar()).not.toThrow();
+  });
+
+  it('StrictMode: registrar → desregistrar → registrar no mesmo tick faz 1 pushState só, 0 back()', async () => {
     const fechar = vi.fn();
     const desregistrarPrimeiro = registrarCamada(fechar);
     desregistrarPrimeiro();
     registrarCamada(fechar);
 
-    expect(pushSpy).toHaveBeenCalledTimes(2); // cada registrarCamada empilha uma vez
-    expect(backSpy).toHaveBeenCalledTimes(1); // o desregistro do meio consumiu a primeira
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(backSpy).not.toHaveBeenCalled();
 
-    // O history.back() do desregistro do meio está mockado (ver beforeEach)
-    // — na vida real ele dispararia exatamente um popstate, mais cedo ou
-    // mais tarde, consumido em silêncio pela flag. Aqui simulamos esse
-    // popstate primeiro (é o que o `ignorarProximoPopstate` está esperando).
     disparaVoltar();
-    expect(fechar).not.toHaveBeenCalled();
-
-    // Prova comportamental de que só sobrou UMA camada ativa: o PRÓXIMO
-    // voltar (de verdade) fecha, e um voltar seguinte não acha mais nada —
-    // não sobrou uma "camada fantasma" da dupla montagem.
-    disparaVoltar();
-    expect(fechar).toHaveBeenCalledTimes(1);
-    expect(() => disparaVoltar()).not.toThrow();
     expect(fechar).toHaveBeenCalledTimes(1);
   });
 
   describe('useCamadaVoltar', () => {
-    it('registra ao abrir e desregistra ao fechar/desmontar', () => {
+    it('registra ao abrir e desregistra ao fechar/desmontar', async () => {
       const fechar = vi.fn();
       let aberto = false;
       const Comp: React.FC = () => {
@@ -180,11 +228,40 @@ describe('pilhaVoltar', () => {
       expect(fechar).toHaveBeenCalledTimes(1);
 
       unmount();
+      await flush();
       // já foi fechada pelo popstate — desmontar não deve tentar consumir de novo
       expect(backSpy).not.toHaveBeenCalled();
     });
 
-    it('StrictMode real (dupla montagem do React) não duplica a entrada', () => {
+    it('React: fechar uma camada e abrir outra no mesmo commit (modal→player) não mexe no histórico', async () => {
+      const fecharModal = vi.fn();
+      const fecharPlayer = vi.fn();
+      let tela: 'modal' | 'player' = 'modal';
+      const Comp: React.FC = () => {
+        useCamadaVoltar(tela === 'modal', fecharModal);
+        useCamadaVoltar(tela === 'player', fecharPlayer);
+        return null;
+      };
+
+      const { rerender } = render(React.createElement(Comp));
+      expect(pushSpy).toHaveBeenCalledTimes(1); // abriu o "modal"
+
+      pushSpy.mockClear();
+      tela = 'player'; // um único re-render: cleanup do modal + setup do player, mesmo commit
+      rerender(React.createElement(Comp));
+
+      expect(pushSpy).not.toHaveBeenCalled();
+      await flush();
+      expect(backSpy).not.toHaveBeenCalled();
+      expect(pushSpy).not.toHaveBeenCalled();
+
+      // Confirma quem fecha no próximo voltar: o player, não o app inteiro.
+      disparaVoltar();
+      expect(fecharPlayer).toHaveBeenCalledTimes(1);
+      expect(fecharModal).not.toHaveBeenCalled();
+    });
+
+    it('StrictMode real (dupla montagem do React) faz 1 pushState só', async () => {
       const fechar = vi.fn();
       const Comp: React.FC = () => {
         useCamadaVoltar(true, fechar);
@@ -192,23 +269,18 @@ describe('pilhaVoltar', () => {
       };
 
       render(React.createElement(React.StrictMode, null, React.createElement(Comp)));
-      // Em dev, o StrictMode monta, desmonta e remonta o componente uma vez a
-      // mais só para achar efeitos não idempotentes — isso já rodou (síncrono
-      // dentro do render acima) e armou a flag de ignorar um popstate (o
-      // history.back() do desmonte extra, mockado — ver beforeEach). Consome
-      // esse popstate simulado primeiro, exatamente como a vida real faria
-      // (mais cedo ou mais tarde, um só) antes do voltar de verdade do usuário.
-      disparaVoltar();
-      expect(fechar).not.toHaveBeenCalled();
+      expect(pushSpy).toHaveBeenCalledTimes(1);
+      await flush();
+      expect(backSpy).not.toHaveBeenCalled();
 
-      // O registro final ainda tem que ser só UM: este voltar fecha.
       disparaVoltar();
       expect(fechar).toHaveBeenCalledTimes(1);
     });
 
-    it('fechamento programático (aberto vira false) consome a entrada sem afetar outra camada', () => {
+    it('fechamento programático (aberto vira false) não afeta outra camada aberta', async () => {
       const fecharDeBaixo = vi.fn();
-      registrarCamada(fecharDeBaixo); // camada externa, simula outro overlay já aberto
+      registrarCamada(fecharDeBaixo); // camada externa, já aberta
+      pushSpy.mockClear();
 
       let aberto = true;
       const fechar = vi.fn();
@@ -217,17 +289,12 @@ describe('pilhaVoltar', () => {
         return null;
       };
       const { rerender } = render(React.createElement(Comp));
-      expect(pushSpy).toHaveBeenCalledTimes(2); // camada externa + esta
+      expect(pushSpy).not.toHaveBeenCalled(); // reaproveitou a sentinela da camada externa
 
       aberto = false;
       rerender(React.createElement(Comp)); // ex.: clique no X do próprio componente
-      // Esse fechamento programático já consumiu (history.back() mockado —
-      // ver beforeEach) a entrada dele; simula o popstate que isso geraria
-      // de verdade antes do voltar real do usuário (mesmo raciocínio de
-      // sempre: um history.back() sempre gera exatamente um popstate).
-      disparaVoltar();
-      expect(fecharDeBaixo).not.toHaveBeenCalled();
-      expect(fechar).not.toHaveBeenCalled();
+      await flush();
+      expect(backSpy).not.toHaveBeenCalled(); // ainda sobra a camada de baixo — nada a consumir
 
       disparaVoltar();
       expect(fecharDeBaixo).toHaveBeenCalledTimes(1); // fechou a de baixo, não a que já foi embora
@@ -242,6 +309,7 @@ describe('pilhaVoltar', () => {
 
 describe('pilhaVoltar — integração num feed (HQCine)', () => {
   beforeEach(() => {
+    __resetParaTeste();
     vi.spyOn(window.history, 'back').mockImplementation(() => {});
   });
   afterEach(() => {
