@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const { podeVerRascunho } = require('../utils/ownership');
 
 function toSlug(str) {
   return (str || '').toLowerCase()
@@ -504,10 +505,23 @@ router.get('/signed-url', (req, res) => {
       return res.status(503).json({ error: 'Streaming indisponível: token de mídia não configurado.' });
     }
 
-    // Só assinamos vídeos que pertencem a um episódio conhecido (evita assinar IDs arbitrários).
+    // Só assinamos vídeos que pertencem a um episódio conhecido (evita assinar
+    // IDs arbitrários) E publicado — episódio draft/processing (ou publicado
+    // numa série ainda não publicada) só é assinado pro admin ou pro dono do
+    // canal da série (Fase 5 Bloco 1, Task 2 — "Drafts invisíveis ao
+    // público"; mesmo critério de routes/content.js via utils/ownership).
     try {
-      const episode = await Episode.findOne({ bunnyVideoId: videoId }).select('isPremium').lean();
+      const episode = await Episode.findOne({ bunnyVideoId: videoId })
+        .select('isPremium status seriesId')
+        .populate('seriesId', 'isPublished channelId')
+        .lean();
       if (!episode) return res.status(404).json({ error: 'Vídeo não encontrado.' });
+
+      const publicado = episode.status === 'published' && !!episode.seriesId && episode.seriesId.isPublished === true;
+      if (!publicado) {
+        const podeVer = episode.seriesId && await podeVerRascunho(req.user, episode.seriesId.channelId);
+        if (!podeVer) return res.status(404).json({ error: 'Vídeo não encontrado.' });
+      }
     } catch (err) {
       logger.error('[Bunny] Erro ao verificar acesso ao vídeo', err);
       return res.status(500).json({ error: 'Erro ao verificar acesso.' });

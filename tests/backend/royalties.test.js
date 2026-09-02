@@ -39,11 +39,11 @@ async function createSeriesWithChannel(title, contentType, channelId) {
   return res.body;
 }
 
-async function createEpisode(seriesId, n) {
+async function createEpisode(seriesId, n, extra = {}) {
   const res = await request(app)
     .post('/api/content/episodes')
     .set('Authorization', `Bearer ${auth.getToken('admin')}`)
-    .send({ seriesId, episode_number: n, title: `Ep ${n}` });
+    .send({ seriesId, episode_number: n, title: `Ep ${n}`, ...extra });
   return res.body;
 }
 
@@ -107,8 +107,11 @@ describe('instrumentação das rotas', () => {
     const ch = await createChannel('Canal Instr');
     const sVideo = await createSeriesWithChannel('Serie Video', 'vcine', ch._id);
     const sToon = await createSeriesWithChannel('Serie Toon', 'hiqua', ch._id);
-    const epV = await createEpisode(sVideo._id, 1);
-    const epT = await createEpisode(sToon._id, 1);
+    // status: 'published' — Fase 5 Bloco 1, Task 2: a rota pública passou a
+    // recusar (404, sem telemetria) episódio/série não publicados; este
+    // teste é sobre view-vs-read, não sobre draft, então publica os dois.
+    const epV = await createEpisode(sVideo._id, 1, { status: 'published' });
+    const epT = await createEpisode(sToon._id, 1, { status: 'published' });
 
     await request(app).get(`/api/content/episodes/${epV._id}`).set('X-Forwarded-For', '10.4.0.1');
     await request(app).get(`/api/content/episodes/${epT._id}`).set('X-Forwarded-For', '10.4.0.2');

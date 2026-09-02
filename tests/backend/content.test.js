@@ -36,11 +36,14 @@ beforeAll(async () => {
     .send({ title: 'Série Premium', genre: 'Drama', content_type: 'hiqua', isPremium: true, isPublished: true });
   premiumSeriesId = s2.body._id;
 
-  // Episódio gratuito
+  // Episódio gratuito — status: 'published' explícito (Fase 5 Bloco 1, Task 2:
+  // rotas públicas passaram a filtrar por status; sem isso o episódio nasce
+  // 'draft' por default do schema e sumiria dos testes de listagem/detalhe
+  // pública abaixo, que não são sobre draft/publicado e sim sobre premium).
   const e1 = await request(app)
     .post('/api/content/episodes')
     .set('Authorization', `Bearer ${admin}`)
-    .send({ seriesId, episode_number: 1, title: 'Ep 1 Grátis', isPremium: false });
+    .send({ seriesId, episode_number: 1, title: 'Ep 1 Grátis', isPremium: false, status: 'published' });
   episodeId = e1.body._id;
   freeEpisodeId = episodeId;
 
@@ -48,7 +51,7 @@ beforeAll(async () => {
   const e2 = await request(app)
     .post('/api/content/episodes')
     .set('Authorization', `Bearer ${admin}`)
-    .send({ seriesId, episode_number: 2, title: 'Ep 2 Premium', isPremium: true });
+    .send({ seriesId, episode_number: 2, title: 'Ep 2 Premium', isPremium: true, status: 'published' });
   premiumEpisodeId = e2.body._id;
 });
 
@@ -180,6 +183,23 @@ describe('PUT /api/content/series/:id — genre required condicional a isPublish
       .put(`/api/content/series/${draft._id}`)
       .set('Authorization', `Bearer ${getToken('admin')}`)
       .send({ isPublished: true });
+
+    expect(res.status).toBe(400);
+
+    const inalterada = await Series.findById(draft._id).lean();
+    expect(inalterada.isPublished).toBe(false);
+  });
+
+  // Carona da Task 2 (dívida da T1): publicadoFinal usava === true estrito —
+  // o Mongoose faz cast de 'true'/1/'1' para true no update, mas a comparação
+  // estrita não reconhecia esses formatos e deixava passar sem gênero.
+  it('isPublished: "true" (string) sem genre → 400 (cast do Mongoose não escapa do gate)', async () => {
+    const draft = await Series.create({ title: 'Draft String True Sem Genero', content_type: 'hiqua', isPublished: false });
+
+    const res = await request(app)
+      .put(`/api/content/series/${draft._id}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ isPublished: 'true' });
 
     expect(res.status).toBe(400);
 
@@ -339,7 +359,7 @@ describe('GET /api/content/episodes/:id — detalhes de episódio', () => {
       .post('/api/content/episodes')
       .set('Authorization', `Bearer ${admin}`)
       .send({
-        seriesId, episode_number: 13, title: 'Ep Premium Completo', isPremium: true,
+        seriesId, episode_number: 13, title: 'Ep Premium Completo', isPremium: true, status: 'published',
         video_url: 'https://cdn.example.com/premium/playlist.m3u8', bunnyVideoId: 'bunny-premium-123'
       });
     await request(app)
@@ -388,7 +408,7 @@ describe('POST /api/content/episodes — criação (admin)', () => {
     const create = await request(app)
       .post('/api/content/episodes')
       .set('Authorization', `Bearer ${getToken('admin')}`)
-      .send({ seriesId, episode_number: 11, title: 'Ep Visível', isPremium: false });
+      .send({ seriesId, episode_number: 11, title: 'Ep Visível', isPremium: false, status: 'published' });
     const list = await request(app).get(`/api/content/series/${seriesId}/episodes`);
     expect(list.body.some(e => e._id === create.body._id)).toBe(true);
   });
@@ -397,7 +417,7 @@ describe('POST /api/content/episodes — criação (admin)', () => {
     const create = await request(app)
       .post('/api/content/episodes')
       .set('Authorization', `Bearer ${getToken('admin')}`)
-      .send({ seriesId, episode_number: 12, title: 'Ep Pago', isPremium: true });
+      .send({ seriesId, episode_number: 12, title: 'Ep Pago', isPremium: true, status: 'published' });
     const list = await request(app).get(`/api/content/series/${seriesId}/episodes`);
     expect(list.body.some(e => e._id === create.body._id)).toBe(true);
   });
@@ -497,14 +517,21 @@ describe('POST /api/content/episodes/:id/panels — painéis (admin)', () => {
       .set('Authorization', `Bearer ${getToken('admin')}`)
       .send({ panels: [{ image_url: 'https://x.com/a.jpg', order: 0 }] });
 
-    const ep = await request(app).get(`/api/content/episodes/${hiQuaEpId}`);
+    // GET com token admin — hiQuaEpId é draft (Fase 5 Bloco 1, Task 2: rota
+    // pública passou a exigir admin/dono pra ver rascunho; teste não é sobre
+    // visibilidade e sim sobre contagem de painéis).
+    const ep = await request(app)
+      .get(`/api/content/episodes/${hiQuaEpId}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
     const countBefore = ep.body.panels.length;
 
     await request(app)
       .delete(`/api/content/episodes/${hiQuaEpId}/panels/0`)
       .set('Authorization', `Bearer ${getToken('admin')}`);
 
-    const epAfter = await request(app).get(`/api/content/episodes/${hiQuaEpId}`);
+    const epAfter = await request(app)
+      .get(`/api/content/episodes/${hiQuaEpId}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
     expect(epAfter.body.panels.length).toBe(countBefore - 1);
   });
 });
@@ -596,5 +623,222 @@ describe('Votos em episódios', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('likes');
     expect(res.body).toHaveProperty('dislikes');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DRAFTS INVISÍVEIS AO PÚBLICO (Fase 5 Bloco 1, Task 2)
+// ═══════════════════════════════════════════════════════════════════════════════
+// Admin e dono do canal da série continuam vendo os próprios rascunhos (o
+// portal do ilustrador, Task 4, depende disso); qualquer outro viewer —
+// anônimo ou logado sem vínculo com o canal — trata rascunho como
+// inexistente (404 nas rotas de detalhe, nunca 403 — não confirma a
+// existência do rascunho a quem não tem acesso).
+describe('Drafts invisíveis ao público', () => {
+  const Series = require('../../models/Series');
+  const Episode = require('../../models/Episode');
+  const Channel = require('../../models/Channel');
+  const EngagementEvent = require('../../models/EngagementEvent');
+  const engagementLogger = require('../../services/engagementLogger');
+
+  function criarCanalDoDono() {
+    return Channel.create({ ownerId: getId('user'), name: `Canal Dono ${Date.now()}-${Math.random()}` });
+  }
+
+  describe('GET /api/content/series/:id — série não publicada', () => {
+    it('404 para anônimo', async () => {
+      const canal = await criarCanalDoDono();
+      const draft = await Series.create({ title: 'Serie Draft Anonimo', content_type: 'hiqua', isPublished: false, channelId: canal._id });
+      const res = await request(app).get(`/api/content/series/${draft._id}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('404 para logado não-dono', async () => {
+      const canal = await criarCanalDoDono();
+      const draft = await Series.create({ title: 'Serie Draft NaoDono', content_type: 'hiqua', isPublished: false, channelId: canal._id });
+      const res = await request(app)
+        .get(`/api/content/series/${draft._id}`)
+        .set('Authorization', `Bearer ${getToken('premium')}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('200 para o dono do canal da série', async () => {
+      const canal = await criarCanalDoDono();
+      const draft = await Series.create({ title: 'Serie Draft Dono', content_type: 'hiqua', isPublished: false, channelId: canal._id });
+      const res = await request(app)
+        .get(`/api/content/series/${draft._id}`)
+        .set('Authorization', `Bearer ${getToken('user')}`);
+      expect(res.status).toBe(200);
+      expect(res.body.title).toBe('Serie Draft Dono');
+    });
+
+    it('200 para admin', async () => {
+      const canal = await criarCanalDoDono();
+      const draft = await Series.create({ title: 'Serie Draft Admin', content_type: 'hiqua', isPublished: false, channelId: canal._id });
+      const res = await request(app)
+        .get(`/api/content/series/${draft._id}`)
+        .set('Authorization', `Bearer ${getToken('admin')}`);
+      expect(res.status).toBe(200);
+    });
+
+    it('série sem canal vinculado: draft só admin vê (não há dono a identificar)', async () => {
+      const draft = await Series.create({ title: 'Serie Draft Sem Canal', content_type: 'hiqua', isPublished: false });
+      const semAuth = await request(app).get(`/api/content/series/${draft._id}`);
+      expect(semAuth.status).toBe(404);
+      const logado = await request(app)
+        .get(`/api/content/series/${draft._id}`)
+        .set('Authorization', `Bearer ${getToken('user')}`);
+      expect(logado.status).toBe(404);
+      const admin = await request(app)
+        .get(`/api/content/series/${draft._id}`)
+        .set('Authorization', `Bearer ${getToken('admin')}`);
+      expect(admin.status).toBe(200);
+    });
+
+    it('série publicada continua 200 pra qualquer um (controle de regressão)', async () => {
+      const publicada = await Series.create({ title: 'Serie Publicada Controle Draft', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+      const res = await request(app).get(`/api/content/series/${publicada._id}`);
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe('GET /api/content/series/:id/episodes — capítulo draft', () => {
+    it('capítulo draft em série JÁ publicada não aparece pro público; dono e admin veem (com status)', async () => {
+      const canal = await criarCanalDoDono();
+      const serie = await Series.create({ title: 'Serie Publicada Com Draft', genre: 'Teste', content_type: 'hiqua', isPublished: true, channelId: canal._id });
+      const publicado = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Publicado', status: 'published' });
+      const draft = await Episode.create({ seriesId: serie._id, episode_number: 2, title: 'Cap Draft', status: 'draft' });
+
+      const anon = await request(app).get(`/api/content/series/${serie._id}/episodes`);
+      const idsAnon = anon.body.map(e => e._id);
+      expect(idsAnon).toContain(String(publicado._id));
+      expect(idsAnon).not.toContain(String(draft._id));
+
+      const naoDono = await request(app)
+        .get(`/api/content/series/${serie._id}/episodes`)
+        .set('Authorization', `Bearer ${getToken('premium')}`);
+      expect(naoDono.body.map(e => e._id)).not.toContain(String(draft._id));
+
+      const dono = await request(app)
+        .get(`/api/content/series/${serie._id}/episodes`)
+        .set('Authorization', `Bearer ${getToken('user')}`);
+      const idsDono = dono.body.map(e => e._id);
+      expect(idsDono).toContain(String(publicado._id));
+      expect(idsDono).toContain(String(draft._id));
+      expect(dono.body.find(e => e._id === String(draft._id)).status).toBe('draft');
+
+      const admin = await request(app)
+        .get(`/api/content/series/${serie._id}/episodes`)
+        .set('Authorization', `Bearer ${getToken('admin')}`);
+      expect(admin.body.map(e => e._id)).toContain(String(draft._id));
+    });
+
+    it('série inteira em draft: público recebe [] (não 404); dono e admin recebem a lista', async () => {
+      const canal = await criarCanalDoDono();
+      const serie = await Series.create({ title: 'Serie Draft Com Episodios', content_type: 'hiqua', isPublished: false, channelId: canal._id });
+      const episodio = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap De Serie Draft', status: 'published' });
+
+      const anon = await request(app).get(`/api/content/series/${serie._id}/episodes`);
+      expect(anon.status).toBe(200);
+      expect(anon.body).toEqual([]);
+
+      const dono = await request(app)
+        .get(`/api/content/series/${serie._id}/episodes`)
+        .set('Authorization', `Bearer ${getToken('user')}`);
+      expect(dono.body.map(e => e._id)).toContain(String(episodio._id));
+    });
+  });
+
+  describe('GET /api/content/episodes/:id — episódio draft', () => {
+    it('404 para anônimo e para logado não-dono; sem incrementar views nem gerar EngagementEvent', async () => {
+      const canal = await criarCanalDoDono();
+      const serie = await Series.create({ title: 'Serie Cap Draft Detalhe', genre: 'Teste', content_type: 'hiqua', isPublished: true, channelId: canal._id });
+      const draft = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Draft Detalhe', status: 'draft', views: 0 });
+
+      const anon = await request(app).get(`/api/content/episodes/${draft._id}`);
+      expect(anon.status).toBe(404);
+
+      const naoDono = await request(app)
+        .get(`/api/content/episodes/${draft._id}`)
+        .set('Authorization', `Bearer ${getToken('premium')}`);
+      expect(naoDono.status).toBe(404);
+
+      await engagementLogger.flushForTests();
+      const semViews = await Episode.findById(draft._id).lean();
+      expect(semViews.views).toBe(0);
+      const eventos = await EngagementEvent.countDocuments({ episodeId: draft._id });
+      expect(eventos).toBe(0);
+    });
+
+    it('200 para o dono do canal e para admin, sem incrementar views (draft é QA, não view real)', async () => {
+      const canal = await criarCanalDoDono();
+      const serie = await Series.create({ title: 'Serie Cap Draft Dono Admin', genre: 'Teste', content_type: 'hiqua', isPublished: true, channelId: canal._id });
+      const draft = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Draft Dono Admin', status: 'draft', views: 0 });
+
+      const dono = await request(app)
+        .get(`/api/content/episodes/${draft._id}`)
+        .set('Authorization', `Bearer ${getToken('user')}`);
+      expect(dono.status).toBe(200);
+
+      const admin = await request(app)
+        .get(`/api/content/episodes/${draft._id}`)
+        .set('Authorization', `Bearer ${getToken('admin')}`);
+      expect(admin.status).toBe(200);
+
+      await engagementLogger.flushForTests();
+      const semViews = await Episode.findById(draft._id).lean();
+      expect(semViews.views).toBe(0);
+      const eventos = await EngagementEvent.countDocuments({ episodeId: draft._id });
+      expect(eventos).toBe(0);
+    });
+
+    it('episódio publicado mas em série despublicada → 404 pro público (a série também precisa estar publicada)', async () => {
+      const serie = await Series.create({ title: 'Serie Despublicada Com Cap Publicado', content_type: 'hiqua', isPublished: false });
+      const episodio = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Publicado Orfao', status: 'published' });
+
+      const res = await request(app).get(`/api/content/episodes/${episodio._id}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('episódio publicado em série publicada continua incrementando views (controle de regressão)', async () => {
+      const serie = await Series.create({ title: 'Serie Controle Views Draft', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+      const episodio = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Controle Views Draft', status: 'published', views: 0 });
+
+      const before = (await request(app).get(`/api/content/episodes/${episodio._id}`)).body.views;
+      await request(app).get(`/api/content/episodes/${episodio._id}`);
+      const after = (await request(app).get(`/api/content/episodes/${episodio._id}`)).body.views;
+      expect(after).toBeGreaterThan(before);
+    });
+  });
+
+  describe('GET /api/content/search — busca não vaza rascunho', () => {
+    it('série draft não aparece na busca por título', async () => {
+      const termo = `TermoBuscaDraft${Date.now()}`;
+      await Series.create({ title: `${termo} Serie`, content_type: 'hiqua', isPublished: false });
+
+      const res = await request(app).get(`/api/content/search?q=${termo}`);
+      expect(res.status).toBe(200);
+      expect(res.body.series.some(s => s.title.includes(termo))).toBe(false);
+    });
+
+    it('capítulo draft de série publicada não aparece na busca por título do capítulo', async () => {
+      const termo = `TermoBuscaCapDraft${Date.now()}`;
+      const serie = await Series.create({ title: 'Serie Para Busca De Capitulo', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+      await Episode.create({ seriesId: serie._id, episode_number: 1, title: `${termo} Capitulo`, status: 'draft' });
+
+      const res = await request(app).get(`/api/content/search?q=${termo}`);
+      expect(res.status).toBe(200);
+      expect(res.body.episodes.some(e => e.title.includes(termo))).toBe(false);
+    });
+
+    it('capítulo PUBLICADO de série publicada aparece na busca (controle de regressão)', async () => {
+      const termo = `TermoBuscaCapPub${Date.now()}`;
+      const serie = await Series.create({ title: 'Serie Para Busca De Capitulo Publicado', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+      await Episode.create({ seriesId: serie._id, episode_number: 1, title: `${termo} Capitulo`, status: 'published' });
+
+      const res = await request(app).get(`/api/content/search?q=${termo}`);
+      expect(res.status).toBe(200);
+      expect(res.body.episodes.some(e => e.title.includes(termo))).toBe(true);
+    });
   });
 });

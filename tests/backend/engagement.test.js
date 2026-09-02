@@ -118,6 +118,18 @@ describe('Favoritos — /api/favorites', () => {
     expect(res.status).toBe(404);
   });
 
+  // Fase 5 Bloco 1, Task 2 ("Drafts invisíveis ao público", inventário de
+  // superfícies): routes/favorites.js já filtra `isPublished !== true` no
+  // POST — prova com uma série draft de verdade, não só um ID inexistente.
+  it('POST com série não publicada (draft) retorna 404 — já filtrado por construção', async () => {
+    const Series = require('../../models/Series');
+    const draft = await Series.create({ title: 'Série Draft Favoritos', content_type: 'hiqua', isPublished: false });
+    const res = await request(app)
+      .post(`/api/favorites/${draft._id}`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(res.status).toBe(404);
+  });
+
   it('POST com ObjectId inválido retorna 400', async () => {
     const res = await request(app)
       .post('/api/favorites/nao-e-um-id')

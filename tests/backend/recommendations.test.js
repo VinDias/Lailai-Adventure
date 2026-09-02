@@ -2754,6 +2754,17 @@ describe('recomendacoes', () => {
       expect(item.confidence).toBeUndefined();
     });
 
+    // Fase 5 Bloco 1, Task 2 ("Drafts invisíveis ao público", inventário de
+    // superfícies): buildRecommendations já filtra isPublished:true por
+    // construção (services/recommendationService.js) — prova aqui na rota
+    // HTTP, não só no service.
+    it('série draft (isPublished: false) não aparece — buildRecommendations já filtra por construção', async () => {
+      const draft = await criarSerie({ title: 'Rota Recomendacao Draft', isPublished: false });
+      const res = await request(app).get('/api/content/recommendations?type=hiqua');
+      expect(res.status).toBe(200);
+      expect(res.body.some((s) => s._id === String(draft._id))).toBe(false);
+    });
+
     it('anônimo com header X-Anonymous-Id: a ordem reflete o PRÓPRIO progresso (afinidade), mesmo mecanismo do Bloco 1', async () => {
       const anonymousId = 'ffb0d1a0-2222-4aaa-8bbb-0123456789ab'; // UUID v4 — mesmo formato validado por utils/requestIdentity
       const serieAlvo = await criarSerie({ title: 'Anonimo Alvo', tags: ['epico2', 'aventura14', 'suspense11', 'drama15', 'fantasia10'] });
