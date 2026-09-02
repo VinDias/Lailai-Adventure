@@ -30,11 +30,9 @@ interface SearchOverlayProps {
   onSelectSeries: (seriesId: string, contentType?: string) => void;
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  hqcine: 'HQCINE',
-  vcine: 'VCINE',
-  hiqua: 'HI-QUA'
-};
+import { NOME_ABA } from '../utils/contentTypeLabels';
+
+const TYPE_LABEL: Record<string, string> = NOME_ABA;
 
 const TypeIcon: React.FC<{ type?: string; size?: number }> = ({ type, size = 14 }) => {
   if (type === 'hiqua') return <BookOpen size={size} />;

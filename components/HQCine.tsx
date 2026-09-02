@@ -160,8 +160,8 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
       <header className="p-8 pt-16 md:p-12 animate-apple flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">HQCINE</h1>
-          <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.5em] ml-1">Original Vertical Series</p>
+          <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">CINECOMICS</h1>
+          <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.5em] ml-1">Comics Brought to Life.</p>
         </div>
         <button
           onClick={onOpenAgenda}
