@@ -11,6 +11,7 @@ import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
 import SuperReaderButton from './SuperReaderButton';
+import { useCamadaVoltar } from '../utils/pilhaVoltar';
 
 interface VFilmProps {
   user: User | null;
@@ -160,6 +161,9 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
       onFocusConsumed?.();
     }
   }, [focusSeriesId, series]);
+
+  // Botão voltar do Android: modal de detalhe da série conta como uma camada.
+  useCamadaVoltar(!!selectedSeries, () => setSelectedSeries(null));
 
   if (loading) return <div className="h-full w-full flex items-center justify-center bg-[var(--bg-color)]"><div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>;
 

@@ -11,6 +11,7 @@ import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
 import SuperReaderButton from './SuperReaderButton';
+import { useCamadaVoltar } from '../utils/pilhaVoltar';
 
 interface HQCineProps {
   user: User | null;
@@ -155,6 +156,9 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
       onFocusConsumed?.();
     }
   }, [focusSeriesId, series]);
+
+  // Botão voltar do Android: modal de detalhe da série conta como uma camada.
+  useCamadaVoltar(!!selectedSeries, () => setSelectedSeries(null));
 
   return (
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
