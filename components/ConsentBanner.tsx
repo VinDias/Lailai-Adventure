@@ -25,7 +25,7 @@ const ConsentBanner: React.FC<ConsentBannerProps> = ({ onOpenPolicy }) => {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-[5500] p-4 animate-apple" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 16px)' }}>
+    <div className="fixed bottom-0 left-0 right-0 z-[5500] p-4 animate-apple" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)' }}>
       <div className="max-w-2xl mx-auto bg-[#141416] border border-white/10 rounded-3xl p-5 shadow-2xl">
         <p className="text-sm text-zinc-300 leading-relaxed mb-4">
           Usamos cookies essenciais para o funcionamento da plataforma e, com o seu

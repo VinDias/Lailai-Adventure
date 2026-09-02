@@ -523,7 +523,13 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <nav className="h-28 bg-[var(--nav-bg,rgba(0,0,0,0.8))] backdrop-blur-3xl border-t border-[var(--border-color)] flex items-center justify-around px-4 pb-8 z-[900]">
+      <nav
+        className="bg-[var(--nav-bg,rgba(0,0,0,0.8))] backdrop-blur-3xl border-t border-[var(--border-color)] flex items-center justify-around px-4 pt-4 z-[900]"
+        // Edge-to-edge (Android 15/SDK 35): a barra de navegação do sistema
+        // sobrepõe a base da página; o respiro cresce com o inset real do
+        // aparelho e nunca fica menor que os 2rem originais.
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 2rem)' }}
+      >
         <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={<Play />} label="HQCine" />
         <NavBtn active={view === ViewMode.VCINE} onClick={() => setView(ViewMode.VCINE)} icon={<Film />} label="VCine" />
         <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={<BookOpen />} label="Hi-Qua" />
