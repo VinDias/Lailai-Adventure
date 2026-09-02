@@ -11,6 +11,7 @@ import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
 import SuperReaderButton from './SuperReaderButton';
+import { useCamadaVoltar } from '../utils/pilhaVoltar';
 
 interface VFilmProps {
   user: User | null;
@@ -161,14 +162,17 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
     }
   }, [focusSeriesId, series]);
 
+  // Botão voltar do Android: modal de detalhe da série conta como uma camada.
+  useCamadaVoltar(!!selectedSeries, () => setSelectedSeries(null));
+
   if (loading) return <div className="h-full w-full flex items-center justify-center bg-[var(--bg-color)]"><div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>;
 
   return (
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
       <header className="p-8 pt-16 md:p-12 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">VCINE</h1>
-          <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Original Vertical Cinema</p>
+          <h1 className="text-5xl font-black premium-text tracking-tighter mb-2">VERTICALSHOW</h1>
+          <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Stories Made to Keep You Watching.</p>
         </div>
         <button
           onClick={onOpenAgenda}

@@ -91,7 +91,7 @@ describe('HQCine — feed consome getRecommendations', () => {
     vi.mocked(api.getSeries).mockResolvedValue(listaManual('hqcine') as any);
     const { container } = render(<HQCine user={null} onOpen={vi.fn()} />);
     await waitFor(() => expect(titulosDaGrade(container)).toEqual(['Manual Um', 'Manual Dois']));
-    expect(screen.getByText('HQCINE')).toBeInTheDocument();
+    expect(screen.getByText('CINECOMICS')).toBeInTheDocument();
   });
 
   it('getRecommendations devolve array vazio: cai no fallback getSeries', async () => {

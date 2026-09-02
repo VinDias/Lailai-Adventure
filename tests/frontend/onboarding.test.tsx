@@ -15,17 +15,17 @@ beforeEach(() => {
 });
 
 describe('Onboarding', () => {
-  it('mostra o primeiro passo (HQCine) ao abrir', () => {
+  it('mostra o primeiro passo (CINECOMICS) ao abrir', () => {
     render(<Onboarding onFinish={vi.fn()} />);
-    expect(screen.getByText('HQCine')).toBeInTheDocument();
+    expect(screen.getByText('CINECOMICS')).toBeInTheDocument();
   });
 
   it('navega pelos 4 passos até o botão de começar', () => {
     render(<Onboarding onFinish={vi.fn()} />);
     const next = () => fireEvent.click(screen.getByRole('button', { name: /próximo|next/i }));
 
-    next(); // 2: VCine
-    expect(screen.getByText('VCine')).toBeInTheDocument();
+    next(); // 2: VERTICALSHOW
+    expect(screen.getByText('VERTICALSHOW')).toBeInTheDocument();
     next(); // 3: Hi-Qua
     expect(screen.getByText('Hi-Qua')).toBeInTheDocument();
     next(); // 4: último passo

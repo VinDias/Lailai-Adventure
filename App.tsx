@@ -32,6 +32,7 @@ import { parseDeepLink, DeepLink } from './utils/deepLink';
 import { parseSuperReaderReturn } from './utils/superReaderReturn';
 import { isGuestMode, enterGuestMode, leaveGuestMode } from './utils/guestMode';
 import GuestAccountPrompt from './components/GuestAccountPrompt';
+import { useCamadaVoltar } from './utils/pilhaVoltar';
 
 const App: React.FC = () => {
   const t = useT();
@@ -277,6 +278,32 @@ const App: React.FC = () => {
     setView(ViewMode.AUTH);
   };
 
+  // Fechadores do leitor/player reaproveitados tanto no onClose do JSX quanto
+  // no registro de camada do botão voltar abaixo — a mesma função nos dois
+  // lugares, para não haver dois jeitos diferentes de "fechar" a mesma tela.
+  const handleCloseReader = () => setView(ViewMode.HIQUA);
+  const handleClosePlayer = () => setView(activeVideo?.type === 'hqcine' ? ViewMode.HQCINE : ViewMode.VCINE);
+
+  // Botão voltar do Android (utils/pilhaVoltar.ts): cada overlay/aba vira uma
+  // camada da pilha de voltar — voltar fecha a camada mais recente antes de
+  // sair do app. Hooks (não podem vir depois dos `return` condicionais
+  // abaixo, então ficam todos aqui, com os demais estados/efeitos do topo).
+  useCamadaVoltar(view === ViewMode.READER && !!activeWebtoon, handleCloseReader);
+  useCamadaVoltar(view === ViewMode.PLAYER && !!activeVideo, handleClosePlayer);
+  useCamadaVoltar(searchOpen, () => setSearchOpen(false));
+  useCamadaVoltar(agendaOpen, () => setAgendaOpen(false));
+  useCamadaVoltar(legalOpen, () => setLegalOpen(false));
+  // Favoritos só é alcançado a partir da Conta (botão "Meus Favoritos") — o
+  // voltar natural é para lá, não para a aba inicial, então é uma camada à
+  // parte da aba abaixo (que sempre volta para HQCINE).
+  useCamadaVoltar(view === ViewMode.FAVORITES, () => setView(ViewMode.PROFILE));
+  // Aba atual (fora da inicial): VCINE/HIQUA/PROFILE contam como UMA única
+  // camada — trocar entre elas não empilha de novo (a condição abaixo
+  // continua `true`, o efeito interno do hook não reexecuta), só a
+  // primeira saída de HQCINE empilha. Voltar sem overlay aberto volta
+  // para a aba inicial; da aba inicial, comportamento nativo (sai do app).
+  useCamadaVoltar(view === ViewMode.VCINE || view === ViewMode.HIQUA || view === ViewMode.PROFILE, () => setView(ViewMode.HQCINE));
+
   // Evita "flash" da tela de login enquanto a sessão é restaurada via cookie.
   if (booting) return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[var(--bg-color)]">
@@ -499,7 +526,7 @@ const App: React.FC = () => {
         )}
 
         {view === ViewMode.PLAYER && activeVideo && (
-          <VerticalPlayer video={activeVideo} user={user} onClose={() => setView(activeVideo.type === 'hqcine' ? ViewMode.HQCINE : ViewMode.VCINE)} />
+          <VerticalPlayer video={activeVideo} user={user} onClose={handleClosePlayer} />
         )}
 
         {view === ViewMode.READER && activeWebtoon && (() => {
@@ -510,7 +537,7 @@ const App: React.FC = () => {
             <WebtoonReader
               webtoon={activeWebtoon}
               user={user}
-              onClose={() => setView(ViewMode.HIQUA)}
+              onClose={handleCloseReader}
               prevEpisode={prevEp}
               nextEpisode={nextEp}
               onNavigate={(ep) => openWebtoonEpisode(ep, activeSeries)}
@@ -530,8 +557,8 @@ const App: React.FC = () => {
         // aparelho e nunca fica menor que os 2rem originais.
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 2rem)' }}
       >
-        <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={<Play />} label="HQCine" />
-        <NavBtn active={view === ViewMode.VCINE} onClick={() => setView(ViewMode.VCINE)} icon={<Film />} label="VCine" />
+        <NavBtn active={view === ViewMode.HQCINE} onClick={() => setView(ViewMode.HQCINE)} icon={<Play />} label="ANICOM" />
+        <NavBtn active={view === ViewMode.VCINE} onClick={() => setView(ViewMode.VCINE)} icon={<Film />} label="V-SHOW" />
         <NavBtn active={view === ViewMode.HIQUA} onClick={() => setView(ViewMode.HIQUA)} icon={<BookOpen />} label="Hi-Qua" />
         <NavBtn active={view === ViewMode.PROFILE || view === ViewMode.FAVORITES} onClick={() => setView(ViewMode.PROFILE)} icon={<UserIcon />} label={t('nav.account')} />
         <ThemeToggle />

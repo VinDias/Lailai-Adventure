@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ViewMode } from '../../types';
 import { api } from '../../services/api';
+import { NOME_ABA } from '../../utils/contentTypeLabels';
 import {
   Users, Layers, LayoutDashboard, LogOut,
   Trash2, ArrowUp, ArrowDown, DollarSign,
@@ -973,7 +974,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                           <div className="flex-1 min-w-0">
                             <h4 className="font-bold text-sm mb-1 truncate">{item.title}</h4>
                             <div className="flex gap-3 flex-wrap">
-                              <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest">{item.content_type}</span>
+                              <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest">{NOME_ABA[item.content_type] || item.content_type}</span>
                               <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">#{idx + 1}</span>
                               {item.isPremium && <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">PREMIUM</span>}
                             </div>

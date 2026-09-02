@@ -16,8 +16,8 @@ interface OnboardingProps {
 
 // Títulos HQCine/VCine/Hi-Qua são marcas — não são traduzidos.
 const STEPS: { icon: React.ReactNode; title?: string; titleKey?: TranslationKey; textKey: TranslationKey }[] = [
-  { icon: <Play size={40} />, title: 'HQCine', textKey: 'onboarding.hqcineText' },
-  { icon: <Film size={40} />, title: 'VCine', textKey: 'onboarding.vcineText' },
+  { icon: <Play size={40} />, title: 'CINECOMICS', textKey: 'onboarding.hqcineText' },
+  { icon: <Film size={40} />, title: 'VERTICALSHOW', textKey: 'onboarding.vcineText' },
   { icon: <BookOpen size={40} />, title: 'Hi-Qua', textKey: 'onboarding.hiquaText' },
   { icon: <Heart size={40} />, titleKey: 'onboarding.accountTitle', textKey: 'onboarding.accountText' },
 ];

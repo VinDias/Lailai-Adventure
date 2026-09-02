@@ -169,10 +169,10 @@ describe('HiQua — usuário anônimo', () => {
     });
   });
 
-  it('exibe "Nenhum webtoon" quando lista vazia', async () => {
+  it('exibe "Nenhum quadrinho" quando lista vazia', async () => {
     vi.mocked(api.getSeries).mockResolvedValue([]);
     render(<HiQua user={null} onOpen={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText(/nenhum webtoon/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/nenhum quadrinho/i)).toBeInTheDocument());
   });
 
   it('chama getSeriesContent ao clicar na série', async () => {
@@ -243,9 +243,9 @@ describe('HQCine — usuário anônimo', () => {
     vi.mocked(api.getEpisodesBySeries).mockResolvedValue(hqEpisodes as any);
   });
 
-  it('exibe header HQCINE', async () => {
+  it('exibe header CINECOMICS (rebranding 28/08)', async () => {
     render(<HQCine user={null} onOpen={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('HQCINE')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('CINECOMICS')).toBeInTheDocument());
   });
 
   it('exibe séries HQCine', async () => {
@@ -285,7 +285,7 @@ describe('HQCine — sem séries', () => {
   it('não renderiza nada de especial (grid vazio)', async () => {
     vi.mocked(api.getSeries).mockResolvedValue([]);
     render(<HQCine user={null} onOpen={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('HQCINE')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('CINECOMICS')).toBeInTheDocument());
   });
 });
 
@@ -356,9 +356,9 @@ describe('VFilm — usuário anônimo', () => {
     vi.mocked(api.getSeriesContent).mockResolvedValue({ seasons: [], episodes: vEpisodes } as any);
   });
 
-  it('exibe header VCINE', async () => {
+  it('exibe header VERTICALSHOW (rebranding 28/08)', async () => {
     render(<VFilm user={null} onOpen={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('VCINE')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('VERTICALSHOW')).toBeInTheDocument());
   });
 
   it('exibe séries VFilm', async () => {
