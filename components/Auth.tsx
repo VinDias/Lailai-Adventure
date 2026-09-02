@@ -284,7 +284,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy, onGuest }) => {
           {mode === 'login' && onGuest && (
             <button
               onClick={onGuest}
-              className="w-full py-3.5 mt-1 rounded-2xl border border-white/15 bg-white/5 text-zinc-200 hover:text-white hover:bg-white/10 font-black text-sm uppercase tracking-widest transition-all"
+              className="w-full py-3.5 mt-1 rounded-2xl border border-[rgba(128,128,128,0.35)] bg-[rgba(128,128,128,0.1)] text-[var(--text-color)] hover:border-rose-500 hover:bg-[rgba(128,128,128,0.18)] font-black text-sm uppercase tracking-widest transition-all"
             >
               {t('auth.exploreGuest')}
             </button>
