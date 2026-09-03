@@ -31,7 +31,10 @@ const CanaisPanel: React.FC = () => {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [ownerEmail, setOwnerEmail] = useState('');
   const [savingOwner, setSavingOwner] = useState(false);
-  const [ownerMsg, setOwnerMsg] = useState('');
+  // { texto, erro } em vez de heurística sobre a string: a mensagem de 404 do
+  // backend ("Usuário com esse e-mail não encontrado.") não contém "rro" e
+  // renderizava verde como se fosse sucesso (achado da revisão da T10).
+  const [ownerMsg, setOwnerMsg] = useState<{ texto: string; erro: boolean } | null>(null);
   const [deactivating, setDeactivating] = useState(false);
   const [aba, setAba] = useState<'detalhes' | 'mensagens'>('detalhes');
   const [threads, setThreads] = useState<any[]>([]);
@@ -64,7 +67,7 @@ const CanaisPanel: React.FC = () => {
   const abrirCanal = async (ch: CanalResumo) => {
     setAba('detalhes');
     setOwnerEmail('');
-    setOwnerMsg('');
+    setOwnerMsg(null);
     setThreads([]);
     setLoadingDetail(true);
     try {
@@ -80,14 +83,14 @@ const CanaisPanel: React.FC = () => {
   const salvarOwnerEmail = async () => {
     if (!selected || !ownerEmail.trim()) return;
     setSavingOwner(true);
-    setOwnerMsg('');
+    setOwnerMsg(null);
     try {
       const updated = await api.updateChannelAdmin(selected._id, { ownerEmail: ownerEmail.trim() });
       setSelected((s: any) => (s ? { ...s, ownerId: updated.ownerId } : s));
       setOwnerEmail('');
-      setOwnerMsg('Dono do canal atualizado!');
+      setOwnerMsg({ texto: 'Dono do canal atualizado!', erro: false });
     } catch (e: any) {
-      setOwnerMsg(e?.message || 'Erro ao transferir o canal.');
+      setOwnerMsg({ texto: e?.message || 'Erro ao transferir o canal.', erro: true });
     } finally {
       setSavingOwner(false);
     }
@@ -221,7 +224,7 @@ const CanaisPanel: React.FC = () => {
                         <Mail size={14} /> {savingOwner ? '...' : 'Transferir'}
                       </button>
                     </div>
-                    {ownerMsg && <p className={`text-xs font-bold mt-2 ${ownerMsg.includes('rro') ? 'text-rose-500' : 'text-emerald-400'}`}>{ownerMsg}</p>}
+                    {ownerMsg && <p className={`text-xs font-bold mt-2 ${ownerMsg.erro ? 'text-rose-500' : 'text-emerald-400'}`}>{ownerMsg.texto}</p>}
                   </div>
 
                   <div className="pt-4 border-t border-[var(--border-color)]">

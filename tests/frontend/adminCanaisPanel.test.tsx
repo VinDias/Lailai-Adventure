@@ -78,7 +78,27 @@ describe('CanaisPanel — E-mail do dono (transferência)', () => {
     fireEvent.change(input, { target: { value: 'nada@lorflux.test' } });
     fireEvent.click(screen.getByRole('button', { name: /transferir/i }));
 
-    expect(await screen.findByText(/não encontrado/i)).toBeInTheDocument();
+    // Achado da revisão da T10: a heurística antiga (includes('rro')) pintava
+    // esta mensagem de VERDE — a cor precisa sinalizar erro, não só o texto.
+    const msg = await screen.findByText(/não encontrado/i);
+    expect(msg).toBeInTheDocument();
+    expect(msg.className).toContain('text-rose-500');
+    expect(msg.className).not.toContain('text-emerald-400');
+  });
+
+  it('sucesso na transferência mostra mensagem em verde (não vermelho)', async () => {
+    vi.mocked(api.updateChannelAdmin).mockResolvedValue({ _id: 'c1', ownerId: { _id: 'u9', nome: 'Novo Dono' } } as any);
+    render(<CanaisPanel />);
+    fireEvent.click(await screen.findByText('Canal do Vin'));
+    await waitFor(() => expect(api.getChannel).toHaveBeenCalled());
+
+    const input = await screen.findByPlaceholderText(/e-mail/i);
+    fireEvent.change(input, { target: { value: 'novo-dono@lorflux.test' } });
+    fireEvent.click(screen.getByRole('button', { name: /transferir/i }));
+
+    const ok = await screen.findByText(/atualizado/i);
+    expect(ok.className).toContain('text-emerald-400');
+    expect(ok.className).not.toContain('text-rose-500');
   });
 
   it('botão Transferir desabilitado com o campo vazio', async () => {
