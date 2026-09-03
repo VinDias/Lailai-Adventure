@@ -415,7 +415,7 @@ class ApiService {
     });
   }
 
-  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean; releaseDay: number | null; tags: string[] }>) {
+  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean; releaseDay: number | null; tags: string[]; content_rating: 'kids' | 'teen' | 'young' | null }>) {
     return this.request<any>(`/content/series/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
@@ -812,11 +812,14 @@ class ApiService {
     return this.request<{ series: any[] }>('/portal/series');
   }
 
-  async createPortalSeries(data: { title: string; description?: string; content_rating_sugerida?: 'kids' | 'teen' | 'young' | null; channelId?: string }) {
+  // `tags` (Fase 5 Bloco 2, Task 6): até 8 slugs do vocabulário fechado —
+  // PORTAL_SERIES_FIELDS passou a aceitar (INVERSÃO deliberada do contrato
+  // do Bloco 1, ver routes/portal.js).
+  async createPortalSeries(data: { title: string; description?: string; content_rating_sugerida?: 'kids' | 'teen' | 'young' | null; channelId?: string; tags?: string[] }) {
     return this.request<any>('/portal/series', { method: 'POST', body: JSON.stringify(data) });
   }
 
-  async updatePortalSeries(id: string, data: Partial<{ title: string; description: string; cover_image: string; content_rating_sugerida: 'kids' | 'teen' | 'young' | null }>) {
+  async updatePortalSeries(id: string, data: Partial<{ title: string; description: string; cover_image: string; content_rating_sugerida: 'kids' | 'teen' | 'young' | null; tags: string[] }>) {
     return this.request<any>(`/portal/series/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   }
 
@@ -921,13 +924,17 @@ class ApiService {
 
   // ─── Fase 5 Bloco 1, Task 10: admin — Fila de Aprovação ────────────────────
   // Shape real de routes/adminPortal.js: lista FLAT com `tipo: 'series'|'episode'`.
+  // `naoClassificadas` (Fase 5 Bloco 2, Task 6): contagem para o badge do
+  // AdminDashboard — MESMA resposta, sem rota dedicada.
   async getAdminAprovacoes() {
-    return this.request<{ itens: any[] }>('/admin/aprovacoes');
+    return this.request<{ itens: any[]; naoClassificadas: number }>('/admin/aprovacoes');
   }
 
-  // genre/tags são OPCIONAIS — o backend usa o gênero já salvo na série
-  // quando não vem no body (a UI só precisa mandar o que o Master editou).
-  async aprovarSerieAdmin(id: string, data: { genre?: string; tags?: string[] } = {}) {
+  // genre/tags/content_rating são OPCIONAIS na leitura do backend (que usa o
+  // que já está salvo na série quando o campo não vem no body), mas
+  // content_rating final é OBRIGATÓRIO para aprovar (Fase 5 Bloco 2, Task 6
+  // — 400 "Classificação etária é obrigatória para aprovar" sem ele).
+  async aprovarSerieAdmin(id: string, data: { genre?: string; tags?: string[]; content_rating?: 'kids' | 'teen' | 'young' | '' } = {}) {
     return this.request<any>(`/admin/aprovacoes/series/${id}/aprovar`, { method: 'POST', body: JSON.stringify(data) });
   }
 

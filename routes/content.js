@@ -14,7 +14,11 @@ const { podeVerRascunho } = require('../utils/ownership');
 const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
 const { addPanels } = require('../services/episodePanelService');
 
-const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags'];
+// content_rating (Fase 5 Bloco 2, Task 6): só o Master define — admin form
+// (POST/PUT abaixo) e a Fila de Aprovação (routes/adminPortal.js, aprovar
+// série). PORTAL SEGUE SEM o campo (PORTAL_SERIES_FIELDS não inclui —
+// routes/portal.js, teste de allowlist em parentalFoundations.test.js).
+const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags', 'content_rating'];
 const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
   'audioTrack1Url', 'audioTrack1Lang', 'audioTrack2Url', 'audioTrack2Lang', 'audioTrack3Url', 'audioTrack3Lang', 'audioTrack4Url', 'audioTrack4Lang'];
 
@@ -188,7 +192,7 @@ router.get('/series/:id', optionalAuth, async (req, res) => {
 // POST /api/content/series — criar série (admin)
 router.post('/series', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay, tags } = req.body;
+    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay, tags, content_rating } = req.body;
     if (!title || !genre || !content_type) {
       return res.status(400).json({ error: 'title, genre e content_type são obrigatórios.' });
     }
@@ -199,7 +203,7 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
     const translations = await translationService.buildTranslationsSafe({ genre, description }, `série "${title}"`);
 
     const series = await Series.create({
-      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay, tags,
+      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay, tags, content_rating,
       ...(channelId ? { channelId } : {}),
       ...(translations ? { translations } : {})
     });

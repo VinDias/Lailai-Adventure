@@ -176,10 +176,17 @@ router.get('/resumo', requireCanalDoUsuario, async (req, res) => {
 // aprovacoes (routes/adminPortal.js): select explícito, sem N+1. Episódios
 // de cada série continuam vindo de GET /api/content/series/:id/episodes
 // (já dono-aware desde a Task 2) — não duplicado aqui.
+//
+// `tags` ENTROU no select na Fase 5 Bloco 2, Task 6 — o form de edição do
+// portal (PUT /series/:id, PORTAL_SERIES_FIELDS acima) precisa mostrar as
+// tags atuais da obra para o autor editar, não só criar às cegas.
+// tests/backend/portalCrud.test.js:906 (negativo do .select()) foi
+// re-pinado: translations continua FORA (detalhe da tradução automática,
+// sem uso na aba Obras), tags passa a ser esperado no shape.
 router.get('/series', requireCanalDoUsuario, async (req, res) => {
   try {
     const series = await Series.find({ channelId: { $in: req.portalChannelIds } })
-      .select('title description cover_image content_type isPublished submittedAt content_rating_sugerida channelId createdAt')
+      .select('title description cover_image content_type isPublished submittedAt content_rating_sugerida tags channelId createdAt')
       .sort({ createdAt: -1 })
       .lean();
     res.json({ series });
@@ -198,10 +205,20 @@ router.get('/series', requireCanalDoUsuario, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Campos que o formulário do portal pode escrever numa série — NUNCA por
-// spread do body. content_type/isPublished/genre/tags ficam de fora de
-// propósito (pinados/reservados ao Master — ver rotas abaixo e a spec,
-// "Formulários do portal"/"Upload do ilustrador").
-const PORTAL_SERIES_FIELDS = ['title', 'description', 'cover_image', 'content_rating_sugerida'];
+// spread do body. content_type/isPublished/genre ficam de fora de propósito
+// (pinados/reservados ao Master — ver rotas abaixo e a spec, "Formulários do
+// portal"/"Upload do ilustrador"). content_rating (a classificação OFICIAL)
+// também fica de fora — só o Master define (routes/content.js SERIES_FIELDS
+// e a Fila de Aprovação em routes/adminPortal.js).
+//
+// `tags` ENTROU aqui na Fase 5 Bloco 2, Task 6 — INVERSÃO DELIBERADA do
+// contrato do Bloco 1 (spec rev.3, "Tags no portal/admin"): o autor agora
+// escolhe até 8 tags do vocabulário fechado (validação no schema —
+// models/Series.js validateTags) que representam a obra de verdade; o
+// Master corrige na fila/admin. tests/backend/portalCrud.test.js:125/241
+// foram re-pinados para essa distinção (tags aceitas; content_type/
+// isPublished/genre SEGUEM ignorados).
+const PORTAL_SERIES_FIELDS = ['title', 'description', 'cover_image', 'content_rating_sugerida', 'tags'];
 // thumbnail: URL do storage (upload real é T5); status/bunnyVideoId/vídeo
 // NUNCA aceitos por aqui — o episódio do portal nasce sempre 'draft'.
 const PORTAL_EPISODE_FIELDS = ['title', 'description', 'episode_number', 'thumbnail'];
@@ -237,7 +254,9 @@ async function episodioDoDono(episodeId, portalChannelIds) {
 // POST /api/portal/series — cria série DRAFT no canal do usuário.
 // content_type: 'hiqua' PINADO no servidor (o body é IGNORADO — allowlist
 // explícita, spread nunca do req.body inteiro); isPublished: false forçado;
-// sem genre (o Master preenche na aprovação, T1) e sem tags (Bloco 2).
+// sem genre (o Master preenche na aprovação, T1). `tags` (até 8 do
+// vocabulário fechado) ENTRA aqui desde o Bloco 2, Task 6 — ver
+// PORTAL_SERIES_FIELDS acima.
 router.post('/series', requireCanalDoUsuario, async (req, res) => {
   try {
     const dados = pick(req.body, PORTAL_SERIES_FIELDS);

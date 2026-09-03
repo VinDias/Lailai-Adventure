@@ -181,8 +181,14 @@ describe('Series.content_rating', () => {
   });
 });
 
-describe('Allowlists NÃO escrevem content_rating por acidente (T1 não liga nenhuma escrita)', () => {
-  it('PUT /api/content/series/:id (admin) ignora content_rating no corpo — SERIES_FIELDS não inclui o campo', async () => {
+describe('Allowlists de content_rating — só o Master escreve (T1 não ligava nenhuma escrita; T6 liga a do admin)', () => {
+  // INVERSÃO DELIBERADA (Fase 5 Bloco 2, Task 6 — spec, decisão "Classificação
+  // oficial"): a T1 só criava o campo, sem nenhuma rota escrevendo nele. A T6
+  // liga a escrita do ADMIN (routes/content.js SERIES_FIELDS += content_rating
+  // — o Master define a classificação oficial no form de criar/editar série).
+  // O PORTAL continua de fora (teste abaixo, intacto desde a T1) — só o admin
+  // e a Fila de Aprovação (routes/adminPortal.js) escrevem content_rating.
+  it('PUT /api/content/series/:id (admin) GRAVA content_rating no corpo — SERIES_FIELDS passou a incluir o campo (T6)', async () => {
     const serie = await Series.create({
       title: 'Serie Admin Allowlist Rating', content_type: 'hiqua', genre: 'Aventura', isPublished: true,
     });
@@ -191,13 +197,25 @@ describe('Allowlists NÃO escrevem content_rating por acidente (T1 não liga nen
       .set('Authorization', `Bearer ${auth.getToken('admin')}`)
       .send({ content_rating: 'kids' });
     expect(res.status).toBe(200);
-    expect(res.body.content_rating).toBeFalsy();
+    expect(res.body.content_rating).toBe('kids');
 
     const doBanco = await Series.findById(serie._id);
-    expect(doBanco.content_rating).toBeNull();
+    expect(doBanco.content_rating).toBe('kids');
   });
 
-  it('POST /api/portal/series (ilustrador) ignora content_rating no corpo — PORTAL_SERIES_FIELDS não inclui o campo', async () => {
+  it('POST /api/content/series (admin) GRAVA content_rating no corpo', async () => {
+    const res = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+      .send({ title: 'Serie Admin Criada Com Rating', genre: 'Drama', content_type: 'hiqua', content_rating: 'teen' });
+    expect(res.status).toBe(201);
+    expect(res.body.content_rating).toBe('teen');
+
+    const doBanco = await Series.findById(res.body._id);
+    expect(doBanco.content_rating).toBe('teen');
+  });
+
+  it('POST /api/portal/series (ilustrador) ignora content_rating no corpo — PORTAL_SERIES_FIELDS não inclui o campo (INTACTO desde a T1)', async () => {
     const passwordHash = await bcrypt.hash('Senha@123', 10);
     const dono = await User.create({ email: emailUnico('portal-rating-dono'), passwordHash, nome: 'Dono Rating Portal' });
     await Channel.create({ ownerId: dono._id, name: `Canal Rating ${Date.now()}` });

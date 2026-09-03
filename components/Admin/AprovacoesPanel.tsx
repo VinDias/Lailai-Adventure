@@ -22,6 +22,7 @@ interface ItemAprovacao {
   cover_image?: string | null;
   thumbnail?: string | null;
   content_rating_sugerida?: string | null;
+  content_rating?: string | null;
   genre?: string | null;
   tags?: string[];
   panelCount?: number;
@@ -34,13 +35,24 @@ const RATING_LABEL: Record<string, string> = { kids: 'Kids', teen: 'Teen', young
 
 interface AprovacoesPanelProps {
   onCountChange?: (count: number) => void;
+  // Fase 5 Bloco 2, Task 6: badge "N não classificadas" do AdminDashboard —
+  // GET /admin/aprovacoes devolve `naoClassificadas` ao lado de `itens`;
+  // chamado no load inicial E após qualquer Aprovar (uma série publicada sem
+  // rating some da fila, mas pode entrar/sair da contagem do badge).
+  onNaoClassificadasChange?: (count: number) => void;
 }
 
-const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange }) => {
+const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoClassificadasChange }) => {
   const [itens, setItens] = useState<ItemAprovacao[]>([]);
   const [loading, setLoading] = useState(true);
   const [genreDrafts, setGenreDrafts] = useState<Record<string, string>>({});
   const [tagsDrafts, setTagsDrafts] = useState<Record<string, string[]>>({});
+  // Classificação etária editada pelo Master (Task 6). Pré-preenchida com
+  // content_rating_sugerida QUANDO houver — com sugerida null (obra
+  // submetida antes do B2), o seletor abre SEM default (spec, decisão
+  // "Classificação oficial"): o Master escolhe ativamente, a sugestão nunca
+  // é copiada em silêncio.
+  const [ratingDrafts, setRatingDrafts] = useState<Record<string, string>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [erroPorItem, setErroPorItem] = useState<Record<string, string>>({});
   const [devolverAlvo, setDevolverAlvo] = useState<ItemAprovacao | null>(null);
@@ -49,12 +61,23 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange }) => {
 
   const chave = (it: ItemAprovacao) => `${it.tipo}:${it.id}`;
 
+  // Classificação etária ATUAL do item na tela: o que o Master editou nesta
+  // sessão (ratingDrafts) OU o rating já salvo na série OU a sugerida do
+  // autor — NUNCA um default arbitrário quando tudo isso for null/ausente
+  // (spec, decisão "Classificação oficial": sugerida null → seletor sem
+  // default, o Master escolhe ativamente).
+  const ratingAtualDe = (it: ItemAprovacao) => {
+    const k = chave(it);
+    return ratingDrafts[k] ?? it.content_rating ?? it.content_rating_sugerida ?? '';
+  };
+
   const load = async () => {
     setLoading(true);
     try {
-      const { itens: lista } = await api.getAdminAprovacoes();
+      const { itens: lista, naoClassificadas } = await api.getAdminAprovacoes();
       setItens(lista as ItemAprovacao[]);
       onCountChange?.(lista.length);
+      onNaoClassificadasChange?.(naoClassificadas ?? 0);
     } catch {
       setItens([]);
     } finally {
@@ -78,7 +101,8 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange }) => {
       if (it.tipo === 'series') {
         const genre = (genreDrafts[k] ?? it.genre ?? '').trim();
         const tags = tagsDrafts[k] ?? it.tags ?? [];
-        await api.aprovarSerieAdmin(it.id, { genre, tags });
+        const content_rating = ratingAtualDe(it) as 'kids' | 'teen' | 'young' | '';
+        await api.aprovarSerieAdmin(it.id, { genre, tags, content_rating });
       } else {
         await api.aprovarEpisodioAdmin(it.id);
       }
@@ -128,7 +152,12 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange }) => {
             const k = chave(it);
             const preview = it.tipo === 'series' ? it.cover_image : it.thumbnail;
             const generoAtual = genreDrafts[k] ?? it.genre ?? '';
-            const podeAprovarSerie = generoAtual.trim().length > 0;
+            const ratingAtual = ratingAtualDe(it);
+            // Aprovar exige gênero E classificação etária (Task 6) — os dois
+            // ficam obrigatórios antes do POST; o backend também recusa (400
+            // "Classificação etária é obrigatória para aprovar"), esta
+            // checagem é só UX: evita a viagem de rede previsível.
+            const podeAprovarSerie = generoAtual.trim().length > 0 && ratingAtual.trim().length > 0;
             const serieNaoPublicada = it.tipo === 'episode' && it.serie && !it.serie.isPublished;
             const podeAprovar = it.tipo === 'series' ? podeAprovarSerie : !serieNaoPublicada;
             const ocupado = busyKey === k;
@@ -171,6 +200,24 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange }) => {
                         placeholder="Gênero (obrigatório para aprovar)"
                         className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-2.5 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors"
                       />
+                      <div>
+                        <select
+                          aria-label="Classificação etária"
+                          value={ratingAtual}
+                          onChange={e => setRatingDrafts(prev => ({ ...prev, [k]: e.target.value }))}
+                          className="w-full bg-black/5 dark:bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-2.5 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500"
+                        >
+                          <option value="" className="bg-zinc-900 text-white">— escolha —</option>
+                          <option value="kids" className="bg-zinc-900 text-white">Kids</option>
+                          <option value="teen" className="bg-zinc-900 text-white">Teen</option>
+                          <option value="young" className="bg-zinc-900 text-white">Young</option>
+                        </select>
+                        {it.content_rating_sugerida && (
+                          <p className="text-[10px] text-zinc-500 font-bold mt-1">
+                            Autor sugeriu: {RATING_LABEL[it.content_rating_sugerida] ?? it.content_rating_sugerida}
+                          </p>
+                        )}
+                      </div>
                       <TagsChipInput
                         value={tagsDrafts[k] ?? it.tags ?? []}
                         onChange={tags => setTagsDrafts(prev => ({ ...prev, [k]: tags }))}

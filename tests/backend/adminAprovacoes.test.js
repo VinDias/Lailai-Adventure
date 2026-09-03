@@ -154,7 +154,7 @@ describe('GET /api/admin/aprovacoes', () => {
     expect(ids).not.toContain(String(jaPublicado._id));
   });
 
-  it('shape do preview de série: title/description/cover_image/content_rating_sugerida/genre/tags/canal{id,name}/submittedAt', async () => {
+  it('shape do preview de série: title/description/cover_image/content_rating_sugerida/content_rating/genre/tags/canal{id,name}/submittedAt', async () => {
     const dono = await criarDono('Fila Shape Serie');
     const serie = await serieSubmetida(dono, {
       title: 'Serie Shape', description: 'Descricao da serie', content_rating_sugerida: 'teen',
@@ -168,11 +168,58 @@ describe('GET /api/admin/aprovacoes', () => {
     expect(item.description).toBe('Descricao da serie');
     expect(item.cover_image).toBe('https://cdn.exemplo/capa.jpg');
     expect(item.content_rating_sugerida).toBe('teen');
+    // content_rating (OFICIAL, Fase 5 Bloco 2 Task 6): série recém-submetida
+    // do portal ainda não tem — o Master ainda não aprovou.
+    expect(item.content_rating).toBeNull();
     expect(item.genre ?? null).toBeNull();
     expect(item.tags).toEqual([]);
     expect(String(item.canal.id)).toBe(String(dono.canal._id));
     expect(item.canal.name).toBe(dono.canal.name);
     expect(new Date(item.submittedAt).toISOString()).toBe(new Date('2026-08-20T10:00:00.000Z').toISOString());
+  });
+
+  // Fase 5 Bloco 2, Task 6: badge "não classificadas" no admin — contagem de
+  // séries JÁ PUBLICADAS sem content_rating (null OU campo ausente do acervo
+  // pré-B2). Duas fixtures: uma com o default null (create() normal já seta
+  // null pelo schema) e outra com o campo de fato AUSENTE do documento (via
+  // $unset — só assim se prova que a query também casa "ausente", não só
+  // "null"; `{ content_rating: null }` no Mongo casa as duas por padrão).
+  describe('GET /api/admin/aprovacoes — naoClassificadas', () => {
+    it('conta séries publicadas com content_rating null E com o campo ausente; NÃO conta classificadas nem despublicadas', async () => {
+      const dono = await criarDono('NaoClassificadas Contagem');
+      const antes = (await request(app).get('/api/admin/aprovacoes').set('Authorization', ADMIN_HEADER())).body.naoClassificadas;
+
+      const comNull = await Series.create({
+        title: 'Publicada Rating Null', genre: 'Aventura', content_type: 'hiqua',
+        isPublished: true, channelId: dono.canal._id, content_rating: null,
+      });
+      const comCampoAusente = await Series.create({
+        title: 'Publicada Rating Ausente', genre: 'Aventura', content_type: 'hiqua',
+        isPublished: true, channelId: dono.canal._id, content_rating: 'kids',
+      });
+      // Remove o campo de VERDADE do documento (default do schema não cobre
+      // isso — só um update direto no banco simula o acervo pré-B2).
+      await Series.updateOne({ _id: comCampoAusente._id }, { $unset: { content_rating: '' } });
+
+      // Classificada: NÃO deve contar.
+      await Series.create({
+        title: 'Publicada Classificada', genre: 'Aventura', content_type: 'hiqua',
+        isPublished: true, channelId: dono.canal._id, content_rating: 'young',
+      });
+      // Despublicada sem rating: NÃO deve contar (o badge é sobre o que já
+      // está no ar sem classificação, não sobre rascunhos).
+      await Series.create({
+        title: 'Draft Sem Rating Nao Conta', genre: 'Aventura', content_type: 'hiqua',
+        isPublished: false, channelId: dono.canal._id,
+      });
+
+      const res = await request(app).get('/api/admin/aprovacoes').set('Authorization', ADMIN_HEADER());
+      expect(res.status).toBe(200);
+      expect(res.body.naoClassificadas).toBe(antes + 2);
+
+      const conferido = await Series.findById(comCampoAusente._id).lean();
+      expect('content_rating' in conferido).toBe(false);
+    });
   });
 
   it('shape do preview de episódio: title/description/thumbnail/panelCount/serie{id,title,isPublished}/canal/submittedAt', async () => {
@@ -264,7 +311,11 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
 
   it('sem gênero (nem no body, nem já na série) -> 400, não publica', async () => {
     const dono = await criarDono('Aprovar Serie Sem Genero');
-    const serie = await serieSubmetida(dono, { title: 'Serie Sem Genero Para Aprovar' });
+    // content_rating presente (Task 6): isola o teste no gênero — sem isso,
+    // o corpo vazio dispararia a checagem de content_rating PRIMEIRO (ela
+    // roda antes de chamar applySeriesUpdate) e o teste nunca chegaria a
+    // exercitar a exigência de gênero, que vive dentro de applySeriesUpdate.
+    const serie = await serieSubmetida(dono, { title: 'Serie Sem Genero Para Aprovar', content_rating: 'young' });
 
     const res = await request(app)
       .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
@@ -278,7 +329,94 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
     expect(inalterada.submittedAt).not.toBeNull();
   });
 
-  it('com gênero no body -> publica + limpa submittedAt + traduz + AdminLog', async () => {
+  // ═══════════════════════════════════════════════════════════════════════
+  // Fase 5 Bloco 2, Task 6: classificação etária final OBRIGATÓRIA para
+  // aprovar — exigência NA ROTA (nunca em applySeriesUpdate, ver comentário
+  // em routes/adminPortal.js). Mensagem do 400 é PINADA.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('Classificação etária obrigatória para aprovar (Task 6)', () => {
+    it('sem content_rating (nem no body, nem já na série), COM gênero presente -> 400 mensagem EXATA, não publica', async () => {
+      const dono = await criarDono('Aprovar Serie Sem Rating');
+      const serie = await serieSubmetida(dono, { title: 'Serie Sem Rating Para Aprovar' });
+
+      const res = await request(app)
+        .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
+        .set('Authorization', ADMIN_HEADER())
+        .send({ genre: 'Aventura' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Classificação etária é obrigatória para aprovar');
+
+      const inalterada = await Series.findById(serie._id).lean();
+      expect(inalterada.isPublished).toBe(false);
+      expect(inalterada.submittedAt).not.toBeNull();
+    });
+
+    it('content_rating_sugerida do autor NÃO é copiada automaticamente — aprovar sem content_rating no body ainda 400, mesmo com sugerida preenchida', async () => {
+      const dono = await criarDono('Aprovar Serie Sugerida Nao Copia');
+      const serie = await serieSubmetida(dono, {
+        title: 'Serie Sugerida Nao Copia Rating', content_rating_sugerida: 'teen',
+      });
+
+      const res = await request(app)
+        .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
+        .set('Authorization', ADMIN_HEADER())
+        .send({ genre: 'Aventura' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Classificação etária é obrigatória para aprovar');
+
+      const inalterada = await Series.findById(serie._id).lean();
+      expect(inalterada.content_rating).toBeNull();
+      expect(inalterada.isPublished).toBe(false);
+    });
+
+    it('sugerida null (obra submetida antes do B2) + content_rating escolhido na hora no body -> publica com o rating enviado', async () => {
+      const dono = await criarDono('Aprovar Serie Sugerida Null');
+      const serie = await serieSubmetida(dono, {
+        title: 'Serie Sugerida Null Aprovavel', content_rating_sugerida: null,
+      });
+
+      const res = await request(app)
+        .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
+        .set('Authorization', ADMIN_HEADER())
+        .send({ genre: 'Aventura', content_rating: 'kids' });
+      expect(res.status).toBe(200);
+      expect(res.body.isPublished).toBe(true);
+      expect(res.body.content_rating).toBe('kids');
+
+      const salva = await Series.findById(serie._id).lean();
+      expect(salva.content_rating).toBe('kids');
+    });
+
+    it('content_rating já presente na série (sem vir no body) -> publica usando o rating já salvo', async () => {
+      const dono = await criarDono('Aprovar Serie Rating Ja Salvo');
+      const serie = await serieSubmetida(dono, {
+        title: 'Serie Rating Ja Salvo', content_rating: 'teen',
+      });
+
+      const res = await request(app)
+        .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
+        .set('Authorization', ADMIN_HEADER())
+        .send({ genre: 'Aventura' });
+      expect(res.status).toBe(200);
+      expect(res.body.content_rating).toBe('teen');
+    });
+
+    it('content_rating inválido no body -> 400 (ValidationError do schema), não publica', async () => {
+      const dono = await criarDono('Aprovar Serie Rating Invalido');
+      const serie = await serieSubmetida(dono, { title: 'Serie Rating Invalido' });
+
+      const res = await request(app)
+        .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
+        .set('Authorization', ADMIN_HEADER())
+        .send({ genre: 'Aventura', content_rating: 'adulto' });
+      expect(res.status).toBe(400);
+
+      const inalterada = await Series.findById(serie._id).lean();
+      expect(inalterada.isPublished).toBe(false);
+    });
+  });
+
+  it('com gênero e content_rating no body -> publica + limpa submittedAt + traduz + AdminLog', async () => {
     translationService.__setTranslatorForTests(fakeTranslator);
     const dono = await criarDono('Aprovar Serie Com Genero');
     const serie = await serieSubmetida(dono, { title: 'Serie Com Genero Para Aprovar', description: 'Uma bela historia' });
@@ -288,10 +426,11 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
     const res = await request(app)
       .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
       .set('Authorization', ADMIN_HEADER())
-      .send({ genre: 'Aventura' });
+      .send({ genre: 'Aventura', content_rating: 'young' });
     expect(res.status).toBe(200);
     expect(res.body.isPublished).toBe(true);
     expect(res.body.genre).toBe('Aventura');
+    expect(res.body.content_rating).toBe('young');
     expect(res.body.submittedAt).toBeNull();
 
     const salva = await Series.findById(serie._id).lean();
@@ -305,9 +444,10 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
     const log = await AdminLog.findOne({ action: 'APROVAR_SERIE_PORTAL', targetId: String(serie._id) }).lean();
     expect(log).toBeTruthy();
     expect(log.adminId).toBe(auth.getId('admin'));
+    expect(log.details.content_rating).toBe('young');
   });
 
-  it('gênero já presente na série (sem vir no body) + tags no body -> publica usando o gênero existente', async () => {
+  it('gênero já presente na série (sem vir no body) + tags e content_rating no body -> publica usando o gênero existente', async () => {
     const dono = await criarDono('Aprovar Serie Genero Existente');
     const serie = await serieSubmetida(dono, { title: 'Serie Genero Ja Preenchido', genre: 'Comédia' });
 
@@ -318,10 +458,11 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
     const res = await request(app)
       .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
       .set('Authorization', ADMIN_HEADER())
-      .send({ tags: ['acao', 'aventura', 'super-herois'] });
+      .send({ tags: ['acao', 'aventura', 'super-herois'], content_rating: 'teen' });
     expect(res.status).toBe(200);
     expect(res.body.genre).toBe('Comédia');
     expect(res.body.tags.sort()).toEqual(['acao', 'aventura', 'super-herois'].sort());
+    expect(res.body.content_rating).toBe('teen');
   });
 
   it('tags com slug fora do vocabulário no body -> 400, NÃO publica', async () => {
@@ -331,14 +472,16 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
     // recusando aqui é o VOCABULÁRIO: nenhum destes 3 slugs existe no
     // vocabulário fechado de 19 (utils/tagsVocabulario.js). A intenção do
     // teste (aprovar com tags inválidas não publica, atomicidade) é
-    // preservada — só a causa raiz do 400 é outra.
+    // preservada — só a causa raiz do 400 é outra. content_rating vai no
+    // body (Task 6) para a checagem de classificação não disparar ANTES da
+    // validação de tags que este teste quer exercitar.
     const dono = await criarDono('Aprovar Serie Tags Invalidas');
     const serie = await serieSubmetida(dono, { title: 'Serie Tags Invalidas' });
 
     const res = await request(app)
       .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
       .set('Authorization', ADMIN_HEADER())
-      .send({ genre: 'Aventura', tags: ['suspense', 'noir', 'gotico'] });
+      .send({ genre: 'Aventura', content_rating: 'young', tags: ['suspense', 'noir', 'gotico'] });
     expect(res.status).toBe(400);
 
     const inalterada = await Series.findById(serie._id).lean();
@@ -356,7 +499,7 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
       const res = await request(app)
         .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
         .set('Authorization', ADMIN_HEADER())
-        .send({ genre: 'Drama' });
+        .send({ genre: 'Drama', content_rating: 'young' });
       expect(res.status).toBe(200);
 
       await vi.waitFor(() => {
@@ -367,6 +510,27 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('allowlist do aprovar: campos extras no body (channelId/content_type/isPublished) são ignorados — só genre/tags/content_rating aplicam', async () => {
+    const dono = await criarDono('Aprovar Serie Allowlist Extra');
+    const outroDono = await criarDono('Aprovar Serie Allowlist Extra Alvo');
+    const serie = await serieSubmetida(dono, { title: 'Serie Allowlist Extra' });
+
+    const res = await request(app)
+      .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
+      .set('Authorization', ADMIN_HEADER())
+      .send({
+        genre: 'Aventura', content_rating: 'young',
+        channelId: String(outroDono.canal._id), content_type: 'vcine', isPublished: false, submittedAt: '2020-01-01T00:00:00.000Z',
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.isPublished).toBe(true); // isPublished do body é IGNORADO — a rota pina true
+    expect(res.body.submittedAt).toBeNull(); // idem — a rota pina null
+
+    const salva = await Series.findById(serie._id).lean();
+    expect(String(salva.channelId)).toBe(String(dono.canal._id)); // canal original preservado
+    expect(salva.content_type).toBe('hiqua'); // content_type original preservado
   });
 });
 
@@ -722,7 +886,7 @@ describe('Integração: fluxo completo série -> episódio pela Fila de Aprovaç
     const aprovarSerie = await request(app)
       .post(`/api/admin/aprovacoes/series/${serie.body._id}/aprovar`)
       .set('Authorization', ADMIN_HEADER())
-      .send({ genre: 'Fantasia' });
+      .send({ genre: 'Fantasia', content_rating: 'young' });
     expect(aprovarSerie.status).toBe(200);
     expect(aprovarSerie.body.isPublished).toBe(true);
 

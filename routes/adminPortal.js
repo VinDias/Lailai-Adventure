@@ -169,15 +169,24 @@ router.post('/mensagens/:canalId', verifyToken, requireAdmin, async (req, res) =
 // por item, todos ordenados juntos por antiguidade — a UI da T10 não
 // precisa intercalar dois arrays de novo. Cada item traz o preview que o
 // Master precisa pra decidir sem abrir a obra (spec, "Aprovação").
+//
+// Fase 5 Bloco 2, Task 6: além dos `itens`, a resposta também traz
+// `naoClassificadas` — contagem de séries JÁ PUBLICADAS sem content_rating
+// (null OU campo ausente do acervo pré-B2; `{ content_rating: null }` no
+// Mongo casa as duas situações, sem precisar de $exists). É a MESMA rota que
+// o AdminDashboard já consulta uma vez no load para o badge da sidebar
+// (Fase 5 Bloco 1, Task 10) — reaproveitada aqui em vez de criar uma rota
+// nova só para esse número (spec: "decida a rota mais natural").
 router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const [seriesPendentes, episodiosPendentes] = await Promise.all([
+    const [seriesPendentes, episodiosPendentes, naoClassificadas] = await Promise.all([
       Series.find({ submittedAt: { $ne: null }, isPublished: false })
-        .select('title description cover_image content_rating_sugerida genre tags channelId submittedAt')
+        .select('title description cover_image content_rating_sugerida content_rating genre tags channelId submittedAt')
         .lean(),
       Episode.find({ submittedAt: { $ne: null }, status: { $ne: 'published' } })
         .select('title description thumbnail panels seriesId submittedAt')
         .lean(),
+      Series.countDocuments({ isPublished: true, content_rating: null }),
     ]);
 
     // Séries dos episódios pendentes (o preview do episódio precisa de
@@ -210,6 +219,7 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
       description: s.description ?? null,
       cover_image: s.cover_image ?? null,
       content_rating_sugerida: s.content_rating_sugerida ?? null,
+      content_rating: s.content_rating ?? null,
       genre: s.genre ?? null,
       tags: s.tags ?? [],
       canal: previewCanal(s.channelId),
@@ -234,7 +244,7 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
     const itens = [...itensSerie, ...itensEpisodio]
       .sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
 
-    res.json({ itens });
+    res.json({ itens, naoClassificadas });
   } catch (err) {
     logger.error('[AdminPortal] GET /aprovacoes', err);
     res.status(500).json({ error: 'Erro ao montar a fila de aprovação.' });
@@ -242,15 +252,16 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
 });
 
 // POST /api/admin/aprovacoes/series/:id/aprovar — publica uma série
-// submetida. genre/tags no body são OPCIONAIS: o Master pode preenchê-los
-// na mesma ação (a série do portal nasce sem gênero — T1/T4). Reusa
-// services/seriesPublishService.applySeriesUpdate — a MESMA função que
+// submetida. genre/tags/content_rating no body são OPCIONAIS na leitura do
+// pick (o Master pode preenchê-los na mesma ação — a série do portal nasce
+// sem gênero, T1/T4), mas content_rating final vira OBRIGATÓRIO logo abaixo.
+// Reusa services/seriesPublishService.applySeriesUpdate — a MESMA função que
 // PUT /api/content/series/:id chama — para o gênero final obrigatório, a
 // tradução e o redisparo de push/recálculo seguirem exatamente a mesma
 // regra dos dois caminhos, sem duplicar lógica que poderia divergir.
 router.post('/aprovacoes/series/:id/aprovar', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const series = await Series.findById(req.params.id).select('submittedAt isPublished').lean();
+    const series = await Series.findById(req.params.id).select('submittedAt isPublished content_rating').lean();
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
     if (!series.submittedAt) {
       return res.status(400).json({ error: 'Esta série não está aguardando aprovação (nada a aprovar).' });
@@ -259,7 +270,21 @@ router.post('/aprovacoes/series/:id/aprovar', verifyToken, requireAdmin, async (
       return res.status(400).json({ error: 'Série já publicada.' });
     }
 
-    const updates = pick(req.body, ['genre', 'tags']);
+    const updates = pick(req.body, ['genre', 'tags', 'content_rating']);
+
+    // Classificação etária final obrigatória para aprovar (Fase 5 Bloco 2,
+    // Task 6 — spec, decisão "Classificação oficial"): body OU já salva na
+    // série (sugerida do autor NUNCA é copiada automaticamente — o Master
+    // decide ativamente, mesmo quando content_rating_sugerida existe). Esta
+    // exigência mora AQUI, na rota — NUNCA em applySeriesUpdate, que
+    // continua publicando sem rating pelo PUT admin do acervo (fail-safe do
+    // filtro parental T4/T5 + o badge `naoClassificadas` acima cobrem o
+    // resto do catálogo). Mensagem PINADA — não alterar o texto.
+    const ratingFinal = 'content_rating' in updates ? updates.content_rating : series.content_rating;
+    if (!ratingFinal) {
+      return res.status(400).json({ error: 'Classificação etária é obrigatória para aprovar' });
+    }
+
     updates.isPublished = true;
     updates.submittedAt = null;
 
@@ -277,7 +302,7 @@ router.post('/aprovacoes/series/:id/aprovar', verifyToken, requireAdmin, async (
       adminId: req.user.id,
       action: 'APROVAR_SERIE_PORTAL',
       targetId: String(publicada._id),
-      details: { title: publicada.title, genre: publicada.genre, tags: publicada.tags },
+      details: { title: publicada.title, genre: publicada.genre, tags: publicada.tags, content_rating: publicada.content_rating },
     });
 
     res.json(publicada);

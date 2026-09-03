@@ -14,6 +14,18 @@ import ImageWithFallback from '../ImageWithFallback';
 import RoyaltiesPanel from './RoyaltiesPanel';
 import AprovacoesPanel from './AprovacoesPanel';
 import CanaisPanel from './CanaisPanel';
+// Fonte ÚNICA dos 19 slugs do vocabulário fechado de tags (Fase 5 Bloco 2) —
+// o TagsChipInput (admin/fila) importa o MESMO JSON que o backend
+// (utils/tagsVocabulario.js), nunca uma lista duplicada (spec, "O
+// vocabulário": "os chips do TagsChipInput usam o IMPORT do JSON").
+import TAGS_VOCABULARIO from '../../utils/tagsVocabulario.json';
+
+const CONTENT_RATINGS = [
+  { value: '', label: '— sem classificação —' },
+  { value: 'kids', label: 'Kids' },
+  { value: 'teen', label: 'Teen' },
+  { value: 'young', label: 'Young' },
+];
 
 function isValidUrl(str: string) {
   try { return Boolean(str && new URL(str).protocol.startsWith('http')); } catch { return false; }
@@ -53,6 +65,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   // load do dashboard (independente da subview atual) e mantido em sincronia
   // pelo próprio AprovacoesPanel via onCountChange (refetch após ação).
   const [aprovacoesCount, setAprovacoesCount] = useState(0);
+  // Badge "N não classificadas" (Fase 5 Bloco 2, Task 6) — MESMA resposta de
+  // GET /admin/aprovacoes (routes/adminPortal.js devolve `naoClassificadas`
+  // ao lado de `itens`); mantido em sincronia pelo próprio AprovacoesPanel
+  // via onNaoClassificadasChange (refetch após aprovar/devolver).
+  const [naoClassificadasCount, setNaoClassificadasCount] = useState(0);
 
   // Série selecionada para gerenciar episódios
   const [selectedSeries, setSelectedSeries] = useState<any>(null);
@@ -71,7 +88,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     title: '', genre: '', description: '',
     cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '',
     releaseDay: null as number | null,
-    tags: [] as string[]
+    tags: [] as string[],
+    // Classificação etária OFICIAL (Fase 5 Bloco 2, Task 6) — só o Master
+    // define; '' vira null no payload (ver handleCreateSeries).
+    content_rating: '' as '' | 'kids' | 'teen' | 'young',
   });
   // Canais de ilustradores (Fase 3 — atribuição de royalties por obra)
   const [channels, setChannels] = useState<any[]>([]);
@@ -80,7 +100,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   // Edição de série existente (título/gênero/descrição sem recriar)
   const [editingSeries, setEditingSeries] = useState<any>(null);
-  const [editSeriesForm, setEditSeriesForm] = useState({ title: '', genre: '', description: '', isPremium: false, channelId: '', releaseDay: null as number | null, tags: [] as string[] });
+  const [editSeriesForm, setEditSeriesForm] = useState({
+    title: '', genre: '', description: '', isPremium: false, channelId: '',
+    releaseDay: null as number | null, tags: [] as string[],
+    content_rating: '' as '' | 'kids' | 'teen' | 'young',
+  });
   const [savingSeries, setSavingSeries] = useState(false);
   const [editSeriesMsg, setEditSeriesMsg] = useState('');
 
@@ -100,6 +124,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       channelId: item.channelId ?? '',
       releaseDay: item.releaseDay === undefined ? null : item.releaseDay,
       tags: Array.isArray(item.tags) ? item.tags : [],
+      content_rating: item.content_rating ?? '',
     });
     setEditSeriesMsg('');
     api.listChannels().then(setChannels).catch(() => setChannels([]));
@@ -119,6 +144,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         isPremium: editSeriesForm.isPremium,
         releaseDay: editSeriesForm.releaseDay,
         tags: editSeriesForm.tags,
+        content_rating: editSeriesForm.content_rating || null,
         ...(editSeriesForm.channelId ? { channelId: editSeriesForm.channelId } : {}),
       });
       setContentList(prev => prev.map(s => (s._id || s.id) === id ? { ...s, ...updated } : s));
@@ -264,7 +290,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   // /aprovacoes no load do dashboard"), independente de qual subview está
   // ativa, para o número aparecer na sidebar mesmo sem abrir a aba.
   useEffect(() => {
-    api.getAdminAprovacoes().then(r => setAprovacoesCount(r.itens.length)).catch(() => {});
+    api.getAdminAprovacoes().then(r => {
+      setAprovacoesCount(r.itens.length);
+      setNaoClassificadasCount(r.naoClassificadas ?? 0);
+    }).catch(() => {});
   }, []);
 
   const loadDashboard = async () => {
@@ -799,7 +828,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setCreateMsg('');
     try {
       // channelId vazio ("Sem canal") não pode ir como string vazia (cast de ObjectId)
-      const created = await api.createSeries({ ...newSeries, channelId: newSeries.channelId || undefined, isPublished: true });
+      const created = await api.createSeries({
+        ...newSeries,
+        channelId: newSeries.channelId || undefined,
+        content_rating: newSeries.content_rating || null,
+        isPublished: true,
+      });
       if (coverFile) {
         const id = created._id || created.id;
         try {
@@ -809,7 +843,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         } catch { /* não crítico */ }
       }
       setContentList(prev => [created, ...prev]);
-      setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '', releaseDay: null, tags: [] });
+      setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '', releaseDay: null, tags: [], content_rating: '' });
       setCoverFile(null);
       setCreateMsg('Série criada com sucesso!');
       setTimeout(() => { setCreateMsg(''); setShowCreateModal(false); }, 1500);
@@ -934,7 +968,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         {currentSubView === ViewMode.ADMIN_CONTENT && !selectedSeries && (
           <div className="max-w-4xl animate-apple">
             <div className="flex items-center justify-between mb-8">
-              <h2 className="text-4xl font-black tracking-tighter">Gerenciar Séries</h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-4xl font-black tracking-tighter">Gerenciar Séries</h2>
+                {naoClassificadasCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSubView(ViewMode.ADMIN_CONTENT)}
+                    className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full bg-amber-500/15 text-amber-500 hover:bg-amber-500/25 transition-colors"
+                  >
+                    {naoClassificadasCount} não classificada{naoClassificadasCount > 1 ? 's' : ''}
+                  </button>
+                )}
+              </div>
               <button
                 onClick={() => {
                   setShowCreateModal(true);
@@ -1509,7 +1554,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         {currentSubView === ViewMode.ADMIN_ROYALTIES && <RoyaltiesPanel />}
 
         {/* FILA DE APROVAÇÃO + CANAIS (Fase 5 Bloco 1, Task 10) */}
-        {currentSubView === ViewMode.ADMIN_APROVACOES && <AprovacoesPanel onCountChange={setAprovacoesCount} />}
+        {currentSubView === ViewMode.ADMIN_APROVACOES && (
+          <AprovacoesPanel onCountChange={setAprovacoesCount} onNaoClassificadasChange={setNaoClassificadasCount} />
+        )}
         {currentSubView === ViewMode.ADMIN_CANAIS && <CanaisPanel />}
 
         {currentSubView === ViewMode.ADMIN_SETTINGS && (
@@ -1912,6 +1959,17 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
               <TagsChipInput value={newSeries.tags} onChange={tags => setNewSeries(s => ({ ...s, tags }))} />
 
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Classificação etária</label>
+                <select
+                  value={newSeries.content_rating}
+                  onChange={e => setNewSeries(s => ({ ...s, content_rating: e.target.value as any }))}
+                  className="w-full bg-black/5 dark:bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500"
+                >
+                  {CONTENT_RATINGS.map(r => <option key={r.value} value={r.value} className="bg-zinc-900 text-white">{r.label}</option>)}
+                </select>
+              </div>
+
               {/* Canal do ilustrador — atribuição de royalties (Fase 3) */}
               <div>
                 <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Canal / Ilustrador (royalties)</label>
@@ -2048,6 +2106,17 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 </select>
               </div>
               <TagsChipInput value={editSeriesForm.tags} onChange={tags => setEditSeriesForm(f => ({ ...f, tags }))} />
+
+              <div>
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Classificação etária</label>
+                <select
+                  value={editSeriesForm.content_rating}
+                  onChange={e => setEditSeriesForm(f => ({ ...f, content_rating: e.target.value as any }))}
+                  className="w-full bg-black/5 dark:bg-zinc-900 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500"
+                >
+                  {CONTENT_RATINGS.map(r => <option key={r.value} value={r.value} className="bg-zinc-900 text-white">{r.label}</option>)}
+                </select>
+              </div>
 
               <label className="flex items-center gap-3 cursor-pointer">
                 <input type="checkbox" checked={editSeriesForm.isPremium} onChange={e => setEditSeriesForm(f => ({ ...f, isPremium: e.target.checked }))} className="w-4 h-4 accent-rose-500" />
@@ -2197,57 +2266,47 @@ const StatCard = ({ label, value, icon }: any) => (
 );
 
 // Tags internas do algoritmo de recomendação (Bloco 4) — nunca exibidas ao
-// leitor (genre segue sendo o rótulo visível). Chip input simples: digita e
-// Enter/vírgula adiciona, X remove. Minúsculas e dedupe replicam na borda da
-// UI a mesma normalização do backend (models/Series.js), só para feedback
-// imediato — quem valida de verdade é o model.
+// leitor (genre segue sendo o rótulo visível). Fase 5 Bloco 2, Task 6: virou
+// SELETOR FECHADO — 19 chips do vocabulário (utils/tagsVocabulario.json,
+// rótulo PT — admin é PT fixo), clique liga/desliga, máx 8 (chips extras
+// desabilitados ao atingir o teto), contador n/8, SEM input livre e SEM o
+// aviso de "mínimo 5" (o mínimo foi revogado — spec rev.3, "Cardinalidade ×
+// algoritmo"). Mesmo componente usado no criar/editar série do admin E na
+// Fila de Aprovação (AprovacoesPanel.tsx).
+const TAGS_MAXIMO = 8;
+
 export const TagsChipInput = ({ value, onChange }: { value: string[]; onChange: (tags: string[]) => void }) => {
-  const [draft, setDraft] = useState('');
-
-  const addTag = (raw: string) => {
-    const limpa = raw.trim().toLowerCase();
-    if (!limpa || value.length >= 15 || value.includes(limpa)) { setDraft(''); return; }
-    onChange([...value, limpa]);
-    setDraft('');
-  };
-
-  const removeTag = (tag: string) => onChange(value.filter(t => t !== tag));
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      addTag(draft);
+  const toggleTag = (slug: string) => {
+    if (value.includes(slug)) {
+      onChange(value.filter(t => t !== slug));
+      return;
     }
+    if (value.length >= TAGS_MAXIMO) return;
+    onChange([...value, slug]);
   };
 
   return (
     <div>
-      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Tags internas (algoritmo de recomendação)</label>
-      <div className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-3 py-2 flex flex-wrap gap-2 items-center focus-within:border-rose-500 transition-colors">
-        {value.map(tag => (
-          <span key={tag} className="flex items-center gap-1 px-3 py-1 bg-rose-600/20 text-rose-400 rounded-full text-xs font-bold">
-            {tag}
-            <button type="button" onClick={() => removeTag(tag)} aria-label={`Remover tag ${tag}`} className="hover:text-white transition-colors">
-              <X size={12} />
+      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-2">Tags (vocabulário fechado, até 8)</label>
+      <div className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-3 py-3 flex flex-wrap gap-2">
+        {TAGS_VOCABULARIO.map(({ slug, rotuloPt }) => {
+          const selecionada = value.includes(slug);
+          const desabilitada = !selecionada && value.length >= TAGS_MAXIMO;
+          return (
+            <button
+              key={slug}
+              type="button"
+              aria-pressed={selecionada}
+              disabled={desabilitada}
+              onClick={() => toggleTag(slug)}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${selecionada ? 'bg-rose-600 text-white' : 'bg-black/5 dark:bg-white/10 text-zinc-500 dark:text-zinc-400 hover:bg-black/10 dark:hover:bg-white/20'} disabled:opacity-30 disabled:cursor-not-allowed`}
+            >
+              {rotuloPt}
             </button>
-          </span>
-        ))}
-        <input
-          type="text"
-          aria-label="Adicionar tag"
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={value.length === 0 ? 'Digite e pressione Enter...' : ''}
-          className="flex-1 min-w-[100px] bg-transparent text-[var(--text-color)] text-sm font-bold outline-none py-1"
-        />
+          );
+        })}
       </div>
-      <div className="flex items-center justify-between mt-1">
-        <p className="text-[10px] text-zinc-600 font-bold">{value.length}/15</p>
-        {value.length > 0 && value.length < 5 && (
-          <p className="text-[10px] text-amber-500 font-bold">Mínimo 5 quando usar tags</p>
-        )}
-      </div>
+      <p className="text-[10px] text-zinc-600 font-bold mt-1">{value.length}/{TAGS_MAXIMO}</p>
     </div>
   );
 };

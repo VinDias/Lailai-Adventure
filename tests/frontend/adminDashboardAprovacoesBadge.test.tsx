@@ -1,10 +1,11 @@
 /**
  * Testes — AdminDashboard: fiação da Fila de Aprovação (Fase 5 Bloco 1,
- * Task 10). Cobre só a integração que vive no próprio AdminDashboard (não
- * duplica os testes internos de AprovacoesPanel/CanaisPanel, já cobertos em
+ * Task 10) e do badge "N não classificadas" (Fase 5 Bloco 2, Task 6). Cobre
+ * só a integração que vive no próprio AdminDashboard (não duplica os testes
+ * internos de AprovacoesPanel/CanaisPanel, já cobertos em
  * tests/frontend/adminAprovacoesPanel.test.tsx e adminCanaisPanel.test.tsx):
- * badge da sidebar buscado no load do dashboard (GET /admin/aprovacoes,
- * independente da subview atual) e navegação para a aba.
+ * badges da sidebar/header buscados no load do dashboard (GET
+ * /admin/aprovacoes, independente da subview atual) e navegação para a aba.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -71,5 +72,30 @@ describe('AdminDashboard — badge da Fila de Aprovação', () => {
     vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [] } as any);
     render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_CANAIS} setSubView={noop} />);
     expect(await screen.findByRole('heading', { name: 'Canais' })).toBeInTheDocument();
+  });
+});
+
+describe('AdminDashboard — badge "N não classificadas" (Fase 5 Bloco 2, Task 6)', () => {
+  it('naoClassificadas > 0: mostra o badge no cabeçalho de Gerenciar Séries', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [], naoClassificadas: 5 } as any);
+    render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_CONTENT} setSubView={noop} />);
+    await waitFor(() => expect(api.getAdminAprovacoes).toHaveBeenCalled());
+    expect(await screen.findByText('5 não classificadas')).toBeInTheDocument();
+  });
+
+  it('naoClassificadas = 0 (ou ausente): badge não aparece', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [] } as any);
+    render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_CONTENT} setSubView={noop} />);
+    await waitFor(() => expect(api.getAdminAprovacoes).toHaveBeenCalled());
+    expect(screen.queryByText(/não classificad/i)).not.toBeInTheDocument();
+  });
+
+  it('clicar no badge chama setSubView(ADMIN_CONTENT)', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [], naoClassificadas: 1 } as any);
+    const setSubView = vi.fn();
+    render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_CONTENT} setSubView={setSubView} />);
+    const badge = await screen.findByText('1 não classificada');
+    fireEvent.click(badge);
+    expect(setSubView).toHaveBeenCalledWith(ViewMode.ADMIN_CONTENT);
   });
 });
