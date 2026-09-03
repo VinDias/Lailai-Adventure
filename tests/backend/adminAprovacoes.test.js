@@ -311,23 +311,34 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
     const dono = await criarDono('Aprovar Serie Genero Existente');
     const serie = await serieSubmetida(dono, { title: 'Serie Genero Ja Preenchido', genre: 'Comédia' });
 
+    // Migração T2: tags viram slugs do vocabulário fechado (utils/tagsVocabulario)
+    // — 'heroi'/'magia'/'epico' não existem no vocabulário; 3 tags (sem
+    // mínimo) já bastaria para ser válido, mas o teste usa aqui slugs REAIS
+    // (super-herois/fantasia) para provar a persistência normal do fluxo.
     const res = await request(app)
       .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
       .set('Authorization', ADMIN_HEADER())
-      .send({ tags: ['acao', 'aventura', 'heroi', 'magia', 'epico'] });
+      .send({ tags: ['acao', 'aventura', 'super-herois'] });
     expect(res.status).toBe(200);
     expect(res.body.genre).toBe('Comédia');
-    expect(res.body.tags.sort()).toEqual(['acao', 'aventura', 'epico', 'heroi', 'magia'].sort());
+    expect(res.body.tags.sort()).toEqual(['acao', 'aventura', 'super-herois'].sort());
   });
 
-  it('tags inválidas no body (ex.: 3 tags, fora de 0 ou 5-15) -> 400, NÃO publica', async () => {
+  it('tags com slug fora do vocabulário no body -> 400, NÃO publica', async () => {
+    // Motivo do 400 MUDOU (Task 2): no contrato do B4, 3 tags era inválido
+    // por estar abaixo do mínimo de 5. O mínimo foi REVOGADO pelo PDF de
+    // 31/08 — 3 tags é uma contagem válida por si só agora. O que continua
+    // recusando aqui é o VOCABULÁRIO: nenhum destes 3 slugs existe no
+    // vocabulário fechado de 19 (utils/tagsVocabulario.js). A intenção do
+    // teste (aprovar com tags inválidas não publica, atomicidade) é
+    // preservada — só a causa raiz do 400 é outra.
     const dono = await criarDono('Aprovar Serie Tags Invalidas');
     const serie = await serieSubmetida(dono, { title: 'Serie Tags Invalidas' });
 
     const res = await request(app)
       .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
       .set('Authorization', ADMIN_HEADER())
-      .send({ genre: 'Aventura', tags: ['a', 'b', 'c'] });
+      .send({ genre: 'Aventura', tags: ['suspense', 'noir', 'gotico'] });
     expect(res.status).toBe(400);
 
     const inalterada = await Series.findById(serie._id).lean();

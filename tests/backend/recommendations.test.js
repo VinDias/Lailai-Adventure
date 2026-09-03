@@ -27,84 +27,92 @@ describe('tags', () => {
       Series = require('../../models/Series');
     });
 
+    // Contrato revisto (Fase 5, Bloco 2, Task 2 — PDF "Sistema de tags dos
+    // autores e do usuário", 31/08, SUPERA o desenho do Bloco 4): 0 a 8
+    // tags, TODAS slugs do vocabulário fechado de 19 (utils/tagsVocabulario).
+    // O mínimo de 5 do Bloco 4 é REVOGADO — decisão registrada na spec
+    // rev.3, "Cardinalidade × algoritmo". Os cenários antigos que dependiam
+    // do intervalo 5–15 (1-4 recusado, 5 mínimo, 15 máximo, 16 recusado,
+    // dedupe cruzando o mínimo) MORREM aqui, substituídos pelos testes
+    // abaixo (0/1/8/9 de fronteira + vocabulário fechado).
+    const OITO_VALIDAS = ['romance', 'drama', 'comedia', 'acao', 'aventura', 'fantasia', 'terror', 'thriller'];
+
     it('0 tags é válido (obra ainda sem curadoria)', async () => {
       const serie = await Series.create({ title: 'Serie Tags Zero', genre: 'Teste', content_type: 'hiqua' });
       expect(serie.tags).toEqual([]);
     });
 
-    it('1 a 4 tags é recusado (abaixo do mínimo de curadoria)', async () => {
+    it('1 tag (slug válido) é válida — sem mínimo', async () => {
+      const serie = await Series.create({
+        title: 'Serie Tags Uma', genre: 'Teste', content_type: 'hiqua', tags: ['aventura'],
+      });
+      expect(serie.tags).toEqual(['aventura']);
+    });
+
+    it('8 tags (slugs válidos) é válido (máximo)', async () => {
+      const serie = await Series.create({
+        title: 'Serie Tags Oito', genre: 'Teste', content_type: 'hiqua', tags: OITO_VALIDAS,
+      });
+      expect(serie.tags).toHaveLength(8);
+    });
+
+    it('9 tags é recusado (acima do máximo — fronteira 8/9)', async () => {
+      const nove = [...OITO_VALIDAS, 'misterio'];
       await expect(
-        Series.create({
-          title: 'Serie Tags Poucas', genre: 'Teste', content_type: 'hiqua',
-          tags: ['aventura', 'drama', 'comedia'],
-        }),
+        Series.create({ title: 'Serie Tags Nove', genre: 'Teste', content_type: 'hiqua', tags: nove }),
       ).rejects.toThrow();
     });
 
-    it('5 tags é válido (mínimo)', async () => {
-      const serie = await Series.create({
-        title: 'Serie Tags Cinco', genre: 'Teste', content_type: 'hiqua',
-        tags: ['aventura', 'drama', 'comedia', 'romance', 'acao'],
-      });
-      expect(serie.tags).toHaveLength(5);
-    });
-
-    it('15 tags é válido (máximo)', async () => {
-      const quinze = Array.from({ length: 15 }, (_, i) => `tag${i}`);
-      const serie = await Series.create({
-        title: 'Serie Tags Quinze', genre: 'Teste', content_type: 'hiqua', tags: quinze,
-      });
-      expect(serie.tags).toHaveLength(15);
-    });
-
-    it('16 tags é recusado (acima do máximo)', async () => {
-      const dezesseis = Array.from({ length: 16 }, (_, i) => `tag${i}`);
+    it('slug fora do vocabulário fechado é recusado, mesmo com contagem válida (0 a 8)', async () => {
       await expect(
         Series.create({
-          title: 'Serie Tags Dezesseis', genre: 'Teste', content_type: 'hiqua', tags: dezesseis,
+          title: 'Serie Tags Fora Vocabulario', genre: 'Teste', content_type: 'hiqua',
+          tags: ['aventura', 'nao-existe-no-vocabulario'],
         }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(/tags/i);
     });
 
     it('deduplica tags repetidas após a normalização, mantendo a contagem final dentro do intervalo válido', async () => {
       const serie = await Series.create({
         title: 'Serie Tags Dedupe', genre: 'Teste', content_type: 'hiqua',
-        tags: ['Aventura', 'aventura', 'Drama', 'Comedia', 'Romance', 'Acao'],
+        tags: ['Aventura', 'aventura', 'Drama', 'Comedia'],
       });
-      // 6 enviadas, 1 duplicata (Aventura/aventura) → 5 únicas, dentro de 5–15.
-      expect(serie.tags).toEqual(['aventura', 'drama', 'comedia', 'romance', 'acao']);
+      // 4 enviadas, 1 duplicata (Aventura/aventura) → 3 únicas.
+      expect(serie.tags).toEqual(['aventura', 'drama', 'comedia']);
     });
 
-    it('dedupe que cruza o limiar mínimo rejeita: 5 cruas viram 4 únicas', async () => {
-      // A contagem do validator é APÓS a normalização do setter — 'A' e 'a'
-      // são a mesma tag, então este envio tem só 4 tags de verdade.
-      await expect(Series.create({
-        title: 'Serie Tags Limiar', genre: 'Teste', content_type: 'hiqua',
-        tags: ['A', 'a', 'b', 'c', 'd'],
-      })).rejects.toThrow(/tags/i);
+    it('dedupe que cruza a fronteira superior: 9 cruas com 1 duplicata viram 8 únicas → válido', async () => {
+      // A contagem do validator é APÓS a normalização do setter — 'Romance'
+      // e 'romance' são a mesma tag, então este envio tem só 8 tags de
+      // verdade (dentro da fronteira 8/9, não acima dela).
+      const serie = await Series.create({
+        title: 'Serie Tags Dedupe Fronteira', genre: 'Teste', content_type: 'hiqua',
+        tags: ['Romance', 'romance', ...OITO_VALIDAS.slice(1)],
+      });
+      expect(serie.tags).toHaveLength(8);
     });
 
     it('normaliza tags para minúsculas', async () => {
       const serie = await Series.create({
         title: 'Serie Tags Maiusculas', genre: 'Teste', content_type: 'hiqua',
-        tags: ['AVENTURA', 'DRAMA', 'COMEDIA', 'ROMANCE', 'ACAO'],
+        tags: ['AVENTURA', 'DRAMA', 'COMEDIA'],
       });
-      expect(serie.tags).toEqual(['aventura', 'drama', 'comedia', 'romance', 'acao']);
+      expect(serie.tags).toEqual(['aventura', 'drama', 'comedia']);
     });
 
     it('remove espaços das bordas de cada tag (trim)', async () => {
       const serie = await Series.create({
         title: 'Serie Tags Trim', genre: 'Teste', content_type: 'hiqua',
-        tags: ['  aventura  ', 'drama ', ' comedia', 'romance', 'acao'],
+        tags: ['  aventura  ', 'drama ', ' comedia'],
       });
-      expect(serie.tags).toEqual(['aventura', 'drama', 'comedia', 'romance', 'acao']);
+      expect(serie.tags).toEqual(['aventura', 'drama', 'comedia']);
     });
 
-    it('recusa string vazia (ou só espaço) entre as tags', async () => {
+    it('recusa string vazia (ou só espaço) entre as tags (não é slug válido)', async () => {
       await expect(
         Series.create({
           title: 'Serie Tags Vazia', genre: 'Teste', content_type: 'hiqua',
-          tags: ['aventura', 'drama', '   ', 'romance', 'acao'],
+          tags: ['aventura', 'drama', '   '],
         }),
       ).rejects.toThrow();
     });
@@ -132,24 +140,27 @@ describe('tags', () => {
       expect(res.body.tags).toEqual([]);
     });
 
-    it('tags inválidas (1–4 itens) retornam 400 — não 500 — com a mensagem do validator', async () => {
+    it('tags com slug fora do vocabulário retornam 400 — não 500 — com a mensagem do validator', async () => {
+      // Contrato revisto (T2): 2 tags é uma CONTAGEM válida agora (sem
+      // mínimo) — o 400 aqui vem do slug 'fora-do-vocabulario', não da
+      // contagem (era o motivo antigo, pré-PDF de 31/08).
       const res = await request(app)
         .post('/api/content/series')
         .set('Authorization', `Bearer ${auth.getToken('admin')}`)
         .send({
           title: 'Serie Rota Tags Invalida', genre: 'Teste', content_type: 'hiqua',
-          tags: ['aventura', 'drama'],
+          tags: ['aventura', 'fora-do-vocabulario'],
         });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/tags/i);
     });
 
-    it('tags acima de 15 itens retornam 400 — não 500', async () => {
-      const dezesseis = Array.from({ length: 16 }, (_, i) => `tag${i}`);
+    it('tags acima de 8 itens retornam 400 — não 500 (fronteira 8/9)', async () => {
+      const nove = ['romance', 'drama', 'comedia', 'acao', 'aventura', 'fantasia', 'terror', 'thriller', 'misterio'];
       const res = await request(app)
         .post('/api/content/series')
         .set('Authorization', `Bearer ${auth.getToken('admin')}`)
-        .send({ title: 'Serie Rota Tags Excesso', genre: 'Teste', content_type: 'hiqua', tags: dezesseis });
+        .send({ title: 'Serie Rota Tags Excesso', genre: 'Teste', content_type: 'hiqua', tags: nove });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/tags/i);
     });
@@ -175,11 +186,13 @@ describe('tags', () => {
       expect(res.body.tags).toEqual(['aventura', 'drama', 'comedia', 'romance', 'acao']);
     });
 
-    it('atualizar com tags inválidas (1–4) retorna 400 — não 500 (hoje o catch é genérico e viraria 500)', async () => {
+    it('atualizar com slug fora do vocabulário retorna 400 — não 500 (hoje o catch é genérico e viraria 500)', async () => {
+      // Mesma virada de motivo da rota POST: a contagem deixou de ser o
+      // problema (sem mínimo), o slug fora do vocabulário continua sendo.
       const res = await request(app)
         .put(`/api/content/series/${seriesId}`)
         .set('Authorization', `Bearer ${auth.getToken('admin')}`)
-        .send({ tags: ['aventura', 'drama'] });
+        .send({ tags: ['aventura', 'fora-do-vocabulario'] });
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/tags/i);
     });
@@ -1594,12 +1607,19 @@ describe('neutro derivado exclui obras ja consumidas', () => {
     const Episode = require('../../models/Episode');
     const mongoose = require('mongoose');
 
-    // 4 obras de terror tagueadas + 1 sem tags, mesmo tipo.
+    // 4 obras de terror tagueadas + 1 sem tags, mesmo tipo. Migração T2: tags
+    // viram slugs do vocabulário fechado; cardinalidade reduzida de 5 para 3
+    // (2 compartilhadas + 1 única por obra) — a RELAÇÃO de alta sobreposição
+    // entre as 4 obras é preservada, só o volume de slugs cai. Nenhum assert
+    // deste describe usa valor exato de afinidade/neutro (só comparação
+    // relacional — toBeCloseTo/toBeLessThanOrEqual/toBeGreaterThan contra o
+    // PRÓPRIO cálculo, não uma constante), então reduzir não afrouxa nada.
+    const unicas = ['dark-fantasy', 'crime', 'historico', 'psicologico'];
     const tagueadas = [];
     for (let i = 0; i < 4; i++) {
       tagueadas.push(await Series.create({
         title: `Terror Patologico ${i}`, genre: 'Terror', content_type: 'hiqua',
-        isPublished: true, tags: ['terror', 'sobrenatural', 'suspense', 'noir', `unica${i}`],
+        isPublished: true, tags: ['terror', 'sobrenatural', unicas[i]],
       }));
     }
     const semTags = await Series.create({
@@ -1646,7 +1666,7 @@ describe('neutro derivado exclui obras ja consumidas', () => {
 
     const serie = await Series.create({
       title: 'Unica Tagueada', genre: 'Terror', content_type: 'hiqua',
-      isPublished: true, tags: ['terror', 'sobrenatural', 'suspense', 'noir', 'gotico'],
+      isPublished: true, tags: ['terror', 'sobrenatural', 'misterio'],
     });
     const ep = await Episode.create({
       seriesId: serie._id, episode_number: 1, title: 'Cap 1', duration: 300,
@@ -2140,31 +2160,37 @@ describe('afinidade', () => {
       expect(perfil).toEqual({});
     });
 
+    // Migração T2: tags fictícias ('acao1', 'suspense1'...) viram slugs REAIS
+    // do vocabulário fechado (obrigatório — Series.create agora valida) e a
+    // cardinalidade cai de 5 para 1–3 por série (sem mínimo, e nenhum destes
+    // testes depende de disjunção entre séries de describes diferentes —
+    // cada um usa um userId/anonymousId novo, então reaproveitar slugs entre
+    // testes não contamina nada). Cada teste só verifica a PROPAGAÇÃO do
+    // peso por fonte para as tags da própria série — reduzir quantas tags a
+    // série tem não muda essa relação, só o número de asserções possíveis.
     it('favoritos somam ×3 pra cada tag da série favoritada', async () => {
       const userId = new mongoose.Types.ObjectId();
-      const serie = await criarSerie({ title: 'Fav Tag', tags: ['acao1', 'aventura1', 'suspense1', 'drama1', 'fantasia1'] });
+      const serie = await criarSerie({ title: 'Fav Tag', tags: ['acao', 'aventura', 'terror'] });
       await seedFavorito(userId, serie._id);
 
       const perfil = await recommendationService.computeAffinityProfile({ userId });
-      expect(perfil.acao1).toBe(3);
-      expect(perfil.aventura1).toBe(3);
-      expect(perfil.suspense1).toBe(3);
-      expect(perfil.drama1).toBe(3);
-      expect(perfil.fantasia1).toBe(3);
+      expect(perfil.acao).toBe(3);
+      expect(perfil.aventura).toBe(3);
+      expect(perfil.terror).toBe(3);
     });
 
     it('Super Reader soma ×4 (leitor logado, apoio da própria conta)', async () => {
       const userId = new mongoose.Types.ObjectId();
-      const serie = await criarSerie({ title: 'SR Tag', tags: ['acao2', 'aventura2', 'suspense2', 'drama2', 'fantasia2'] });
+      const serie = await criarSerie({ title: 'SR Tag', tags: ['acao', 'aventura', 'terror'] });
       await seedSuperReader(serie._id, userId, 'sr1');
 
       const perfil = await recommendationService.computeAffinityProfile({ userId });
-      expect(perfil.acao2).toBe(4);
+      expect(perfil.acao).toBe(4);
     });
 
     it('contribuição Super Reader ANONIMIZADA (userId: null, LGPD do Bloco 3) não é rastreável — não entra no perfil de ninguém', async () => {
       const userId = new mongoose.Types.ObjectId();
-      const serie = await criarSerie({ title: 'SR Anonimizado', tags: ['acao3', 'aventura3', 'suspense3', 'drama3', 'fantasia3'] });
+      const serie = await criarSerie({ title: 'SR Anonimizado', tags: ['acao', 'aventura', 'terror'] });
       // Contribuição SEM vínculo (anonimizada) — mesmo que o MESMO userId
       // apareça consultando depois, não há como atribuir de volta a ele.
       await seedSuperReader(serie._id, null, 'sr-anon');
@@ -2175,56 +2201,56 @@ describe('afinidade', () => {
 
     it('likes de série somam ×2; DISLIKE não soma nada', async () => {
       const userId = new mongoose.Types.ObjectId();
-      const serieLike = await criarSerie({ title: 'Like Tag', tags: ['romance1', 'drama4', 'comedia1', 'familia1', 'amizade1'] });
-      const serieDislike = await criarSerie({ title: 'Dislike Tag', tags: ['terror1', 'suspense4', 'misterio1', 'crime1', 'policial1'] });
+      const serieLike = await criarSerie({ title: 'Like Tag', tags: ['romance', 'drama', 'comedia'] });
+      const serieDislike = await criarSerie({ title: 'Dislike Tag', tags: ['crime', 'misterio', 'thriller'] });
       await seedVoto(userId, serieLike._id, 'like');
       await seedVoto(userId, serieDislike._id, 'dislike');
 
       const perfil = await recommendationService.computeAffinityProfile({ userId });
-      expect(perfil.romance1).toBe(2);
-      expect(perfil.terror1).toBeUndefined();
+      expect(perfil.romance).toBe(2);
+      expect(perfil.crime).toBeUndefined();
     });
 
     it('progresso de leitura soma ×1 — identidade LOGADA', async () => {
       const userId = new mongoose.Types.ObjectId();
-      const serie = await criarSerie({ title: 'Progresso Logado', tags: ['acao4', 'aventura4', 'suspense5', 'drama5', 'fantasia4'] });
+      const serie = await criarSerie({ title: 'Progresso Logado', tags: ['acao', 'aventura', 'terror'] });
       await seedProgresso({ userId }, serie._id);
 
       const perfil = await recommendationService.computeAffinityProfile({ userId });
-      expect(perfil.acao4).toBe(1);
+      expect(perfil.acao).toBe(1);
     });
 
     it('progresso de leitura soma ×1 — identidade ANÔNIMA via anonymousId (mesmo mecanismo do Bloco 1)', async () => {
       const anonymousId = `anon-afinidade-${new mongoose.Types.ObjectId()}`;
-      const serie = await criarSerie({ title: 'Progresso Anonimo', tags: ['acao5', 'aventura5', 'suspense6', 'drama6', 'fantasia5'] });
+      const serie = await criarSerie({ title: 'Progresso Anonimo', tags: ['acao', 'aventura', 'terror'] });
       await seedProgresso({ anonymousId }, serie._id);
 
       const perfil = await recommendationService.computeAffinityProfile({ anonymousId });
-      expect(perfil.acao5).toBe(1);
+      expect(perfil.acao).toBe(1);
     });
 
     it('múltiplos documentos de progresso na MESMA série contam a série UMA vez (não multiplica por documento)', async () => {
       const userId = new mongoose.Types.ObjectId();
-      const serie = await criarSerie({ title: 'Progresso Multiplos Docs', tags: ['acao6', 'aventura6', 'suspense7', 'drama7', 'fantasia6'] });
+      const serie = await criarSerie({ title: 'Progresso Multiplos Docs', tags: ['acao', 'aventura', 'terror'] });
       await seedProgresso({ userId }, serie._id, { episodeId: new mongoose.Types.ObjectId(), percent: 0.2 });
       await seedProgresso({ userId }, serie._id, { episodeId: new mongoose.Types.ObjectId(), percent: 0.4 });
       await seedProgresso({ userId }, serie._id, { episodeId: new mongoose.Types.ObjectId(), percent: 0.6 });
 
       const perfil = await recommendationService.computeAffinityProfile({ userId });
       // 3 documentos, mesma série — soma ×1 UMA vez, nunca ×3.
-      expect(perfil.acao6).toBe(1);
+      expect(perfil.acao).toBe(1);
     });
 
     it('soma corretamente as 4 fontes na mesma tag (favorito + SR + like + progresso)', async () => {
       const userId = new mongoose.Types.ObjectId();
-      const serie = await criarSerie({ title: 'Todas Fontes', tags: ['epico1', 'aventura7', 'suspense8', 'drama8', 'fantasia7'] });
+      const serie = await criarSerie({ title: 'Todas Fontes', tags: ['romance', 'aventura', 'terror'] });
       await seedFavorito(userId, serie._id);
       await seedSuperReader(serie._id, userId, 'todasfontes');
       await seedVoto(userId, serie._id, 'like');
       await seedProgresso({ userId }, serie._id);
 
       const perfil = await recommendationService.computeAffinityProfile({ userId });
-      expect(perfil.epico1).toBe(3 + 4 + 2 + 1);
+      expect(perfil.romance).toBe(3 + 4 + 2 + 1);
     });
   });
 
@@ -2409,8 +2435,11 @@ describe('recomendacoes', () => {
     });
 
     it('afinidade muda a ordem entre leitores diferentes (mesmas duas séries, sem SeriesScore — só a Afinidade decide)', async () => {
-      const serieAcao = await criarSerie({ title: 'Serie Acao', tags: ['acao12', 'luta1', 'forca1', 'poder1', 'heroi1'] });
-      const serieRomance = await criarSerie({ title: 'Serie Romance', tags: ['romance3', 'drama13', 'emocao1', 'amor1', 'familia3'] });
+      // Migração T2: 2 tags disjuntas por série (slugs reais) bastam — este
+      // teste só compara ORDEM (afinidade > 0 de um lado, 0 do outro), sem
+      // valor exato, então a cardinalidade reduzida preserva a relação.
+      const serieAcao = await criarSerie({ title: 'Serie Acao', tags: ['acao', 'aventura'] });
+      const serieRomance = await criarSerie({ title: 'Serie Romance', tags: ['romance', 'drama'] });
 
       const leitorAcao = new mongoose.Types.ObjectId();
       await Favorite.create({ userId: leitorAcao, seriesId: serieAcao._id });
@@ -2443,31 +2472,36 @@ describe('recomendacoes', () => {
       // Perfil via progresso de leitura (peso 1) em 3 obras de OUTRO
       // content_type (vcine) — fora do catálogo desta recomendação (hiqua),
       // então elas não competem na lista, só alimentam o perfil.
-      const tema1 = ['tema1fx', 'p1a', 'p1b', 'p1c', 'p1d'];
-      const tema2 = ['tema2fx', 'p2a', 'p2b', 'p2c', 'p2d'];
-      const tema3 = ['tema3fx', 'p3a', 'p3b', 'p3c', 'p3d'];
-      const perfilSerie1 = await Series.create({ title: 'Perfil Tema1', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: tema1 });
-      const perfilSerie2 = await Series.create({ title: 'Perfil Tema2', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: tema2 });
-      const perfilSerie3 = await Series.create({ title: 'Perfil Tema3', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: tema3 });
+      //
+      // Migração T2: cada obra de perfil tinha 5 tags (1 "núcleo" + 4
+      // filler que só inflavam a contagem, sem função no teste — nenhum
+      // assert abaixo usa valor exato de afinidade, só ORDEM). Reduzido para
+      // 1 tag/obra (slug real do vocabulário); a relação "serieAlta bate
+      // TODOS os temas do perfil > serieBaixa não bate nenhum > neutro de
+      // serieSemTags fica estritamente entre os dois" é preservada — só a
+      // magnitude numérica muda (não testada aqui).
+      const perfilSerie1 = await Series.create({ title: 'Perfil Tema1', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: ['romance'] });
+      const perfilSerie2 = await Series.create({ title: 'Perfil Tema2', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: ['drama'] });
+      const perfilSerie3 = await Series.create({ title: 'Perfil Tema3', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: ['comedia'] });
 
       const leitor = new mongoose.Types.ObjectId();
       await ReadingProgress.create({ userId: leitor, seriesId: perfilSerie1._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'vcine', percent: 0.5 });
       await ReadingProgress.create({ userId: leitor, seriesId: perfilSerie2._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'vcine', percent: 0.5 });
       await ReadingProgress.create({ userId: leitor, seriesId: perfilSerie3._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'vcine', percent: 0.5 });
 
-      // Catálogo da recomendação (hiqua): obra que bate um POUCO dos 3 temas
-      // (maior afinidade real do catálogo, mas ainda MODESTA), obra que não
-      // bate nada (afinidade 0), e uma obra SEM tags nenhuma.
-      const serieAlta = await criarSerie({ title: 'Catalogo Alta', tags: ['tema1fx', 'tema2fx', 'tema3fx', 'extra1', 'extra2'] });
-      const serieBaixa = await criarSerie({ title: 'Catalogo Baixa', tags: ['temaforadoperfil', 'q1', 'q2', 'q3', 'q4'] });
+      // Catálogo da recomendação (hiqua): obra que bate os 3 temas do perfil
+      // (maior afinidade real do catálogo), obra que não bate nada (afinidade
+      // 0), e uma obra SEM tags nenhuma.
+      const serieAlta = await criarSerie({ title: 'Catalogo Alta', tags: ['romance', 'drama', 'comedia'] });
+      const serieBaixa = await criarSerie({ title: 'Catalogo Baixa', tags: ['terror'] });
       const serieSemTags = await criarSerie({ title: 'Catalogo Sem Tags' });
       // Nenhum SeriesScore criado — valorOrdenacao = afinidade pura (parteDaObra×confidence = 0 para todas).
 
       const resultado = await recommendationService.buildRecommendations({ contentType: 'hiqua', userId: leitor });
       const ids = resultado.map((s) => String(s._id));
 
-      // serieAlta tem a MAIOR afinidade real do catálogo hiqua (bate 3 das
-      // 15 tags do perfil) — é, por construção, a primeira da cota
+      // serieAlta tem a MAIOR afinidade real do catálogo hiqua (bate as 3
+      // tags do perfil) — é, por construção, a primeira da cota
       // "consolidadas" e por isso SEMPRE o primeiro item da lista final.
       expect(ids[0]).toBe(String(serieAlta._id));
       // serieSemTags (neutro = média de serieAlta e serieBaixa, estritamente
@@ -2649,6 +2683,25 @@ describe('recomendacoes', () => {
       expect(recommendationService.temaForte(a, b)).toBe(true);
     });
 
+    // Testes NOVOS de baixa cardinalidade (spec rev.3, "Cardinalidade ×
+    // algoritmo": o mínimo de 5 tags do B4 é REVOGADO pelo PDF de 31/08 —
+    // efeito colateral ACEITO e registrado: temaForte dispara mais fácil com
+    // conjuntos pequenos, agora possíveis de verdade no acervo).
+    it('baixa cardinalidade: 1 tag × 1 tag IGUAL → conflitoAdjacente TRUE (1/1 = 100% > 50%)', () => {
+      const a = { tags: ['acao'] };
+      const b = { tags: ['acao'] };
+      expect(recommendationService.temaForte(a, b)).toBe(true);
+      expect(recommendationService.conflitoAdjacente(a, b)).toBe(true);
+    });
+
+    it('baixa cardinalidade: 2 tags × 2 tags com EXATAMENTE 1 comum → 50% → NÃO conflita (mesma fronteira exclusiva do teste "exatamente 50%" acima, em cardinalidade mínima)', () => {
+      const a = { tags: ['acao', 'aventura'] };
+      const b = { tags: ['acao', 'romance'] };
+      // interseção=1, menor=2 → 1 > 2×0,5=1 é FALSO (exatos 50%, não dispara).
+      expect(recommendationService.temaForte(a, b)).toBe(false);
+      expect(recommendationService.conflitoAdjacente(a, b)).toBe(false);
+    });
+
     it('obra SEM tags nunca conflita por tema, mesmo com a outra tendo tags idênticas ou também vazias', () => {
       const semTags = { tags: [] };
       const comTags = { tags: ['t1', 't2', 't3', 't4', 't5'] };
@@ -2736,7 +2789,7 @@ describe('recomendacoes', () => {
     });
 
     it('200 com o MESMO shape do GET /series (mesmos campos; potentialScore/valorOrdenacao/confidence não vazam)', async () => {
-      const serie = await criarSerie({ title: 'Rota Shape', tags: ['acao13', 'aventura13', 'suspense10', 'drama14', 'fantasia9'] });
+      const serie = await criarSerie({ title: 'Rota Shape', tags: ['acao', 'aventura'] });
       await criarScore(serie._id, { scoreFinal: 50, confidence: 0.5 });
 
       const [resRecomendacao, resSeries] = await Promise.all([
@@ -2767,8 +2820,8 @@ describe('recomendacoes', () => {
 
     it('anônimo com header X-Anonymous-Id: a ordem reflete o PRÓPRIO progresso (afinidade), mesmo mecanismo do Bloco 1', async () => {
       const anonymousId = 'ffb0d1a0-2222-4aaa-8bbb-0123456789ab'; // UUID v4 — mesmo formato validado por utils/requestIdentity
-      const serieAlvo = await criarSerie({ title: 'Anonimo Alvo', tags: ['epico2', 'aventura14', 'suspense11', 'drama15', 'fantasia10'] });
-      const serieOutra = await criarSerie({ title: 'Anonimo Outra', tags: ['romance4', 'comedia3', 'familia4', 'amizade3', 'doce1'] });
+      const serieAlvo = await criarSerie({ title: 'Anonimo Alvo', tags: ['aventura', 'fantasia'] });
+      const serieOutra = await criarSerie({ title: 'Anonimo Outra', tags: ['romance', 'comedia'] });
       // Ambas SEM SeriesScore — só a Afinidade decide a ordem entre elas.
       await ReadingProgress.create({
         anonymousId, seriesId: serieAlvo._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'hiqua', percent: 0.5,

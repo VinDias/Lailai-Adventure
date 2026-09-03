@@ -1,10 +1,18 @@
 const mongoose = require('mongoose');
+const { isSlugValido } = require('../utils/tagsVocabulario');
 
 // Tags internas do algoritmo de recomendação (Fase 4, Bloco 4, Etapa 5 do PDF
 // do cliente) — alimentam a Afinidade calculada por leitor e NUNCA são
 // exibidas na UI (o campo `genre` continua sendo o rótulo visível ao leitor).
-// 0 tags = obra antiga ainda sem curadoria; se a obra recebe tags, o mínimo
-// de 5 evita curadoria parcial que distorceria o perfil de afinidade.
+// 0 tags = obra antiga ainda sem curadoria.
+//
+// Fase 5, Bloco 2, Task 2 (PDF "Sistema de tags dos autores e do usuário",
+// 31/08 — SUPERA o desenho de tags do Bloco 4): o mínimo de 5 é REVOGADO —
+// autor escolhe até 8 tags que representam a obra de verdade, todas do
+// vocabulário fechado de 19 slugs (utils/tagsVocabulario.js), Master corrige.
+// Efeito colateral aceito e registrado na spec (rev.3, "Cardinalidade ×
+// algoritmo"): `temaForte` do algoritmo de recomendação dispara mais fácil
+// com conjuntos pequenos (1 tag × 1 tag igual = 100% > 50% = conflito).
 //
 // Normalização (trim, minúsculas, dedupe) fica no SETTER — não em
 // pre('validate'), que só roda em .save()/.create(). As rotas de série usam
@@ -31,9 +39,9 @@ function normalizeTags(tags) {
 
 function validateTags(tags) {
   if (!Array.isArray(tags)) return false;
-  if (tags.some(t => typeof t !== 'string' || t.trim() === '')) return false;
   if (tags.length === 0) return true;
-  return tags.length >= 5 && tags.length <= 15;
+  if (tags.length > 8) return false;
+  return tags.every((t) => isSlugValido(t));
 }
 
 const SeriesSchema = new mongoose.Schema({
@@ -77,7 +85,7 @@ const SeriesSchema = new mongoose.Schema({
     set: normalizeTags,
     validate: {
       validator: validateTags,
-      message: 'Tags: envie 0 (sem curadoria) ou entre 5 e 15 tags, todas não vazias.',
+      message: 'Tags: 0 a 8, todas do vocabulário oficial.',
     },
   },
   // Preenchido automaticamente pelo translationService no save.
