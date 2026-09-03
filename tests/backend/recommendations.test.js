@@ -2473,13 +2473,17 @@ describe('recomendacoes', () => {
       // content_type (vcine) — fora do catálogo desta recomendação (hiqua),
       // então elas não competem na lista, só alimentam o perfil.
       //
-      // Migração T2: cada obra de perfil tinha 5 tags (1 "núcleo" + 4
-      // filler que só inflavam a contagem, sem função no teste — nenhum
-      // assert abaixo usa valor exato de afinidade, só ORDEM). Reduzido para
-      // 1 tag/obra (slug real do vocabulário); a relação "serieAlta bate
-      // TODOS os temas do perfil > serieBaixa não bate nenhum > neutro de
-      // serieSemTags fica estritamente entre os dois" é preservada — só a
-      // magnitude numérica muda (não testada aqui).
+      // Migração T2 + fix da re-revisão: a relação DE CARGA deste cenário é
+      // "a melhor afinidade real do catálogo é MODESTA — estritamente MENOR
+      // que o neutro FIXO antigo (12,5)". É isso que pina a regressão A2:
+      // se buildRecommendations voltasse ao neutro fixo, serieSemTags (12,5)
+      // desbancaria serieAlta e o expect de ids[0] falharia. A primeira
+      // migração deu 3/3 tags a serieAlta (afinidade 25) e o neutro derivado
+      // do cenário caiu em (25+0)/2 = 12,5 — IGUAL ao fixo: o teste passava
+      // com a regressão instalada (provado por mutação na revisão).
+      // serieAlta bate 1 dos 3 temas: afinidade 25×(1/3) = 8,33 < 12,5;
+      // derivado = (8,33+0)/2 = 4,17 < 8,33 — comportamento correto vence,
+      // regressão perde.
       const perfilSerie1 = await Series.create({ title: 'Perfil Tema1', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: ['romance'] });
       const perfilSerie2 = await Series.create({ title: 'Perfil Tema2', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: ['drama'] });
       const perfilSerie3 = await Series.create({ title: 'Perfil Tema3', genre: 'Teste', content_type: 'vcine', isPublished: true, tags: ['comedia'] });
@@ -2489,10 +2493,10 @@ describe('recomendacoes', () => {
       await ReadingProgress.create({ userId: leitor, seriesId: perfilSerie2._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'vcine', percent: 0.5 });
       await ReadingProgress.create({ userId: leitor, seriesId: perfilSerie3._id, episodeId: new mongoose.Types.ObjectId(), contentType: 'vcine', percent: 0.5 });
 
-      // Catálogo da recomendação (hiqua): obra que bate os 3 temas do perfil
-      // (maior afinidade real do catálogo), obra que não bate nada (afinidade
-      // 0), e uma obra SEM tags nenhuma.
-      const serieAlta = await criarSerie({ title: 'Catalogo Alta', tags: ['romance', 'drama', 'comedia'] });
+      // Catálogo da recomendação (hiqua): obra que bate 1 dos 3 temas do
+      // perfil (maior afinidade real do catálogo, mas MODESTA — 8,33 < 12,5),
+      // obra que não bate nada (afinidade 0), e uma obra SEM tags nenhuma.
+      const serieAlta = await criarSerie({ title: 'Catalogo Alta', tags: ['romance'] });
       const serieBaixa = await criarSerie({ title: 'Catalogo Baixa', tags: ['terror'] });
       const serieSemTags = await criarSerie({ title: 'Catalogo Sem Tags' });
       // Nenhum SeriesScore criado — valorOrdenacao = afinidade pura (parteDaObra×confidence = 0 para todas).
@@ -2500,13 +2504,12 @@ describe('recomendacoes', () => {
       const resultado = await recommendationService.buildRecommendations({ contentType: 'hiqua', userId: leitor });
       const ids = resultado.map((s) => String(s._id));
 
-      // serieAlta tem a MAIOR afinidade real do catálogo hiqua (bate as 3
-      // tags do perfil) — é, por construção, a primeira da cota
-      // "consolidadas" e por isso SEMPRE o primeiro item da lista final.
+      // serieAlta tem a MAIOR afinidade real do catálogo hiqua (8,33 — a
+      // única que bate tema do perfil) — primeira da lista COM o neutro
+      // derivado; um neutro fixo de 12,5 a desbancaria (regressão A2).
       expect(ids[0]).toBe(String(serieAlta._id));
-      // serieSemTags (neutro = média de serieAlta e serieBaixa, estritamente
-      // MENOR que a afinidade de serieAlta sozinha) nunca pode ocupar essa
-      // primeira posição.
+      // serieSemTags (neutro derivado = média 4,17, estritamente MENOR que
+      // 8,33) nunca pode ocupar a primeira posição.
       expect(ids.indexOf(String(serieSemTags._id))).toBeGreaterThan(0);
     });
 
