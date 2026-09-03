@@ -453,4 +453,130 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Mensagens editor<->ilustrador (Task 6). Thread por (canal, dono vigente) —
+// ver model/MensagemPortal.js e a troca de dono em routes/channels.js
+// (PUT :id admin arquiva a thread ao trocar ownerId). Lado do editor fica em
+// routes/adminPortal.js (GET/POST /api/admin/mensagens/:canalId).
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Resolve o canalId a usar nas rotas de mensagem, dado o array de canais
+ * ATIVOS do dono logado — MESMO critério de canalId do POST /portal/series
+ * (1 canal = default, sempre ignorando o valor informado; >1 canal =
+ * obrigatório). Diferença deliberada em relação a POST /portal/series: ali
+ * um canalId alheio quando há >1 canal devolve 400 (é uma escolha inválida
+ * num formulário de criação); aqui devolve 404 — ler/escrever mensagens de um
+ * canal que não é seu é o mesmo caso de "não confirmar a existência de
+ * recurso alheio" que serieDoDono/episodioDoDono já aplicam nesta rota.
+ */
+function resolverCanalIdDaMensagem(valorInformado, portalChannelIds) {
+  if (portalChannelIds.length === 1) {
+    return { channelId: portalChannelIds[0] };
+  }
+  if (!valorInformado) {
+    return { error: 'canalId é obrigatório (você tem mais de um canal).', status: 400 };
+  }
+  if (!portalChannelIds.includes(String(valorInformado))) {
+    return { error: 'Canal não encontrado.', status: 404 };
+  }
+  return { channelId: valorInformado };
+}
+
+// GET /api/portal/mensagens?canalId=&limit=&before= — mensagens da thread
+// VIGENTE do dono no canal: { canalId, ownerUserId: req.user.id,
+// arquivadaEm: null } — o histórico de um antecessor (troca de dono) fica
+// arquivado e nunca aparece aqui. Ordem cronológica ASC.
+//
+// Paginação (simples, decidida nesta task): `limit` (padrão 100, teto 200) +
+// `before` (ISO date, cursor) — sem `before`, devolve as `limit` mensagens
+// mais RECENTES da thread (a cauda da conversa, como um chat); com `before`,
+// devolve as `limit` mensagens mais recentes ANTES desse instante (rolar
+// para cima = carregar mais antigas). Em ambos os casos a página volta em
+// ordem ASC.
+//
+// DECISÃO (lidaEm simétrico — spec "Mensagem privada" + brief da Task 6):
+// abrir a thread marca como lida TODA mensagem do EDITOR ainda não lida NA
+// THREAD VIGENTE INTEIRA, independente de limit/before — não é uma feature
+// de "marcar só o que a página mostrou", é "abrir a conversa". Mensagens do
+// PRÓPRIO ilustrador nunca são tocadas aqui — a marca de leitura delas é
+// espelhada em GET /api/admin/mensagens/:canalId (routes/adminPortal.js).
+router.get('/mensagens', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const resolvido = resolverCanalIdDaMensagem(req.query.canalId, req.portalChannelIds);
+    if (resolvido.error) return res.status(resolvido.status).json({ error: resolvido.error });
+    const channelId = resolvido.channelId;
+
+    let limit = 100;
+    if (req.query.limit !== undefined) {
+      limit = parseInt(req.query.limit, 10);
+      if (!Number.isInteger(limit) || limit < 1 || String(req.query.limit).trim() === '') {
+        return res.status(400).json({ error: 'limit deve ser um número inteiro positivo.' });
+      }
+    }
+    limit = Math.min(limit, 200);
+
+    let before = null;
+    if (req.query.before !== undefined) {
+      before = new Date(req.query.before);
+      if (isNaN(before.getTime())) {
+        return res.status(400).json({ error: 'before deve ser uma data válida (ISO).' });
+      }
+    }
+
+    const filtroThread = { canalId: channelId, ownerUserId: req.user.id, arquivadaEm: null };
+
+    // Marca como lida ANTES de buscar — a resposta já reflete o lidaEm novo.
+    await MensagemPortal.updateMany(
+      { ...filtroThread, autorTipo: 'editor', lidaEm: null },
+      { $set: { lidaEm: new Date() } }
+    );
+
+    const filtroBusca = { ...filtroThread };
+    if (before) filtroBusca.createdAt = { $lt: before };
+
+    const pagina = await MensagemPortal.find(filtroBusca).sort({ createdAt: -1 }).limit(limit).lean();
+    pagina.reverse(); // devolve em ordem cronológica ASC
+
+    res.json({ canalId: channelId, mensagens: pagina });
+  } catch (err) {
+    logger.error('[Portal] GET /mensagens', err);
+    res.status(500).json({ error: 'Erro ao buscar mensagens.' });
+  }
+});
+
+// POST /api/portal/mensagens — cria mensagem do ILUSTRADOR na thread vigente
+// do seu canal. Allowlist ESTRITA: só texto (e canalId condicional, mesma
+// regra do GET acima) entram no documento — refTipo/refId/autorTipo/
+// autorUserId/ownerUserId do body são SEMPRE ignorados (nunca por spread).
+// refTipo/refId neste bloco só nascem do lado do editor (devolução da Task 7
+// preenche automaticamente via POST /admin/mensagens/:canalId).
+router.post('/mensagens', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const resolvido = resolverCanalIdDaMensagem(req.body.canalId, req.portalChannelIds);
+    if (resolvido.error) return res.status(resolvido.status).json({ error: resolvido.error });
+
+    const texto = req.body.texto;
+    if (!texto || !String(texto).trim()) {
+      return res.status(400).json({ error: 'texto é obrigatório.' });
+    }
+
+    const mensagem = await MensagemPortal.create({
+      canalId: resolvido.channelId,
+      ownerUserId: req.user.id,
+      autorTipo: 'ilustrador',
+      autorUserId: req.user.id,
+      texto,
+    });
+
+    res.status(201).json(mensagem);
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
+    }
+    logger.error('[Portal] POST /mensagens', err);
+    res.status(500).json({ error: 'Erro ao enviar mensagem.' });
+  }
+});
+
 module.exports = router;
