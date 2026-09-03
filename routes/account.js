@@ -308,6 +308,10 @@ router.delete('/me', verifyToken, async (req, res) => {
       Channel.updateMany({ followers: userId }, { $pull: { followers: userId } }),
       RefreshToken.deleteMany({ userId: userId.toString() }),
       PasswordResetToken.deleteMany({ userId }),
+      // Token de recuperação de PIN (Fase 5 Bloco 2) — mesmo tratamento do
+      // token de senha: sem isso ficava órfão até o TTL de 1h (achado da
+      // revisão da T3).
+      require('../models/ParentalPinResetToken').deleteMany({ userId }),
       // Log de royalties é append-only (cadeia de hash): eventos não podem ser
       // deletados, mas o vínculo com a conta é removido — o userId fica fora
       // do hash justamente para permitir esta desvinculação LGPD.

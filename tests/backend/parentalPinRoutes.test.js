@@ -146,6 +146,19 @@ describe('PUT /api/parental — sem PIN definido (livre)', () => {
     expect(res.body.error).toContain('fofura-que-nao-existe');
   });
 
+  // Achado da revisão da T3: 5000 repetições de um slug válido passavam na
+  // validação e viravam um $nin gigante em toda query de lista do usuário.
+  it('tagsBloqueadas é DEDUPLICADA no banco (lista vira $nin de toda query de lista)', async () => {
+    const dono = await criarUsuarioLocal('Put Dedupe Tags');
+    const repetidas = Array.from({ length: 4237 }, (_, i) => (i % 2 === 0 ? 'romance' : 'terror'));
+    const res = await putParental(dono.token, { tagsBloqueadas: repetidas });
+    expect(res.status).toBe(200);
+    expect(res.body.tagsBloqueadas).toEqual(['romance', 'terror']);
+
+    const doBanco = await User.findById(dono.id).lean();
+    expect(doBanco.parental.tagsBloqueadas).toEqual(['romance', 'terror']);
+  });
+
   it('allowlist estrita: pinHash/pinTentativas/pinBloqueadoAte/role extras no body são IGNORADOS no banco', async () => {
     const dono = await criarUsuarioLocal('Put Allowlist Extras');
     const res = await putParental(dono.token, {
@@ -520,6 +533,20 @@ describe('DELETE /api/account/me — exige PIN quando temPin', () => {
     const res = await excluirConta(dono.token, { pin: '8899' });
     expect(res.status).toBe(200);
     expect(await User.findById(dono.id)).toBeNull();
+  });
+
+  // Achado da revisão da T3: o token de recuperação de PIN ficava órfão até o
+  // TTL de 1h — mesmo tratamento do PasswordResetToken na exclusão.
+  it('exclusão apaga o ParentalPinResetToken pendente do usuário (nenhum resíduo)', async () => {
+    const ParentalPinResetToken = require('../../models/ParentalPinResetToken');
+    const dono = await criarUsuarioLocal('Delete Apaga Token Pin');
+    await postPin(dono.token, { novoPin: '4433' });
+    await ParentalPinResetToken.create({ userId: dono.id, token: `tok-orfao-${Date.now()}-${Math.random()}` });
+    expect(await ParentalPinResetToken.countDocuments({ userId: dono.id })).toBe(1);
+
+    const res = await excluirConta(dono.token, { password: SENHA_PADRAO, pin: '4433' });
+    expect(res.status).toBe(200);
+    expect(await ParentalPinResetToken.countDocuments({ userId: dono.id })).toBe(0);
   });
 
   it('sem PIN definido: comportamento atual intacto (só senha, contas locais)', async () => {

@@ -100,7 +100,11 @@ router.put('/', async (req, res) => {
       if (ofensor !== undefined) {
         return res.status(400).json({ error: `Tag inválida: "${ofensor}". Fora do vocabulário oficial.` });
       }
-      updateParental['parental.tagsBloqueadas'] = tags;
+      // Dedupe: a lista vira o $nin de TODA query de lista deste usuário —
+      // 5000 repetições de um slug válido passariam na validação e
+      // inflariam a query (achado da revisão da T3). Deduplicado, o teto
+      // natural é o tamanho do vocabulário.
+      updateParental['parental.tagsBloqueadas'] = [...new Set(tags)];
     }
 
     if (Object.keys(updateParental).length > 0) {
