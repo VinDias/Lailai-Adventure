@@ -222,6 +222,24 @@ router.delete('/me', verifyToken, async (req, res) => {
       });
     }
 
+    // Canais INATIVOS do usuário NUNCA são apagados (obra publicada não pode
+    // sumir com a conta do ex-dono, spec Fase 5 Bloco 1) — são transferidos
+    // ao primeiro usuário admin (role admin/superadmin, o de createdAt mais
+    // antigo) como dono "guarda-chuva" até o editor decidir um novo
+    // ilustrador. Se nenhum admin existir (teoricamente impossível: o
+    // sistema sempre tem ao menos um), aborta em vez de órfãozar o canal.
+    // O LOOKUP do admin roda ANTES do cancel do Stripe: o abort de 500 não
+    // pode acontecer com a assinatura já cancelada (achado da revisão da T8).
+    const canaisInativos = await Channel.find({ ownerId: userId, isActive: false }).select('_id').lean();
+    let primeiroAdmin = null;
+    if (canaisInativos.length > 0) {
+      primeiroAdmin = await User.findOne({ role: { $in: ['admin', 'superadmin'] } }).sort({ createdAt: 1 });
+      if (!primeiroAdmin) {
+        logger.error(`[Account] DELETE /me: exclusão abortada — nenhum admin disponível para receber canais de ${maskEmail(user.email)}.`);
+        return res.status(500).json({ error: 'Erro ao excluir conta: nenhum administrador disponível para receber seus canais.' });
+      }
+    }
+
     // Best-effort: cancela a assinatura no Stripe para cessar o tratamento/cobrança.
     if (user.stripeSubscriptionId && process.env.STRIPE_SECRET_KEY) {
       try {
@@ -232,19 +250,7 @@ router.delete('/me', verifyToken, async (req, res) => {
       }
     }
 
-    // Canais INATIVOS do usuário NUNCA são apagados (obra publicada não pode
-    // sumir com a conta do ex-dono, spec Fase 5 Bloco 1) — são transferidos
-    // ao primeiro usuário admin (role admin/superadmin, o de createdAt mais
-    // antigo) como dono "guarda-chuva" até o editor decidir um novo
-    // ilustrador. Se nenhum admin existir (teoricamente impossível: o
-    // sistema sempre tem ao menos um), aborta em vez de órfãozar o canal.
-    const canaisInativos = await Channel.find({ ownerId: userId, isActive: false }).select('_id').lean();
     if (canaisInativos.length > 0) {
-      const primeiroAdmin = await User.findOne({ role: { $in: ['admin', 'superadmin'] } }).sort({ createdAt: 1 });
-      if (!primeiroAdmin) {
-        logger.error(`[Account] DELETE /me: exclusão abortada — nenhum admin disponível para receber canais de ${maskEmail(user.email)}.`);
-        return res.status(500).json({ error: 'Erro ao excluir conta: nenhum administrador disponível para receber seus canais.' });
-      }
       await Channel.updateMany(
         { _id: { $in: canaisInativos.map(c => c._id) } },
         { $set: { ownerId: primeiroAdmin._id } }
