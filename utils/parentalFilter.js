@@ -29,6 +29,15 @@ const ESCADA_VISIBILIDADE = {
   young: ['kids', 'teen', 'young'],
 };
 
+// Valor fora do enum (só chega por escrita bruta/migração — o schema barra o
+// resto) cai no degrau MAIS restritivo, nunca em young: falhar aberto aqui
+// mostraria tudo a uma conta cuja restrição ficou corrompida (achado da
+// revisão da T4). Ausente/null = young (conta que nunca gravou preferência).
+function classificacaoEfetiva(valor) {
+  if (valor === undefined || valor === null || valor === '') return 'young';
+  return ESCADA_VISIBILIDADE[valor] ? valor : 'kids';
+}
+
 /**
  * Predicado PURO — sem exceções (admin/dono não entram aqui; isso é
  * serieVisivelPara). `parental` é o fragmento {classificacaoEtaria,
@@ -49,7 +58,7 @@ function passaFiltroParental(parental, serie) {
     );
   }
 
-  const classificacaoEtaria = parental?.classificacaoEtaria || 'young';
+  const classificacaoEtaria = classificacaoEfetiva(parental?.classificacaoEtaria);
   const tagsBloqueadas = parental?.tagsBloqueadas || [];
 
   const ratingEfetivo = serie.content_rating === null ? 'young' : serie.content_rating;
@@ -92,7 +101,7 @@ async function getFiltroParental(user) {
 
   const doc = await User.findById(user.id).select('parental').lean();
   const parental = doc?.parental;
-  const classificacaoEtaria = parental?.classificacaoEtaria || 'young';
+  const classificacaoEtaria = classificacaoEfetiva(parental?.classificacaoEtaria);
   const tagsBloqueadas = parental?.tagsBloqueadas || [];
 
   const filtro = {};

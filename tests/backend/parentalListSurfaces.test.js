@@ -182,6 +182,23 @@ describe('GET /api/content/series — filtro parental', () => {
     const ids = idsOf(res.body);
     [kidsS, teenS, youngS, nuloS, ausenteS, tagueada].forEach((s) => expect(ids).toContain(String(s._id)));
   });
+
+  // Decisão da spec ("Exceções ao filtro"): nas LISTAS o filtro vale para
+  // todos, inclusive para o DONO da obra — a ausência da própria obra na home
+  // dele é autoinfligida. A exceção de dono existe SÓ em serieVisivelPara
+  // (doc único, T5). Pino da decisão (achado da revisão da T4).
+  it('DONO da obra com a tag dela bloqueada: a obra some da LISTA (autoinfligido) — mas serieVisivelPara segue true', async () => {
+    const dono = await criarPerfil({ classificacaoEtaria: 'young', tagsBloqueadas: ['acao'] });
+    const canal = await Channel.create({ ownerId: dono.id, name: `Canal Dono ${unico('c')}` });
+    const propria = await criarSerieTag('SerieLista7 Propria', 'acao', { channelId: canal._id });
+
+    const res = await authed(request(app).get('/api/content/series?type=hiqua'), dono);
+    expect(idsOf(res.body)).not.toContain(String(propria._id));
+
+    const { serieVisivelPara } = require('../../utils/parentalFilter');
+    const doc = await Series.findById(propria._id).lean();
+    expect(await serieVisivelPara({ id: dono.id, role: 'user' }, doc)).toBe(true);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -218,10 +235,13 @@ describe('GET /api/content/search (ramo séries) — filtro parental', () => {
     [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
   });
 
-  it('tag bloqueada some da busca', async () => {
+  it('tag bloqueada some da busca (controle positivo: irmã sem a tag fica)', async () => {
     const tagueada = await criarSerieTag('BuscaMatrix10', 'acao');
+    const semTag = await criarSerie('BuscaMatrix10 SemTag', { content_rating: 'young' });
     const res = await authed(request(app).get('/api/content/search?q=BuscaMatrix10'), youngTagBloqueada);
-    expect(idsOf(res.body.series)).not.toContain(String(tagueada._id));
+    const ids = idsOf(res.body.series);
+    expect(ids).not.toContain(String(tagueada._id));
+    expect(ids).toContain(String(semTag._id));
   });
 
   it('anônimo vê tudo na busca', async () => {
@@ -274,10 +294,13 @@ describe('GET /api/content/agenda — filtro parental', () => {
     [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
   });
 
-  it('tag bloqueada some da agenda', async () => {
+  it('tag bloqueada some da agenda (controle positivo: irmã sem a tag fica)', async () => {
     const tagueada = await criarSerieTag('Agenda16', 'acao', { releaseDay: DIA });
+    const semTag = await criarSerie('Agenda16 SemTag', { content_rating: 'young', releaseDay: DIA });
     const res = await authed(request(app).get('/api/content/agenda'), youngTagBloqueada);
-    expect(idsDoDia(res)).not.toContain(String(tagueada._id));
+    const ids = idsDoDia(res);
+    expect(ids).not.toContain(String(tagueada._id));
+    expect(ids).toContain(String(semTag._id));
   });
 
   it('anônimo vê tudo na agenda (rota ganhou optionalAuth mas continua pública)', async () => {
@@ -333,10 +356,13 @@ describe('GET /api/content/recommendations — filtro parental', () => {
     [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
   });
 
-  it('tag bloqueada some das recomendações', async () => {
+  it('tag bloqueada some das recomendações (controle positivo: irmã sem a tag fica)', async () => {
     const tagueada = await criarSerieTag('Recom22', 'acao');
+    const semTag = await criarSerie('Recom22 SemTag', { content_rating: 'young' });
     const res = await authed(request(app).get('/api/content/recommendations?type=hiqua'), youngTagBloqueada);
-    expect(idsOf(res.body)).not.toContain(String(tagueada._id));
+    const ids = idsOf(res.body);
+    expect(ids).not.toContain(String(tagueada._id));
+    expect(ids).toContain(String(semTag._id));
   });
 
   it('anônimo vê tudo nas recomendações', async () => {
@@ -390,6 +416,34 @@ describe('GET /api/content/recommendations — filtro parental', () => {
       const ids = idsOf(res.body);
       expect(ids).toContain(String(kidsS._id));
       expect(ids).not.toContain(String(teenS._id));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // Achado da revisão da T4: getFiltroParental estava FORA do try — Express 4
+  // não captura rejeição de handler async e a conexão ficava PENDURADA (nem
+  // 500). Agora: 500 fail-closed — nunca degrada para o fallback SEM filtro
+  // (vazaria conteúdo para uma conta kids).
+  it('falha ao ler o parental → 500 fail-closed (responde; não pendura, não vaza sem filtro)', async () => {
+    await criarConjuntoClassificacoes('RecomFalhaParental');
+    // Sabota SÓ a cadeia `.select('parental')` (a de getFiltroParental) — as
+    // outras chamadas de User.findById no pipeline (middleware de isActive,
+    // optionalAuth) seguem reais; senão o 500 viria de outro lugar.
+    const original = User.findById.bind(User);
+    const spy = vi.spyOn(User, 'findById').mockImplementation((...args) => {
+      const query = original(...args);
+      const selectOriginal = query.select.bind(query);
+      query.select = (campos) => {
+        if (campos === 'parental') return { lean: () => Promise.reject(new Error('Falha simulada ao ler parental')) };
+        return selectOriginal(campos);
+      };
+      return query;
+    });
+    try {
+      const res = await authed(request(app).get('/api/content/recommendations?type=hiqua'), kids).timeout({ response: 5000 });
+      expect(res.status).toBe(500);
+      expect(Array.isArray(res.body)).toBe(false);
     } finally {
       spy.mockRestore();
     }
@@ -528,11 +582,15 @@ describe('GET /api/me/continue — filtro parental', () => {
     [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
   });
 
-  it('tag bloqueada some de continuar', async () => {
+  it('tag bloqueada some de continuar (controle positivo: irmã sem a tag fica)', async () => {
     const tagueada = await criarSerieTag('Continuar35', 'acao');
+    const semTag = await criarSerie('Continuar35 SemTag', { content_rating: 'young' });
     await darProgresso(identidadeDe(youngTagBloqueada), tagueada);
+    await darProgresso(identidadeDe(youngTagBloqueada), semTag);
     const res = await authed(request(app).get('/api/me/continue?contentType=hiqua'), youngTagBloqueada);
-    expect(res.body.map((i) => String(i.seriesId))).not.toContain(String(tagueada._id));
+    const ids = res.body.map((i) => String(i.seriesId));
+    expect(ids).not.toContain(String(tagueada._id));
+    expect(ids).toContain(String(semTag._id));
   });
 
   it('anônimo (visitante com X-Anonymous-Id) vê tudo em continuar', async () => {

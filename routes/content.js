@@ -266,7 +266,18 @@ router.get('/recommendations', optionalAuth, async (req, res) => {
   }
 
   const identity = getIdentity(req) || {};
-  const filtroParental = await getFiltroParental(req.user);
+
+  // Fail-CLOSED, e dentro de try: Express 4 não captura rejeição de handler
+  // async — sem isto, uma falha ao ler o `parental` deixava a conexão
+  // PENDURADA (nem 500). E não degrada para o fallback SEM filtro: isso
+  // vazaria conteúdo para uma conta kids (achado da revisão da T4).
+  let filtroParental;
+  try {
+    filtroParental = await getFiltroParental(req.user);
+  } catch (err) {
+    logger.error('[Content] GET /recommendations — filtro parental indisponível', err);
+    return res.status(500).json({ error: 'Erro ao buscar recomendações.' });
+  }
 
   try {
     const recomendadas = await require('../services/recommendationService').buildRecommendations({

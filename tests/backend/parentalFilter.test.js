@@ -210,6 +210,23 @@ describe('getFiltroParental — FORMA exata do fragmento (pinada)', () => {
     expect(fragmento).toEqual({});
   });
 
+  // Achado da revisão da T4: valor FORA do enum (só chega por escrita bruta ou
+  // migração — o schema barra o resto) caía em young ({}), fail-OPEN. Agora
+  // cai no degrau MAIS restritivo (kids), nos dois helpers.
+  it('classificacaoEtaria fora do enum (escrita bruta) → fragmento de KIDS, nunca {} (fail-closed)', async () => {
+    const user = await criarUsuario({ classificacaoEtaria: 'young', tagsBloqueadas: ['acao'] });
+    await User.updateOne({ _id: user._id }, { $set: { 'parental.classificacaoEtaria': 'adulto' } });
+    const fragmento = await getFiltroParental({ id: user._id.toString(), role: 'user' });
+    expect(fragmento).toEqual({ content_rating: 'kids', tags: { $nin: ['acao'] } });
+  });
+
+  it('passaFiltroParental com classificacaoEtaria fora do enum se comporta como KIDS (não lança TypeError, não abre)', () => {
+    const corrompido = { classificacaoEtaria: 'adulto', tagsBloqueadas: [] };
+    expect(passaFiltroParental(corrompido, { content_rating: 'kids', tags: [] })).toBe(true);
+    expect(passaFiltroParental(corrompido, { content_rating: 'teen', tags: [] })).toBe(false);
+    expect(passaFiltroParental(corrompido, { content_rating: null, tags: [] })).toBe(false);
+  });
+
   it('nenhuma chave do fragmento usa $ne ou $nin para content_rating em NENHUM perfil (varredura anti-regressão)', async () => {
     const perfis = [
       { classificacaoEtaria: 'kids', tagsBloqueadas: [] },
