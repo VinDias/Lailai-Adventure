@@ -15,7 +15,12 @@ const Sentry = require("@sentry/node");
 dotenv.config();
 const mongoose = require('mongoose');
 
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/lorflux')
+// `conexaoMongo` é a MESMA promise reaproveitada mais abaixo (perto do
+// app.listen, Fase 5 Bloco 2 Task 5 — fix round) pra gatear o boot no
+// backfill parental sem duplicar a lógica de conexão aqui em cima.
+const conexaoMongo = mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/lorflux');
+
+conexaoMongo
   .then(() => {
     console.log('✅ MongoDB conectado');
     // Fase 4, Bloco 4 (algoritmo): varredura periódica de 24h + varredura
@@ -715,8 +720,33 @@ app.use((err, req, res, next) => {
   res.status(err?.status || 500).json({ error: "Erro interno do servidor." });
 });
 
+// Fase 5, Bloco 2, Task 5 (fix round — spec rev.4): backfill idempotente de
+// content_rating/tags ausentes (services/parentalBackfill.js) — SEM isso, o
+// helper de doc único (utils/parentalFilter.js) LANÇA fail-closed (ruling
+// P4) pra qualquer usuário logado não-admin/não-dono ao abrir uma série do
+// acervo pré-Bloco-2 (o campo nasceu sem `$set` na Task 1). CONDIÇÃO DURA:
+// `app.listen` só roda DEPOIS do backfill terminar — nunca existe uma janela
+// onde o servidor está de pé aceitando conexão mas o acervo ainda tem o
+// campo ausente. Backfill (ou a própria conexão) falhando → o processo SAI
+// (código != 0, PM2 reinicia) em vez de subir e devolver 500 silencioso pra
+// metade das rotas — melhor indisponível do que quebrado.
+// `require.main === module`: só o boot de verdade (`node server.js` / PM2)
+// chega aqui. Testes que fazem `require('../../server')` (são ~28 hoje)
+// NUNCA rodam o backfill automaticamente nem o listen — `module.exports = app`
+// abaixo continua síncrono e imediato, igual sempre foi; os testes que
+// precisam do backfill chamam `backfillCamposParental()` direto (ver
+// tests/backend/parentalDocSurfaces.test.js), controlando a ordem sem
+// depender deste boot assíncrono.
 if (require.main === module) {
-  app.listen(PORT, () => logger.info(`🚀 LORFLUX PROD-READY SERVER | PORT: ${PORT} | ENV: ${process.env.NODE_ENV}`));
+  conexaoMongo
+    .then(() => require('./services/parentalBackfill').backfillCamposParental())
+    .then(() => {
+      app.listen(PORT, () => logger.info(`🚀 LORFLUX PROD-READY SERVER | PORT: ${PORT} | ENV: ${process.env.NODE_ENV}`));
+    })
+    .catch(err => {
+      logger.error('[Boot] Nao foi possivel conectar ao Mongo ou rodar o backfill parental — servidor NAO vai subir', err);
+      process.exit(1);
+    });
 }
 
 module.exports = app;

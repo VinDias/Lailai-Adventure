@@ -90,7 +90,10 @@ episode_number duplicado na mesma série → 400 (portal e admin).
 `scripts/migrarTagsVocabulario.js`: TODOS os docs de Series; mapa manual →
 slug; dedupe + cap 8 por prioridade do mapa + ASSERT alto se >8; idempotente
 (2ª rodada no-op); fixtures de teste (mapa >8 → cap; duas livres → mesmo
-slug). Instruções de deploy no DOCS.md (rodar o script no VPS após o pull).
+slug). **Reusa `services/parentalBackfill.backfillCamposParental()` (nascido
+no fix round da T5 — spec rev.4: campo ausente no doc único lançava; o
+backfill roda no BOOT gateando o `listen` e aqui de novo, explicitamente).**
+Instruções de deploy no DOCS.md (rodar o script no VPS após o pull).
 Smoke local da recomendação antes/depois com devMock, anotado no ledger.
 
 ## Task 10 — Revisão final do bloco (opus)

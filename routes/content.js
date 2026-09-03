@@ -10,8 +10,8 @@ const optionalAuth = require('../middlewares/optionalAuth');
 const getIdentity = require('../utils/requestIdentity');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
-const { podeVerRascunho, isAdminUser } = require('../utils/ownership');
-const { getFiltroParental, serieVisivelPara, passaFiltroParental, getParentalDe } = require('../utils/parentalFilter');
+const { podeVerRascunho } = require('../utils/ownership');
+const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
 const { addPanels } = require('../services/episodePanelService');
 
 const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags'];
@@ -45,29 +45,37 @@ router.get('/search', optionalAuth, async (req, res) => {
     // já esteja publicada.
     const episodeFilter = { title: regex, status: 'published' };
 
+    // Fase 5, Bloco 2, Task 5 (fix round): ramo EPISÓDIOS filtra QUERY-SIDE
+    // — não mais post-filter com passaFiltroParental na série populada. O
+    // post-filter anterior tinha DOIS problemas achados na revisão: (1) só
+    // `isAdmin` pulava o predicado — visitante (sem `user`) caía direto em
+    // passaFiltroParental(null, serie), que LANÇA se a série tiver
+    // content_rating/tags genuinamente ausentes (doc legado), derrubando a
+    // busca em 500 pra QUALQUER UM, inclusive anônimo; (2) o post-filter
+    // rodava DEPOIS do `.limit(20)` do Episode.find — se os 20 episódios
+    // mais recentes batendo no termo pertencessem todos a séries que o
+    // perfil não vê, a resposta vinha vazia mesmo havendo episódios visíveis
+    // fora da janela dos 20 (fome do limit).
+    // idsVisiveis reusa o MESMO `filtroParental` já calculado pro ramo
+    // SÉRIES acima (sem recomputar — 1 User.findById por request, não 2) —
+    // query PRÓPRIA (sem o `$or` do termo de busca, sem limit): "quais
+    // séries publicadas este perfil enxerga", igual às outras superfícies
+    // de LISTA (T4). `{}` pra anônimo/admin → idsVisiveis = todas as
+    // publicadas, sem tocar em content_rating/tags de doc nenhum — imune ao
+    // throw do doc legado (o campo ausente nunca é lido aqui).
+    const idsVisiveis = await Series.find({ isPublished: true, ...filtroParental }).distinct('_id');
+    episodeFilter.seriesId = { $in: idsVisiveis };
+
     const [series, episodes] = await Promise.all([
       Series.find(seriesFilter).limit(20).lean(),
       Episode.find(episodeFilter)
         .limit(20)
-        .populate('seriesId', 'title content_type cover_image isPublished content_rating tags')
+        .populate('seriesId', 'title content_type cover_image')
         .lean()
     ]);
 
-    // Fase 5, Bloco 2, Task 5: ramo EPISÓDIOS não alcança o fragmento de
-    // query de getFiltroParental (o filtro precisaria valer sobre o doc
-    // POPULADO — Mongo não filtra populate por match no Episode.find aqui,
-    // já que o filtro é do lado da Series). Post-filter com o predicado PURO
-    // (passaFiltroParental) direto na série populada — exceção-da-exceção
-    // pinada na spec ("Writes de engajamento"): o critério é o MESMO da
-    // LISTA (getFiltroParental) — admin vê tudo, mas o DONO não tem exceção
-    // aqui (a exceção de dono é exclusiva de serieVisivelPara/doc único).
-    // getParentalDe é chamado UMA vez (não em cada iteração do filter).
-    const isAdmin = isAdminUser(req.user);
-    const parentalCru = isAdmin ? null : await getParentalDe(req.user);
-
     const visibleEpisodes = episodes
-      .filter(ep => ep.seriesId && ep.seriesId.isPublished !== false)
-      .filter(ep => isAdmin || passaFiltroParental(parentalCru, ep.seriesId))
+      .filter(ep => ep.seriesId) // defesa contra a janela de corrida entre as duas queries (série apagada entre elas)
       .map(ep => ({
         _id: ep._id,
         title: ep.title,

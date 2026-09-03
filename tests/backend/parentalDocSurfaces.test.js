@@ -4,10 +4,11 @@
  * ramo EPISÓDIOS da busca — mais o push de capítulo novo e os writes de
  * engajamento (favoritar, votar ×2, Super Reader create-session). Spec:
  * docs/superpowers/specs/2026-09-03-fase5-bloco2-parental-tags-design.md
- * (rev.3, seções "Superfícies filtradas (doc único)", "Push de capítulo
- * novo", "Writes de engajamento", "Exceções ao filtro"). Ledger: ruling A5
- * da T4 (passar channelId CRU a serieVisivelPara, nunca populado — os
- * fetches abaixo nunca fazem .populate('channelId')).
+ * (rev.4, seções "Superfícies filtradas (doc único)", "Push de capítulo
+ * novo", "Writes de engajamento", "Exceções ao filtro", "Migração do
+ * acervo"). Ledger: ruling A5 da T4 (passar channelId CRU a
+ * serieVisivelPara, nunca populado — os fetches abaixo nunca fazem
+ * .populate('channelId')).
  *
  * A matriz completa de LISTA (kids/teen/young/anônimo/admin com preferências
  * restritivas próprias, campo AUSENTE vs null) já está coberta em
@@ -18,6 +19,19 @@
  * (views/EngagementEvent/push) NÃO disparando, a exceção de DONO (ausente
  * nas listas, presente aqui — exceto no ramo episódios da busca, onde a
  * exceção-da-exceção da spec tira o dono de novo).
+ *
+ * Fix round (revisão bloqueante): o ramo EPISÓDIOS da busca deixou de fazer
+ * post-filter com passaFiltroParental na série populada (jogava 500 pra
+ * ANÔNIMO também em doc legado — só `isAdmin` pulava o predicado) e passou
+ * a filtrar QUERY-SIDE (Series.find(...).distinct('_id') reaproveitando o
+ * MESMO filtroParental do ramo séries, depois Episode.find com
+ * seriesId:{$in:idsVisiveis}) — ver describe "ramo EPISÓDIOS" abaixo, sem
+ * getParentalDe (removido de utils/parentalFilter.js, ficou sem uso). O
+ * describe "Backfill" no fim cobre o achado raiz: content_rating/tags
+ * genuinamente AUSENTES no documento (acervo pré-B2) faziam
+ * serieVisivelPara/passaFiltroParental LANÇAR (500) pra todo logado
+ * não-admin/não-dono nas OUTRAS quatro superfícies de doc único — corrigido
+ * com o backfill idempotente no boot (services/parentalBackfill.js).
  */
 const request = require('supertest');
 const bcrypt = require('bcrypt');
@@ -345,6 +359,13 @@ describe('GET /api/bunny/signed-url — filtro parental (doc único)', () => {
 // 5) GET /api/content/search — ramo EPISÓDIOS
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Fix round (revisão bloqueante): o filtro deste ramo virou QUERY-SIDE
+// (routes/content.js — idsVisiveis = Series.find({isPublished:true,
+// ...filtroParental}).distinct('_id'), depois Episode.find com
+// seriesId:{$in:idsVisiveis}) — não lê mais content_rating/tags de doc
+// nenhum, então NUNCA lança, nem para doc legado (ver describe "Backfill"
+// no fim: antes dele existir, o post-filter antigo jogava 500 pra qualquer
+// logado não-admin E para anônimo).
 describe('GET /api/content/search — ramo EPISÓDIOS (filtro parental)', () => {
   it('kids vê episódio de série kids no array (controle positivo)', async () => {
     const termo = unico('BuscaEpDoc0');
@@ -379,7 +400,7 @@ describe('GET /api/content/search — ramo EPISÓDIOS (filtro parental)', () => 
     expect(res.body.episodes.some(e => e._id === String(ep._id))).toBe(true);
   });
 
-  it('admin vê o episódio mesmo com preferências restritivas próprias (admin não passa pelo post-filter)', async () => {
+  it('admin vê o episódio mesmo com preferências restritivas próprias (getFiltroParental já devolve {} pra admin)', async () => {
     const termo = unico('BuscaEpDoc4');
     const serie = await criarSerie(termo, { content_rating: 'kids', tags: ['acao'] });
     const ep = await Episode.create({ seriesId: serie._id, episode_number: 1, title: `${termo} Cap`, status: 'published' });
@@ -397,6 +418,28 @@ describe('GET /api/content/search — ramo EPISÓDIOS (filtro parental)', () => 
     const ep = await Episode.create({ seriesId: serie._id, episode_number: 1, title: `${termo} Cap`, status: 'published' });
     const res = await authed(request(app).get(`/api/content/search?q=${termo}`), dono);
     expect(res.body.episodes.some(e => e._id === String(ep._id))).toBe(false);
+  });
+
+  // Achado NOVO da revisão bloqueante: o post-filter antigo só pulava o
+  // predicado pra `isAdmin` — visitante SEM conta caía em
+  // passaFiltroParental(null, serie) e o throw do doc legado (content_rating
+  // genuinamente ausente) pegava ele também, 500 pra QUALQUER UM. O filtro
+  // query-side nunca lê content_rating/tags do documento — imune por
+  // desenho, sem depender do backfill ter rodado.
+  it('anônimo × episódio de série LEGADA (sem content_rating/tags no doc) → 200, episódio aparece (não lança)', async () => {
+    const termo = unico('BuscaEpDocLegado');
+    const serieLegada = await criarSerie(termo, {});
+    // insertOne CRU: bypassa o setter/default do Mongoose — reproduz um doc
+    // de verdade anterior à Task 1 (campo nunca gravado, não "null").
+    await Series.collection.updateOne(
+      { _id: serieLegada._id },
+      { $unset: { content_rating: '', tags: '' } },
+    );
+    const ep = await Episode.create({ seriesId: serieLegada._id, episode_number: 1, title: `${termo} Cap`, status: 'published' });
+
+    const res = await request(app).get(`/api/content/search?q=${termo}`);
+    expect(res.status).toBe(200);
+    expect(res.body.episodes.some(e => e._id === String(ep._id))).toBe(true);
   });
 });
 
@@ -590,5 +633,130 @@ describe('Writes de engajamento em obra invisível — 404 e nada gravado', () =
       .send({ seriesId: serie._id.toString(), amountCents: 500, currency: 'brl' });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ url: 'https://checkout.stripe.com/doc-writes7' });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 8) Backfill de campos parentais — doc LEGADO (content_rating/tags ausentes)
+// ═══════════════════════════════════════════════════════════════════════════
+// Achado raiz do fix round (revisão bloqueante): serieVisivelPara/
+// passaFiltroParental LANÇAM (fail-closed, ruling P4) quando o documento
+// genuinamente não tem content_rating/tags — e ISSO é o estado real de todo
+// o acervo pré-Bloco-2 (o campo nasceu sem $set na Task 1; tags idem pra
+// séries de antes da Fase 3/4). Sem o backfill, 500 pra todo usuário logado
+// não-admin/não-dono nas 4 superfícies de doc único (detalhe, episódios da
+// série, episódio, signed-url) e nos writes de engajamento. Backfill
+// idempotente no boot: services/parentalBackfill.js, ligado em server.js
+// dentro do `.then()` de mongoose.connect, gateando o app.listen.
+//
+// Os testes abaixo chamam `backfillCamposParental()` DIRETO — não dependem
+// do boot assíncrono de server.js (que, em NODE_ENV=test, nunca roda: fica
+// dentro de `if (require.main === module)`, ver server.js) — pra controlar
+// deterministicamente o "antes"/"depois" sem corrida com o require do módulo.
+describe('Backfill de campos parentais — doc legado', () => {
+  const { backfillCamposParental } = require('../../services/parentalBackfill');
+  const { serieVisivelPara } = require('../../utils/parentalFilter');
+
+  let cdnAnterior, tokenAnterior;
+  beforeAll(() => {
+    cdnAnterior = process.env.BUNNY_CDN_HOSTNAME;
+    tokenAnterior = process.env.BUNNY_TOKEN_KEY;
+    process.env.BUNNY_CDN_HOSTNAME = 'cdn-teste-backfill.b-cdn.net';
+    process.env.BUNNY_TOKEN_KEY = 'chave-teste-backfill';
+  });
+  afterAll(() => {
+    if (cdnAnterior !== undefined) process.env.BUNNY_CDN_HOSTNAME = cdnAnterior; else delete process.env.BUNNY_CDN_HOSTNAME;
+    if (tokenAnterior !== undefined) process.env.BUNNY_TOKEN_KEY = tokenAnterior; else delete process.env.BUNNY_TOKEN_KEY;
+  });
+
+  /** Cria a série via Series.create (defaults normais do Mongoose gravados
+   *  no banco) e então usa o driver CRU (Series.collection, bypassa
+   *  Mongoose inteiro — sem setter/default) pra $unset os campos, simulando
+   *  um doc de verdade anterior à Task 1 (campo NUNCA gravado — não "null").
+   *  `comTags:true` deixa `tags` (já `[]` do default) intocado — só
+   *  content_rating some, cobrindo o acervo entre Fase 3/4 e o Bloco 2. */
+  async function criarSerieLegadaCrua(tituloBase, { comTags = false } = {}) {
+    const serie = await criarSerie(tituloBase, {});
+    const unset = { content_rating: '' };
+    if (!comTags) unset.tags = '';
+    await Series.collection.updateOne({ _id: serie._id }, { $unset: unset });
+    return Series.findById(serie._id).lean();
+  }
+
+  it('ANTES do backfill: serieVisivelPara/passaFiltroParental LANÇAM com o doc legado (reproduz o 500)', async () => {
+    const serieCrua = await criarSerieLegadaCrua('BackfillAntes1');
+    expect(serieCrua.content_rating).toBeUndefined();
+    expect(serieCrua.tags).toBeUndefined();
+    await expect(serieVisivelPara({ id: kids.id, role: 'user' }, serieCrua)).rejects.toThrow();
+  });
+
+  it('ANTES do backfill: a rota de detalhe reproduz o 500 pra usuário logado não-admin/não-dono', async () => {
+    const serieCrua = await criarSerieLegadaCrua('BackfillAntes2');
+    const res = await authed(request(app).get(`/api/content/series/${serieCrua._id}`), kids);
+    expect(res.status).toBe(500);
+  });
+
+  it('doc com tags PRESENTES mas content_rating AUSENTE (acervo Fase 3/4) também lança antes do backfill', async () => {
+    const serieCrua = await criarSerieLegadaCrua('BackfillAntes3', { comTags: true });
+    expect(serieCrua.tags).toEqual([]); // sobreviveu ao $unset seletivo — fixture confirmado
+    expect(serieCrua.content_rating).toBeUndefined();
+    await expect(serieVisivelPara({ id: kids.id, role: 'user' }, serieCrua)).rejects.toThrow();
+  });
+
+  it('backfillCamposParental() é idempotente: 2ª chamada em sequência devolve 0 modificados', async () => {
+    await criarSerieLegadaCrua('BackfillIdempotente1');
+    const primeira = await backfillCamposParental();
+    expect(primeira.contentRatingAtualizados).toBeGreaterThan(0);
+    expect(primeira.tagsAtualizados).toBeGreaterThan(0);
+
+    const segunda = await backfillCamposParental();
+    expect(segunda).toEqual({ contentRatingAtualizados: 0, tagsAtualizados: 0 });
+  });
+
+  it('DEPOIS do backfill: young → 200 em detalhe/episódios/episódio/signed-url/favoritar e o episódio aparece na busca; kids → 404/[] (ausente virou null = young); anônimo → 200 em tudo incl. busca; admin → 200', async () => {
+    const termo = unico('BackfillDepois');
+    const serieCrua = await criarSerieLegadaCrua(termo);
+    const ep = await criarEpisodioPublicado(serieCrua._id, { title: `${termo} Cap`, bunnyVideoId: unico('bunny-backfill') });
+
+    await backfillCamposParental();
+
+    const young = await criarPerfil({ classificacaoEtaria: 'young' });
+
+    const detalheYoung = await authed(request(app).get(`/api/content/series/${serieCrua._id}`), young);
+    expect(detalheYoung.status).toBe(200);
+
+    const episodiosYoung = await authed(request(app).get(`/api/content/series/${serieCrua._id}/episodes`), young);
+    expect(episodiosYoung.status).toBe(200);
+    expect(episodiosYoung.body.map(e => e._id)).toContain(String(ep._id));
+
+    const epDetYoung = await authed(request(app).get(`/api/content/episodes/${ep._id}`), young);
+    expect(epDetYoung.status).toBe(200);
+
+    const signedYoung = await authed(request(app).get(`/api/bunny/signed-url?videoId=${ep.bunnyVideoId}`), young);
+    expect(signedYoung.status).toBe(200);
+
+    const favYoung = await authed(request(app).post(`/api/favorites/${serieCrua._id}`), young);
+    expect(favYoung.status).toBe(200);
+
+    const buscaYoung = await request(app).get(`/api/content/search?q=${encodeURIComponent(termo)}`);
+    expect(buscaYoung.status).toBe(200);
+    expect(buscaYoung.body.episodes.some(e => e._id === String(ep._id))).toBe(true);
+
+    // kids: content_rating agora é `null` (semântica positiva = "young", não
+    // classificada) — kids só vê 'kids', então segue invisível.
+    const detalheKids = await authed(request(app).get(`/api/content/series/${serieCrua._id}`), kids);
+    expect(detalheKids.status).toBe(404);
+    const episodiosKids = await authed(request(app).get(`/api/content/series/${serieCrua._id}/episodes`), kids);
+    expect(episodiosKids.body).toEqual([]);
+
+    // anônimo: 200 em tudo, incluindo a busca.
+    const detalheAnon = await request(app).get(`/api/content/series/${serieCrua._id}`);
+    expect(detalheAnon.status).toBe(200);
+    const signedAnon = await request(app).get(`/api/bunny/signed-url?videoId=${ep.bunnyVideoId}`);
+    expect(signedAnon.status).toBe(200);
+
+    // admin: 200.
+    const detalheAdmin = await authed(request(app).get(`/api/content/series/${serieCrua._id}`), adminRestritivo);
+    expect(detalheAdmin.status).toBe(200);
   });
 });
