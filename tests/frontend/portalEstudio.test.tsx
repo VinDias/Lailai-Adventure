@@ -131,6 +131,21 @@ describe('PortalEstudio — aba Números', () => {
     await waitFor(() => expect(api.getPortalResumo).toHaveBeenCalledWith('2026-08'));
     await waitFor(() => expect(screen.getByText('R$250,50')).toBeInTheDocument());
   });
+
+  it('erro ao carregar NÃO trava num spinner eterno — mostra mensagem + botão "Tentar de novo" que recupera (BAIXO 4)', async () => {
+    vi.mocked(api.getPortalResumo).mockRejectedValueOnce(new Error('Falha de rede ao buscar o resumo.'));
+    render(<PortalEstudio onClose={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText('Falha de rede ao buscar o resumo.')).toBeInTheDocument());
+    const retryButton = screen.getByRole('button', { name: 'Tentar de novo' });
+
+    vi.mocked(api.getPortalResumo).mockResolvedValue(resumoAberto as any);
+    fireEvent.click(retryButton);
+
+    const poolSection = await screen.findByTestId('portal-pool-section');
+    expect(within(poolSection).getByText('Canal Um')).toBeInTheDocument();
+    expect(screen.queryByText('Falha de rede ao buscar o resumo.')).not.toBeInTheDocument();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -252,6 +267,82 @@ describe('PortalEstudio — aba Obras', () => {
       { image_url: 'https://cdn/p2.jpg', order: 2 },
     ]));
   });
+
+  it('MEDIO 1a — editar obra: trocar a capa pina PUT com cover_image (mostra a capa atual quando houver)', async () => {
+    // Só draft tem o botão Editar — usa uma variante da série-draft com capa.
+    const serieComCapa = { ...serieDraft, cover_image: 'https://cdn/capa-atual.jpg' };
+    vi.mocked(api.getPortalSeries).mockResolvedValue({ series: [serieComCapa] } as any);
+    vi.mocked(api.uploadPortalImage).mockResolvedValue('https://cdn/capa-editada.jpg');
+    vi.mocked(api.updatePortalSeries).mockResolvedValue({ ...serieComCapa, cover_image: 'https://cdn/capa-editada.jpg' } as any);
+
+    await abrirObras();
+    await waitFor(() => screen.getByText('Obra Rascunho'));
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+
+    // Capa atual visível no modal.
+    expect(screen.getByTestId('portal-edit-cover-preview')).toHaveAttribute('src', 'https://cdn/capa-atual.jpg');
+
+    const file = new File(['capa'], 'nova.jpg', { type: 'image/jpeg' });
+    fireEvent.change(screen.getByTestId('portal-edit-cover-input'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(api.uploadPortalImage).toHaveBeenCalledWith(file, 's-draft'));
+    await waitFor(() => expect(api.updatePortalSeries).toHaveBeenCalledWith('s-draft', expect.objectContaining({ cover_image: 'https://cdn/capa-editada.jpg' })));
+  });
+
+  it('MEDIO 1b — create OK mas upload da capa falha: fecha o modal de criação, NÃO chama createPortalSeries de novo, avisa pra completar em Editar', async () => {
+    vi.mocked(api.createPortalSeries).mockResolvedValue({ ...serieDraft, _id: 's-nova' } as any);
+    vi.mocked(api.uploadPortalImage).mockRejectedValue(new Error('Erro ao fazer upload: 502'));
+
+    await abrirObras();
+    fireEvent.click(screen.getByText('Nova obra'));
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Obra Sem Capa' } });
+    const file = new File(['capa'], 'capa.jpg', { type: 'image/jpeg' });
+    fireEvent.change(screen.getByTestId('portal-cover-input'), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Criar' }));
+
+    // A série já foi criada (POST teve sucesso) — o modal fecha na hora,
+    // mesmo com o upload ainda em andamento/falhando em seguida.
+    await waitFor(() => expect(screen.queryByTestId('portal-cover-input')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/adicione a capa em editar/i)).toBeInTheDocument());
+
+    // Nenhum reenvio do formulário aconteceu — createPortalSeries só rodou 1x.
+    expect(api.createPortalSeries).toHaveBeenCalledTimes(1);
+  });
+
+  it('BAIXO 3 — upload em lote parcial: NÃO fecha como sucesso, avisa "X/Y" e mantém o modal aberto com os que falharam prontos pra nova tentativa', async () => {
+    vi.mocked(api.getPortalSeries).mockResolvedValue({ series: [serieDraft] } as any);
+    const epCriado = { _id: 'ep-1', title: 'Cap 1', episode_number: 1, status: 'draft', submittedAt: null, panels: [] };
+    vi.mocked(api.getEpisodesBySeries).mockResolvedValue([epCriado] as any);
+    vi.mocked(api.uploadPortalImagesBatch).mockResolvedValue({
+      results: [
+        { success: true, filename: 'p1.jpg', index: 0, url: 'https://cdn/p1.jpg' },
+        { success: false, filename: 'p2.jpg', index: 1, error: 'Erro no Bunny Storage.' },
+      ],
+      successCount: 1, failCount: 1, total: 2,
+    } as any);
+    vi.mocked(api.addPortalPaineis).mockResolvedValue({
+      success: true, panelCount: 1,
+      episode: { ...epCriado, panels: [{ image_url: 'https://cdn/p1.jpg', order: 1 }] },
+    } as any);
+
+    await abrirObras();
+    await waitFor(() => screen.getByText('Obra Rascunho'));
+    fireEvent.click(screen.getByText('Obra Rascunho'));
+    await waitFor(() => expect(api.getEpisodesBySeries).toHaveBeenCalledWith('s-draft'));
+
+    fireEvent.click(screen.getByText('Gerenciar painéis'));
+    const files = [new File(['a'], 'p1.jpg', { type: 'image/jpeg' }), new File(['b'], 'p2.jpg', { type: 'image/jpeg' })];
+    fireEvent.change(screen.getByTestId('portal-panels-input'), { target: { files } });
+    fireEvent.click(screen.getByText('Adicionar painéis'));
+
+    // Só o painel bem-sucedido é gravado.
+    await waitFor(() => expect(api.addPortalPaineis).toHaveBeenCalledWith('ep-1', [{ image_url: 'https://cdn/p1.jpg', order: 1 }]));
+    // Aviso "1/2 ..." — sucesso parcial nunca vira sucesso silencioso.
+    await waitFor(() => expect(screen.getByText(/1\/2/)).toBeInTheDocument());
+    // Modal continua aberto pra tentar de novo.
+    expect(screen.getByTestId('portal-panels-input')).toBeInTheDocument();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -286,7 +377,7 @@ describe('PortalEstudio — aba Mensagens', () => {
     expect(bolhaIlustrador?.getAttribute('data-autor')).toBe('ilustrador');
   });
 
-  it('mensagem de devolução com refTipo/refId mostra "Sobre: <título>" resolvido pela lista de obras', async () => {
+  it('mensagem de devolução com refTipo "series" mostra "Sobre: <título>" — resolvido mesmo SEM visitar Obras antes (BAIXO 5a: seriesList carrega no mount)', async () => {
     vi.mocked(api.getPortalSeries).mockResolvedValue({ series: [serieDraft] } as any);
     vi.mocked(api.getPortalMensagens).mockResolvedValue({
       canalId: 'c1',
@@ -294,13 +385,24 @@ describe('PortalEstudio — aba Mensagens', () => {
         { _id: 'm1', autorTipo: 'editor', texto: 'Falta a capa', refTipo: 'series', refId: 's-draft', lidaEm: null, createdAt: '2026-09-01T00:00:00.000Z' },
       ],
     } as any);
-    render(<PortalEstudio onClose={vi.fn()} />);
-    // Obras precisa ter carregado a lista (usada para resolver o título da ref) — visita a aba antes.
-    fireEvent.click(await screen.findByText('Obras'));
-    await waitFor(() => expect(api.getPortalSeries).toHaveBeenCalled());
-    fireEvent.click(screen.getByText('Mensagens'));
+    // Vai direto pra Mensagens — NUNCA clica em Obras nesta sessão.
+    await abrirMensagens();
     await waitFor(() => expect(screen.getByText('Falta a capa')).toBeInTheDocument());
     expect(screen.getByText(/Sobre.*Obra Rascunho/)).toBeInTheDocument();
+  });
+
+  it('mensagem de devolução com refTipo "episode" mostra rótulo genérico "um capítulo" (sem rota nova pra buscar o capítulo — BAIXO 5b)', async () => {
+    vi.mocked(api.getPortalMensagens).mockResolvedValue({
+      canalId: 'c1',
+      mensagens: [
+        { _id: 'm1', autorTipo: 'editor', texto: 'Ajuste o painel 2', refTipo: 'episode', refId: 'ep-x', lidaEm: null, createdAt: '2026-09-01T00:00:00.000Z' },
+      ],
+    } as any);
+    await abrirMensagens();
+    await waitFor(() => expect(screen.getByText('Ajuste o painel 2')).toBeInTheDocument());
+    expect(screen.getByText(/Sobre.*um capítulo/)).toBeInTheDocument();
+    // Nenhuma chamada extra pra "resolver" o capítulo — o rótulo é estático.
+    expect(api.getEpisodesBySeries).not.toHaveBeenCalled();
   });
 
   it('enviar mensagem chama sendPortalMensagem e limpa o campo', async () => {
@@ -313,5 +415,68 @@ describe('PortalEstudio — aba Mensagens', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
     await waitFor(() => expect(api.sendPortalMensagem).toHaveBeenCalledWith({ texto: 'Oi editor' }));
     await waitFor(() => expect(input.value).toBe(''));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MEDIO 2 — Multi-canal: seletor de canal
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('PortalEstudio — multi-canal (MEDIO 2)', () => {
+  const canalDois = { channelId: 'c2', name: 'Canal Dois', avatar: null, obras: 0, pendentes: 0, mensagensNaoLidas: 0 };
+
+  it('com 1 canal só: seletor de canal NÃO aparece', async () => {
+    render(<PortalEstudio onClose={vi.fn()} />);
+    await screen.findByText('Números');
+    expect(screen.queryByLabelText('Canal')).not.toBeInTheDocument();
+  });
+
+  it('com 2 canais: seletor aparece; trocar o canal muda o channelId no POST de série e o canalId no GET/POST de mensagens', async () => {
+    vi.mocked(api.getMeuEstudio).mockResolvedValue({ canais: [canalUnico, canalDois] } as any);
+    vi.mocked(api.createPortalSeries).mockResolvedValue({ ...serieDraft, _id: 's-nova', channelId: 'c2' } as any);
+    vi.mocked(api.sendPortalMensagem).mockResolvedValue({
+      _id: 'm-nova', autorTipo: 'ilustrador', texto: 'Oi', refTipo: null, refId: null, lidaEm: null, createdAt: '2026-09-03T00:00:00.000Z',
+    } as any);
+
+    render(<PortalEstudio onClose={vi.fn()} />);
+    const select = (await screen.findByLabelText('Canal')) as HTMLSelectElement;
+    // Default é o primeiro canal (canalUnico) — troca pro segundo.
+    expect(select.value).toBe('c1');
+    fireEvent.change(select, { target: { value: 'c2' } });
+    expect(select.value).toBe('c2');
+
+    // Criar obra usa o canal selecionado.
+    fireEvent.click(screen.getByText('Obras'));
+    await waitFor(() => expect(api.getPortalSeries).toHaveBeenCalled());
+    fireEvent.click(screen.getByText('Nova obra'));
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Obra Canal 2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Criar' }));
+    await waitFor(() => expect(api.createPortalSeries).toHaveBeenCalledWith(expect.objectContaining({ channelId: 'c2' })));
+
+    // Mensagens usa o mesmo canal selecionado, tanto pra ler quanto pra enviar.
+    fireEvent.click(screen.getByText('Mensagens'));
+    await waitFor(() => expect(api.getPortalMensagens).toHaveBeenCalledWith({ canalId: 'c2' }));
+
+    fireEvent.change(screen.getByPlaceholderText('Escreva sua mensagem...'), { target: { value: 'Oi' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }));
+    await waitFor(() => expect(api.sendPortalMensagem).toHaveBeenCalledWith({ texto: 'Oi', canalId: 'c2' }));
+  });
+
+  it('lista de Obras com >1 canal indica o canal de cada card', async () => {
+    vi.mocked(api.getMeuEstudio).mockResolvedValue({ canais: [canalUnico, canalDois] } as any);
+    vi.mocked(api.getPortalSeries).mockResolvedValue({
+      series: [serieDraft, { ...seriePublicada, _id: 's-c2', channelId: 'c2' }],
+    } as any);
+
+    render(<PortalEstudio onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByText('Obras'));
+    await waitFor(() => screen.getByText('Obra Rascunho'));
+
+    // Escopado ao card (não ao <option> do seletor de canal, que também tem
+    // o mesmo texto — "Canal Um"/"Canal Dois" aparecem duas vezes na tela).
+    const cardUm = screen.getByTestId('portal-obra-card-s-draft');
+    const cardDois = screen.getByTestId('portal-obra-card-s-c2');
+    expect(within(cardUm).getByText('Canal Um')).toBeInTheDocument();
+    expect(within(cardDois).getByText('Canal Dois')).toBeInTheDocument();
   });
 });

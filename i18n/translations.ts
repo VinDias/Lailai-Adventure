@@ -159,6 +159,7 @@ const pt = {
   'portal.tabNumbers': 'Números',
   'portal.tabWorks': 'Obras',
   'portal.tabMessages': 'Mensagens',
+  'portal.channelLabel': 'Canal',
   'portal.numbers.currentMonth': 'Mês atual',
   'portal.numbers.validViews': 'Views válidas',
   'portal.numbers.share': 'Sua fatia',
@@ -211,6 +212,11 @@ const pt = {
   'portal.locked.comingSoon': 'Em breve',
   'portal.errors.sessionLost': 'Você não é mais dono deste canal. Voltando para a Conta.',
   'portal.errors.generic': 'Não foi possível completar a ação. Tente novamente.',
+  'portal.works.createdWithoutCover': 'Obra criada, mas a capa não foi enviada. Adicione a capa em Editar.',
+  'portal.works.panelsPartialLabel': 'painéis enviados. Os que falharam não foram gravados — tente novamente.',
+  'portal.numbers.loadError': 'Não foi possível carregar seus números agora.',
+  'portal.numbers.retry': 'Tentar de novo',
+  'portal.messages.genericChapter': 'um capítulo',
 };
 
 const en: Record<keyof typeof pt, string> = {
@@ -352,6 +358,7 @@ const en: Record<keyof typeof pt, string> = {
   'portal.tabNumbers': 'Numbers',
   'portal.tabWorks': 'Works',
   'portal.tabMessages': 'Messages',
+  'portal.channelLabel': 'Channel',
   'portal.numbers.currentMonth': 'Current month',
   'portal.numbers.validViews': 'Valid views',
   'portal.numbers.share': 'Your share',
@@ -404,6 +411,11 @@ const en: Record<keyof typeof pt, string> = {
   'portal.locked.comingSoon': 'Coming soon',
   'portal.errors.sessionLost': "You're no longer the owner of this channel. Going back to Account.",
   'portal.errors.generic': "Couldn't complete the action. Please try again.",
+  'portal.works.createdWithoutCover': "Work created, but the cover wasn't uploaded. Add the cover in Edit.",
+  'portal.works.panelsPartialLabel': "panels uploaded. The ones that failed weren't saved — please try again.",
+  'portal.numbers.loadError': "Couldn't load your numbers right now.",
+  'portal.numbers.retry': 'Try again',
+  'portal.messages.genericChapter': 'a chapter',
 };
 
 const es: Record<keyof typeof pt, string> = {
@@ -545,6 +557,7 @@ const es: Record<keyof typeof pt, string> = {
   'portal.tabNumbers': 'Números',
   'portal.tabWorks': 'Obras',
   'portal.tabMessages': 'Mensajes',
+  'portal.channelLabel': 'Canal',
   'portal.numbers.currentMonth': 'Mes actual',
   'portal.numbers.validViews': 'Vistas válidas',
   'portal.numbers.share': 'Tu parte',
@@ -597,6 +610,11 @@ const es: Record<keyof typeof pt, string> = {
   'portal.locked.comingSoon': 'Próximamente',
   'portal.errors.sessionLost': 'Ya no eres el dueño de este canal. Volviendo a la Cuenta.',
   'portal.errors.generic': 'No fue posible completar la acción. Inténtalo de nuevo.',
+  'portal.works.createdWithoutCover': 'Obra creada, pero la portada no se subió. Agrega la portada en Editar.',
+  'portal.works.panelsPartialLabel': 'paneles enviados. Los que fallaron no se guardaron — inténtalo de nuevo.',
+  'portal.numbers.loadError': 'No fue posible cargar tus números ahora.',
+  'portal.numbers.retry': 'Intentar de nuevo',
+  'portal.messages.genericChapter': 'un capítulo',
 };
 
 const zh: Record<keyof typeof pt, string> = {
@@ -738,10 +756,11 @@ const zh: Record<keyof typeof pt, string> = {
   'portal.tabNumbers': '数据',
   'portal.tabWorks': '作品',
   'portal.tabMessages': '消息',
+  'portal.channelLabel': '频道',
   'portal.numbers.currentMonth': '本月',
   'portal.numbers.validViews': '有效观看',
   'portal.numbers.share': '你的份额',
-  'portal.numbers.currentMonthHint': '本月结算前，人民币金额不会显示。',
+  'portal.numbers.currentMonthHint': '本月结算前，R$ 金额不会显示。',
   'portal.numbers.periodSelectLabel': '查看周期',
   'portal.numbers.amount': '金额',
   'portal.numbers.noClosedPeriods': '你还没有已结算的周期数据。',
@@ -790,6 +809,11 @@ const zh: Record<keyof typeof pt, string> = {
   'portal.locked.comingSoon': '即将上线',
   'portal.errors.sessionLost': '你已不是该频道的所有者，正在返回账户页。',
   'portal.errors.generic': '无法完成该操作，请重试。',
+  'portal.works.createdWithoutCover': '作品已创建，但封面未上传成功。请在"编辑"中添加封面。',
+  'portal.works.panelsPartialLabel': '张画格已上传。失败的画格未被保存 — 请重试。',
+  'portal.numbers.loadError': '暂时无法加载你的数据。',
+  'portal.numbers.retry': '重试',
+  'portal.messages.genericChapter': '一个章节',
 };
 
 export type Lang = 'pt' | 'en' | 'es' | 'zh';

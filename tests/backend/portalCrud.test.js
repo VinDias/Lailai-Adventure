@@ -903,6 +903,12 @@ describe('GET /api/portal/series', () => {
       content_rating_sugerida: 'kids',
     });
     expect(item.channelId).toBe(String(donoA.canal._id));
+    // Negativo (trava regressão do .select() da rota): translations/tags NÃO
+    // fazem parte do shape de listagem — são detalhe do Master/da tradução
+    // automática, sem uso na aba Obras do portal. Se um dia alguém trocar o
+    // .select() por um findWithoutSelect, este teste acusa o vazamento.
+    expect(item.translations).toBeUndefined();
+    expect(item.tags).toBeUndefined();
   });
 
   it('sem série alguma → { series: [] }', async () => {

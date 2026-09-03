@@ -71,17 +71,30 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [periodoSelecionado, setPeriodoSelecionado] = useState('');
   const [resumo, setResumo] = useState<any>(null);
   const [resumoLoading, setResumoLoading] = useState(false);
+  const [resumoError, setResumoError] = useState<string | null>(null);
+  // Incrementado pelo botão "Tentar de novo" (BAIXO 4) — só existe pra forçar
+  // o efeito abaixo a rodar de novo sem duplicar a lógica de fetch.
+  const [resumoRetryTick, setResumoRetryTick] = useState(0);
 
   useEffect(() => {
     if (aba !== 'numeros' || loadingInicial || sessionLost) return;
     let cancelado = false;
     setResumoLoading(true);
+    setResumoError(null);
     api.getPortalResumo(periodoSelecionado || undefined)
       .then(r => { if (!cancelado) setResumo(r); })
-      .catch(() => { if (!cancelado) setResumo(null); })
+      .catch((err: any) => {
+        if (cancelado) return;
+        // Erro de verdade: NÃO trava num spinner eterno (bug do BAIXO 4) —
+        // limpa o resumo antigo (evita mostrar número desatualizado como se
+        // fosse o atual) e liga o estado de erro, que renderiza a mensagem +
+        // botão de tentar de novo.
+        setResumo(null);
+        setResumoError(err?.message || t('portal.numbers.loadError'));
+      })
       .finally(() => { if (!cancelado) setResumoLoading(false); });
     return () => { cancelado = true; };
-  }, [aba, periodoSelecionado, loadingInicial, sessionLost]);
+  }, [aba, periodoSelecionado, loadingInicial, sessionLost, resumoRetryTick, t]);
 
   // ─── Aba Obras ──────────────────────────────────────────────────────────
   const [seriesList, setSeriesList] = useState<any[]>([]);
@@ -101,9 +114,13 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     }
   }, []);
 
+  // Carregada no MOUNT da tela (não só ao abrir a aba Obras — BAIXO 5): a
+  // aba Mensagens precisa da lista pronta pra resolver o título de uma
+  // devolução (refTipo 'series') mesmo que o ilustrador nunca tenha
+  // visitado Obras nesta sessão.
   useEffect(() => {
-    if (aba === 'obras' && !loadingInicial && !sessionLost) carregarSeries();
-  }, [aba, loadingInicial, sessionLost, carregarSeries]);
+    if (!loadingInicial && !sessionLost) carregarSeries();
+  }, [loadingInicial, sessionLost, carregarSeries]);
 
   // Criar obra
   const [showCreateObra, setShowCreateObra] = useState(false);
@@ -127,22 +144,37 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     if (!obraTitle.trim()) return;
     setCreatingObra(true);
     setCreateObraError(null);
+
+    // MEDIO 1b: a criação em si (POST) e o upload/PUT da capa são dois
+    // try/catch SEPARADOS de propósito. Se o POST falhar, nada foi criado —
+    // o modal continua aberto com o erro, seguro pra tentar de novo (era o
+    // comportamento original). Mas se o POST tiver sucesso e SÓ o upload da
+    // capa falhar depois, a série JÁ EXISTE no banco: deixar o modal aberto
+    // reaproveitando o mesmo botão "Criar" faria um segundo POST e duplicaria
+    // a obra. Por isso o modal fecha assim que o POST confirma, e uma falha
+    // de capa vira um aviso orientando a completar em Editar — nunca mais
+    // uma chamada a createPortalSeries pro mesmo clique.
+    let created: any;
     try {
       const payload: any = { title: obraTitle, description: obraDescription, content_rating_sugerida: obraRating || null };
       if (canalIdParaEnvio) payload.channelId = canalIdParaEnvio;
-      // Fluxo capa (spec "Formulários do portal"): cria draft SEM capa
-      // primeiro (precisamos do _id real pra derivar o slug do upload) →
-      // sobe a capa via upload-image (seriesId real) → PUT com a URL.
-      const created = await api.createPortalSeries(payload);
+      created = await api.createPortalSeries(payload);
+    } catch (err: any) {
+      setCreateObraError(err?.message || t('portal.errors.generic'));
+      setCreatingObra(false);
+      return;
+    }
+
+    setShowCreateObra(false);
+    try {
       if (obraCoverFile) {
         const url = await api.uploadPortalImage(obraCoverFile, created._id);
         await api.updatePortalSeries(created._id, { cover_image: url });
       }
-      await carregarSeries();
-      setShowCreateObra(false);
-    } catch (err: any) {
-      setCreateObraError(err?.message || t('portal.errors.generic'));
+    } catch {
+      setEnvioErro(t('portal.works.createdWithoutCover'));
     } finally {
+      await carregarSeries();
       setCreatingObra(false);
     }
   };
@@ -152,6 +184,10 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editRating, setEditRating] = useState<'' | 'kids' | 'teen' | 'young'>('');
+  // MEDIO 1a: a edição agora também aceita trocar a capa — é o caminho de
+  // saída pra uma obra que nasceu sem capa (create-ok-upload-falhou, MEDIO
+  // 1b) ou pra quem simplesmente quer trocar a imagem antes de enviar.
+  const [editCoverFile, setEditCoverFile] = useState<File | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -161,6 +197,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     setEditTitle(s.title || '');
     setEditDescription(s.description || '');
     setEditRating(s.content_rating_sugerida || '');
+    setEditCoverFile(null);
     setEditError(null);
     setEditingObra(s);
   };
@@ -171,9 +208,16 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     setSavingEdit(true);
     setEditError(null);
     try {
-      await api.updatePortalSeries(editingObra._id, {
-        title: editTitle, description: editDescription, content_rating_sugerida: editRating || null,
-      });
+      // Sobe a capa nova (se houver) ANTES do PUT, pra mandar title/
+      // description/rating/cover_image num único PUT — cover_image já está
+      // em PORTAL_SERIES_FIELDS no backend (routes/portal.js), nada novo lá.
+      let coverUrl: string | undefined;
+      if (editCoverFile) {
+        coverUrl = await api.uploadPortalImage(editCoverFile, editingObra._id);
+      }
+      const payload: any = { title: editTitle, description: editDescription, content_rating_sugerida: editRating || null };
+      if (coverUrl) payload.cover_image = coverUrl;
+      await api.updatePortalSeries(editingObra._id, payload);
       await carregarSeries();
       setEditingObra(null);
     } catch (err: any) {
@@ -302,9 +346,27 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
       const successUrls = result.results.filter(r => r.success && r.url).map(r => r.url as string);
       const existingCount = panelsModalFor.episode.panels?.length ?? 0;
       const panels = successUrls.map((url, i) => ({ image_url: url, order: existingCount + i + 1 }));
-      const resp = await api.addPortalPaineis(panelsModalFor.episode._id, panels);
-      setEpisodesOfSelected(prev => prev.map(ep => (ep._id === panelsModalFor.episode._id ? resp.episode : ep)));
-      setPanelsModalFor(null);
+
+      let episodeAtualizado = panelsModalFor.episode;
+      if (panels.length > 0) {
+        const resp = await api.addPortalPaineis(panelsModalFor.episode._id, panels);
+        episodeAtualizado = resp.episode;
+        setEpisodesOfSelected(prev => prev.map(ep => (ep._id === panelsModalFor.episode._id ? episodeAtualizado : ep)));
+      }
+
+      if (result.failCount > 0) {
+        // BAIXO 3 — sucesso PARCIAL não fecha como se fosse sucesso total: os
+        // que falharam nunca foram gravados no episódio. Mantém o modal
+        // aberto, com aviso claro, e SÓ os arquivos que falharam continuam
+        // pendentes (prontos pra tentar de novo sem reabrir o seletor do SO —
+        // são os mesmos objetos File, ainda válidos em memória).
+        const falharam = pendingPanelFiles.filter((_, i) => !result.results[i]?.success);
+        setPendingPanelFiles(falharam);
+        setPanelsModalFor({ ...panelsModalFor, episode: episodeAtualizado });
+        setPanelsError(`${result.successCount}/${result.total} ${t('portal.works.panelsPartialLabel')}`);
+      } else {
+        setPanelsModalFor(null);
+      }
     } catch (err: any) {
       setPanelsError(err?.message || t('portal.errors.generic'));
     } finally {
@@ -332,10 +394,13 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     }
   }, [canalIdParaEnvio, t]);
 
+  // carregarMensagens muda de referência quando canalIdParaEnvio muda (deps
+  // do useCallback acima) — então trocar o canal no seletor multi-canal
+  // (MEDIO 2) refaz a busca automaticamente mesmo com a aba Mensagens já
+  // aberta, sem precisar de um efeito à parte.
   useEffect(() => {
     if (aba === 'mensagens' && !loadingInicial && !sessionLost) carregarMensagens();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aba, loadingInicial, sessionLost]);
+  }, [aba, loadingInicial, sessionLost, carregarMensagens]);
 
   const handleEnviarMensagem = async () => {
     const texto = novaMensagem.trim();
@@ -355,10 +420,19 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     }
   };
 
+  // refTipo 'series': resolve o título de verdade contra seriesList (agora
+  // carregada no mount — BAIXO 5a). refTipo 'episode': sem rota nova pra
+  // buscar o capítulo específico, mostra um rótulo genérico i18n — o texto
+  // da devolução escrito pelo editor já descreve do que se trata.
   const tituloDaRef = (m: any): string | null => {
-    if (m.refTipo !== 'series' || !m.refId) return null;
-    const serie = seriesList.find(s => s._id === m.refId);
-    return serie ? serie.title : null;
+    if (m.refTipo === 'series' && m.refId) {
+      const serie = seriesList.find(s => s._id === m.refId);
+      return serie ? serie.title : null;
+    }
+    if (m.refTipo === 'episode') {
+      return t('portal.messages.genericChapter');
+    }
+    return null;
   };
 
   // ─── Renderização ───────────────────────────────────────────────────────
@@ -411,6 +485,30 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
         ))}
       </nav>
 
+      {/* MEDIO 2: seletor de canal, só quando o usuário tem mais de um canal
+          ativo — com 1 canal só, nada muda (o backend já assume o único
+          canal quando channelId/canalId não é enviado). Afeta a criação de
+          obra (channelId no POST) e a thread de mensagens (canalId no GET/
+          POST) — a lista de Obras continua mostrando todos os canais, com o
+          nome do canal indicado por card (abaixo). */}
+      {multiCanal && (
+        <div className="flex items-center gap-3 px-8 mb-6">
+          <label htmlFor="portal-channel-select" className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+            {t('portal.channelLabel')}
+          </label>
+          <select
+            id="portal-channel-select"
+            value={canalSelecionadoId ?? ''}
+            onChange={e => setCanalSelecionadoId(e.target.value)}
+            className="bg-[rgba(128,128,128,0.1)] border border-[rgba(128,128,128,0.35)] rounded-2xl px-4 py-2 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+          >
+            {canais!.map(c => (
+              <option key={c.channelId} value={c.channelId}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {aba === 'numeros' && (
         <section className="px-8 space-y-6">
           <div className="flex items-center gap-3">
@@ -430,11 +528,21 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
             </select>
           </div>
 
-          {resumoLoading || !resumo ? (
+          {resumoLoading ? (
             <div className="flex items-center justify-center h-32">
               <div className="w-8 h-8 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" />
             </div>
-          ) : (
+          ) : resumoError ? (
+            <div className="text-center py-10 space-y-4">
+              <p className="text-rose-500 text-sm font-bold">{resumoError}</p>
+              <button
+                onClick={() => setResumoRetryTick(v => v + 1)}
+                className="px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+              >
+                {t('portal.numbers.retry')}
+              </button>
+            </div>
+          ) : !resumo ? null : (
             <>
               {resumo.status === 'aberto' && (
                 <p className="text-xs text-zinc-500">{t('portal.numbers.currentMonthHint')}</p>
@@ -513,13 +621,19 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                 const estado = estadoDoDocumento(s);
                 const estadoLabel = estado === 'publicada' ? t('portal.works.statusPublished') : estado === 'analise' ? t('portal.works.statusReview') : t('portal.works.statusDraft');
                 const badgeColor = estado === 'publicada' ? 'text-emerald-400' : estado === 'analise' ? 'text-amber-500' : 'text-zinc-400';
+                // MEDIO 2: com >1 canal, a lista mistura obras de todos —
+                // mostra de qual canal é cada uma (nome pequeno no card).
+                const canalDaObra = multiCanal ? canais!.find(c => c.channelId === String(s.channelId)) : null;
                 return (
-                  <div key={s._id} className="bg-white/5 border border-white/10 rounded-3xl p-5">
+                  <div key={s._id} data-testid={`portal-obra-card-${s._id}`} className="bg-white/5 border border-white/10 rounded-3xl p-5">
                     <div className="flex items-center gap-4 cursor-pointer" onClick={() => toggleSeries(s._id)}>
                       <ImageWithFallback src={s.cover_image} className="w-14 h-14 rounded-xl object-cover shrink-0" alt={s.title} />
                       <div className="flex-1 min-w-0">
                         <p className="font-black text-[var(--text-color)] truncate">{s.title}</p>
                         <span className={`text-[10px] font-black uppercase tracking-widest ${badgeColor}`}>{estadoLabel}</span>
+                        {canalDaObra && (
+                          <span className="block text-[10px] text-zinc-500 font-bold mt-0.5">{canalDaObra.name}</span>
+                        )}
                       </div>
                     </div>
 
@@ -743,6 +857,21 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                 <option value="teen">{t('portal.works.ratingTeen')}</option>
                 <option value="young">{t('portal.works.ratingYoung')}</option>
               </select>
+            </div>
+
+            <div>
+              <label htmlFor="portal-edit-cover-input" className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">{t('portal.works.coverField')}</label>
+              {editingObra.cover_image && (
+                <ImageWithFallback data-testid="portal-edit-cover-preview" src={editingObra.cover_image} className="w-20 h-20 rounded-xl object-cover mb-2" alt={editingObra.title} />
+              )}
+              <input
+                id="portal-edit-cover-input"
+                data-testid="portal-edit-cover-input"
+                type="file"
+                accept="image/*"
+                onChange={e => setEditCoverFile(e.target.files?.[0] ?? null)}
+                className="w-full text-xs text-zinc-400"
+              />
             </div>
 
             {editError && <p className="text-rose-500 text-sm font-bold">{editError}</p>}
