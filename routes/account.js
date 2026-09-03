@@ -78,6 +78,16 @@ router.get('/me/export', verifyToken, async (req, res) => {
     const user = await User.findById(req.user.id).select('-passwordHash').lean();
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
+    // parental.pinHash tem select:false — a query acima já vem SEM ele, então
+    // não há como derivar `temPin` do `user` já carregado. Uma 2ª query,
+    // enxuta (só `_id` + `parental.pinHash`, confirmado: projeção de
+    // inclusão de um path aninhado override o select:false sem precisar do
+    // prefixo "+" e sem trazer o resto do documento), busca só o suficiente
+    // para o booleano — o hash em si é descartado logo em seguida e NUNCA
+    // entra no payload (só `temPin` deriva dele).
+    const parentalPin = await User.findById(req.user.id).select('parental.pinHash').lean();
+    const temPin = !!(parentalPin && parentalPin.parental && parentalPin.parental.pinHash);
+
     const [votes, seriesVotes, favorites, channels, readingProgress, pushSubscriptions, superReaderContributions, portalMessages] = await Promise.all([
       Vote.find({ userId: req.user.id }).lean(),
       SeriesVote.find({ userId: req.user.id }).lean(),
@@ -112,6 +122,16 @@ router.get('/me/export', verifyToken, async (req, res) => {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         consent: user.consent || null,
+        // Fase 5 Bloco 2 (LGPD): campo a campo, NUNCA por spread — o
+        // payload é allowlist (mesma regra das seções acima). pinHash
+        // jamais aparece aqui, nem como valor nem como presença de campo:
+        // só o booleano `temPin` (derivado acima, sem o hash chegar perto
+        // deste objeto).
+        parental: {
+          classificacaoEtaria: user.parental?.classificacaoEtaria ?? 'young',
+          tagsBloqueadas: user.parental?.tagsBloqueadas ?? [],
+          temPin,
+        },
       },
       votes: votes.map(v => ({ episodeId: v.episodeId, type: v.type, createdAt: v.createdAt })),
       seriesVotes: seriesVotes.map(v => ({ seriesId: v.seriesId, type: v.type, createdAt: v.createdAt })),

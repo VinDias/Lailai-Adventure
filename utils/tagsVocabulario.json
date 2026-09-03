@@ -1,0 +1,21 @@
+[
+  { "slug": "romance", "rotuloPt": "Romance" },
+  { "slug": "drama", "rotuloPt": "Drama" },
+  { "slug": "comedia", "rotuloPt": "Comédia" },
+  { "slug": "acao", "rotuloPt": "Ação" },
+  { "slug": "aventura", "rotuloPt": "Aventura" },
+  { "slug": "fantasia", "rotuloPt": "Fantasia" },
+  { "slug": "dark-fantasy", "rotuloPt": "Dark Fantasy" },
+  { "slug": "ficcao-cientifica", "rotuloPt": "Ficção Científica" },
+  { "slug": "terror", "rotuloPt": "Terror" },
+  { "slug": "thriller", "rotuloPt": "Thriller" },
+  { "slug": "misterio", "rotuloPt": "Mistério" },
+  { "slug": "crime", "rotuloPt": "Crime" },
+  { "slug": "historico", "rotuloPt": "Histórico" },
+  { "slug": "sobrenatural", "rotuloPt": "Sobrenatural" },
+  { "slug": "super-herois", "rotuloPt": "Super-heróis" },
+  { "slug": "slice-of-life", "rotuloPt": "Slice of Life" },
+  { "slug": "high-school", "rotuloPt": "High School" },
+  { "slug": "psicologico", "rotuloPt": "Psicológico" },
+  { "slug": "lgbtqia+", "rotuloPt": "LGBTQIA+" }
+]

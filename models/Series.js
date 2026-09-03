@@ -51,6 +51,16 @@ const SeriesSchema = new mongoose.Schema({
   // Classificação sugerida pelo ilustrador no portal (Fase 5 Bloco 1) — vira
   // oficial (content_rating) só no Bloco 2.
   content_rating_sugerida: { type: String, enum: ['kids', 'teen', 'young'], default: null },
+  // Classificação etária OFICIAL (Fase 5 Bloco 2) — só o Master define, na
+  // aprovação da Fila (T6) ou no admin. NENHUMA rota escreve neste campo
+  // ainda nesta task (T1 só cria o campo); a exigência "aprovar → obrigatório"
+  // mora NA ROTA do aprovar, nunca no service compartilhado (applySeriesUpdate)
+  // — o PUT admin continua publicando sem rating (fail-safe do filtro T4/T5 +
+  // badge "não classificadas" cobrem o acervo). Semântica do filtro é
+  // POSITIVA (kids/teen/young): null OU campo ausente (acervo pré-B2) contam
+  // como "não classificada" e só aparecem para young — nunca precisou de
+  // migração de dado para o default null cobrir o acervo existente.
+  content_rating: { type: String, enum: ['kids', 'teen', 'young'], default: null },
   // Marcador de "Enviar para aprovação" do portal (Fase 5 Bloco 1): não-null
   // = aguardando revisão do Master; a Fila de Aprovação lista só séries com
   // este campo preenchido e ainda não publicadas.
