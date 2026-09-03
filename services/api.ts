@@ -139,7 +139,19 @@ class ApiService {
     URL.revokeObjectURL(url);
   }
 
-  private async request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
+  /**
+   * `retryAuthOn401` (Fase 5 Bloco 2, Task 7): por padrão, um 401 é tratado
+   * como "sessão expirada" — tenta renovar o accessToken e REPETE a mesma
+   * chamada. Isso é errado para rotas onde 401 é resultado de NEGÓCIO (PIN
+   * errado, senha errada) e não de sessão: o usuário está autenticado de
+   * verdade, o refresh teria sucesso, e a chamada original seria reenviada
+   * com o MESMO pin/senha errados — dobrando a contagem de tentativas no
+   * servidor (services/parentalPinService.js persiste pinTentativas por
+   * request). As rotas de PIN (updateParental/setParentalPin/recuperarPin)
+   * chamam com `false` por isso — um 401 delas vira erro direto, sem
+   * refresh nem replay.
+   */
+  private async request<T>(path: string, options: RequestInit = {}, retried = false, retryAuthOn401 = true): Promise<T> {
     const fullUrl = `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
 
     let response: Response;
@@ -168,13 +180,19 @@ class ApiService {
     }
 
     if (!response.ok) {
-      if (response.status === 401 && !retried) {
+      if (response.status === 401 && retryAuthOn401 && !retried) {
         const refreshed = await this.tryRefresh();
-        if (refreshed) return this.request<T>(path, options, true);
+        if (refreshed) return this.request<T>(path, options, true, retryAuthOn401);
         this.onAuthExpired?.();
       }
       const errBody = await response.json().catch(() => ({}));
-      throw new Error(errBody.error || `Erro ${response.status}`);
+      // `status` e o resto do corpo (ex.: tentativasRestantes do PIN) vão
+      // junto no Error — quem chama (ParentalSettings) precisa deles além
+      // da mensagem para decidir a UI (401 com contagem × 429 bloqueado).
+      const error: any = new Error(errBody.error || `Erro ${response.status}`);
+      error.status = response.status;
+      if (errBody.tentativasRestantes !== undefined) error.tentativasRestantes = errBody.tentativasRestantes;
+      throw error;
     }
 
     return await response.json();
@@ -972,6 +990,55 @@ class ApiService {
 
   async sendAdminMensagem(canalId: string, data: { texto: string; refTipo?: 'series' | 'episode'; refId?: string }) {
     return this.request<any>(`/admin/mensagens/${canalId}`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  // ─── Fase 5 Bloco 2, Task 7: "Classificação etária e Preferências de
+  // conteúdo" + PIN de proteção (Conta do leitor) ──────────────────────────
+  // Shapes reais de routes/parental.js. `vocabulario` do GET é a fonte ÚNICA
+  // dos slugs para os toggles do leitor (canal pinado pela spec — NUNCA o
+  // import direto de utils/tagsVocabulario.json aqui, esse é o canal dos
+  // chips do admin/portal).
+  async getParental() {
+    return this.request<{
+      classificacaoEtaria: 'kids' | 'teen' | 'young';
+      tagsBloqueadas: string[];
+      temPin: boolean;
+      vocabulario: { slug: string; rotuloPt: string }[];
+    }>('/parental');
+  }
+
+  // `pin` só é enviado quando temPin — e sempre como STRING (um PIN
+  // "001234" numérico perderia os zeros à esquerda e o backend recusa
+  // number com 401 "PIN obrigatório", ver ledger da T3, achado #5).
+  // `retryAuthOn401=false`: ver comentário de `request()` acima.
+  async updateParental(data: { classificacaoEtaria?: 'kids' | 'teen' | 'young'; tagsBloqueadas?: string[]; pin?: string }) {
+    return this.request<{ classificacaoEtaria: 'kids' | 'teen' | 'young'; tagsBloqueadas: string[]; temPin: boolean }>(
+      '/parental',
+      { method: 'PUT', body: JSON.stringify(data) },
+      false,
+      false,
+    );
+  }
+
+  // novoPin (definir/trocar) | pinAtual+novoPin (trocar) | pinAtual+remover (remover).
+  async setParentalPin(data: { novoPin?: string; pinAtual?: string; remover?: boolean }) {
+    return this.request<{ temPin: boolean }>('/parental/pin', { method: 'POST', body: JSON.stringify(data) }, false, false);
+  }
+
+  // Conta local exige `password` (mesma prova de identidade da exclusão de
+  // conta); conta social manda undefined — vira body `{}` (a rota não checa
+  // senha pra quem não tem uma, ver routes/parental.js).
+  async recuperarPin(password?: string) {
+    return this.request<{ message: string }>(
+      '/parental/pin/recuperar',
+      { method: 'POST', body: JSON.stringify(password ? { password } : {}) },
+      false,
+      false,
+    );
+  }
+
+  async confirmarRecuperacaoPin(token: string) {
+    return this.request<{ message: string }>('/parental/pin/recuperar/confirmar', { method: 'POST', body: JSON.stringify({ token }) });
   }
 }
 
