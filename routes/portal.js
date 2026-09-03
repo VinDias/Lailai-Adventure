@@ -352,6 +352,12 @@ router.post('/episodios/:id/paineis', requireCanalDoUsuario, async (req, res) =>
     if (achado.episode.status !== 'draft') {
       return res.status(403).json({ error: 'Só é possível adicionar painéis a um episódio em rascunho.' });
     }
+    // Submetido ainda tem status 'draft' — sem este check, o ilustrador
+    // anexaria o painel N+1 ENQUANTO o Master revisa, e ele iria ao ar sem
+    // revisão na aprovação. Devolvido (submittedAt limpo) volta a aceitar.
+    if (achado.episode.submittedAt) {
+      return res.status(403).json({ error: 'Episódio em análise não pode receber painéis. Aguarde a aprovação ou a devolução.' });
+    }
 
     const episode = await addPanels(req.params.id, req.body.panels);
     res.json({ success: true, panelCount: episode.panels.length, episode });

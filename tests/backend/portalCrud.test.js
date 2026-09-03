@@ -454,6 +454,47 @@ describe('POST /api/portal/episodios/:id/paineis', () => {
     expect(res.body.episode.panels[1].translationLayers[0].imageUrl).toBe('https://cdn.exemplo/p2-en.jpg');
   });
 
+  // Achado da revisão da T4: submetido ainda tem status 'draft' — sem o
+  // check de submittedAt, o ilustrador anexava o painel N+1 enquanto o
+  // Master revisa, e ele iria ao ar sem revisão na aprovação.
+  it('episódio SUBMETIDO não recebe painéis (403); devolvido volta a aceitar', async () => {
+    const dono = await criarDono('Paineis Submetido');
+    const { serie, episodeId } = await criarEpisodioDraft(dono);
+
+    await request(app)
+      .post(`/api/portal/episodios/${episodeId}/paineis`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ panels: [{ image_url: 'https://cdn.exemplo/base.jpg', order: 0 }] });
+    // Série precisa estar submetida para o episódio poder ser enviado
+    // (regra da T4: série 100% rascunho bloqueia envio avulso).
+    const Series = require('../../models/Series');
+    await Series.findByIdAndUpdate(serie.body._id, { $set: { submittedAt: new Date('2026-09-02T11:23:00Z') } });
+    const enviar = await request(app)
+      .post(`/api/portal/episodios/${episodeId}/enviar`)
+      .set('Authorization', `Bearer ${dono.token}`);
+    expect(enviar.status).toBe(200);
+
+    const bloqueado = await request(app)
+      .post(`/api/portal/episodios/${episodeId}/paineis`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ panels: [{ image_url: 'https://cdn.exemplo/n-mais-1.jpg', order: 1 }] });
+    expect(bloqueado.status).toBe(403);
+
+    const Episode = require('../../models/Episode');
+    let noBanco = await Episode.findById(episodeId).lean();
+    expect(noBanco.panels.length).toBe(1);
+
+    // Devolução (T7 limpa submittedAt) reabre a edição.
+    await Episode.findByIdAndUpdate(episodeId, { $set: { submittedAt: null } });
+    const reaberto = await request(app)
+      .post(`/api/portal/episodios/${episodeId}/paineis`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ panels: [{ image_url: 'https://cdn.exemplo/pos-devolucao.jpg', order: 1 }] });
+    expect(reaberto.status).toBe(200);
+    noBanco = await Episode.findById(episodeId).lean();
+    expect(noBanco.panels.length).toBe(2);
+  });
+
   it('array de painéis vazio → 400', async () => {
     const dono = await criarDono('Paineis Vazio');
     const { episodeId } = await criarEpisodioDraft(dono);
