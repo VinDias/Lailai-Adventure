@@ -346,7 +346,12 @@ router.post('/aprovacoes/episodes/:id/aprovar', verifyToken, requireAdmin, async
 // capítulo é aprovado/devolvido um a um pelo Master.
 router.post('/aprovacoes/:tipo/:id/devolver', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { tipo, id } = req.params;
+    const { id } = req.params;
+    // Normaliza a assimetria com as rotas de aprovar, que usam o plural na
+    // URL (.../aprovacoes/episodes/:id/aprovar): 'episodes' também é aceito
+    // aqui, mapeado para o singular ANTES do check contra REF_TIPOS e de
+    // qualquer gravação — refTipo salvo continua sempre 'episode'.
+    const tipo = req.params.tipo === 'episodes' ? 'episode' : req.params.tipo;
     if (!REF_TIPOS.includes(tipo)) {
       return res.status(404).json({ error: 'Tipo inválido — use "series" ou "episode".' });
     }

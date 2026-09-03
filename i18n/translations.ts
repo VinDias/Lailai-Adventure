@@ -67,6 +67,15 @@ const pt = {
   'feed.chapter': 'Capítulo',
   'feed.addToList': 'ADICIONAR À LISTA',
   'feed.inMyList': 'NA MINHA LISTA',
+
+  // Canal público (Fase 5 Bloco 1, Task 10) — via clique no nome do canal no modal de detalhe.
+  'channel.follow': 'Seguir',
+  'channel.following': 'Seguindo',
+  'channel.followers': 'seguidores',
+  'channel.works': 'Obras publicadas',
+  'channel.empty': 'Este canal ainda não publicou nenhuma obra.',
+  'channel.notFound': 'Canal não encontrado.',
+
   'continue.reading': 'Continuar',
   'continue.openError': 'Não foi possível abrir. Toque para tentar de novo.',
 
@@ -276,6 +285,15 @@ const en: Record<keyof typeof pt, string> = {
   'feed.chapter': 'Chapter',
   'feed.addToList': 'ADD TO LIST',
   'feed.inMyList': 'IN MY LIST',
+
+  // Public channel page (Phase 5 Block 1, Task 10) — via tap on the channel name in the detail modal.
+  'channel.follow': 'Follow',
+  'channel.following': 'Following',
+  'channel.followers': 'followers',
+  'channel.works': 'Published works',
+  'channel.empty': "This channel hasn't published any work yet.",
+  'channel.notFound': 'Channel not found.',
+
   'continue.reading': 'Continue',
   'continue.openError': "Couldn't open. Tap to try again.",
 
@@ -475,6 +493,15 @@ const es: Record<keyof typeof pt, string> = {
   'feed.chapter': 'Capítulo',
   'feed.addToList': 'AGREGAR A LA LISTA',
   'feed.inMyList': 'EN MI LISTA',
+
+  // Canal público (Fase 5 Bloque 1, Task 10) — al tocar el nombre del canal en el modal de detalle.
+  'channel.follow': 'Seguir',
+  'channel.following': 'Siguiendo',
+  'channel.followers': 'seguidores',
+  'channel.works': 'Obras publicadas',
+  'channel.empty': 'Este canal aún no ha publicado ninguna obra.',
+  'channel.notFound': 'Canal no encontrado.',
+
   'continue.reading': 'Continuar',
   'continue.openError': 'No se pudo abrir. Toca para intentar de nuevo.',
 
@@ -674,6 +701,15 @@ const zh: Record<keyof typeof pt, string> = {
   'feed.chapter': '章节',
   'feed.addToList': '加入列表',
   'feed.inMyList': '已在列表中',
+
+  // 公开频道页（第5阶段第1模块，任务10）— 点击详情弹窗中的频道名进入。
+  'channel.follow': '关注',
+  'channel.following': '已关注',
+  'channel.followers': '关注者',
+  'channel.works': '已发布作品',
+  'channel.empty': '该频道还没有发布任何作品。',
+  'channel.notFound': '未找到该频道。',
+
   'continue.reading': '继续观看',
   'continue.openError': '无法打开，点击重试。',
 

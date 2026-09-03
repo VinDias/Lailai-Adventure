@@ -368,6 +368,7 @@ const App: React.FC = () => {
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
             onOpenAgenda={() => setAgendaOpen(true)}
+            onOpenSeriesElsewhere={handleSearchSelect}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -396,6 +397,7 @@ const App: React.FC = () => {
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
             onOpenAgenda={() => setAgendaOpen(true)}
+            onOpenSeriesElsewhere={handleSearchSelect}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -424,6 +426,7 @@ const App: React.FC = () => {
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
             onOpenAgenda={() => setAgendaOpen(true)}
+            onOpenSeriesElsewhere={handleSearchSelect}
             onOpen={(ep, series, episodes) => {
               setActiveSeries(series);
               setSeriesEpisodes(episodes);
@@ -560,7 +563,7 @@ const App: React.FC = () => {
           );
         })()}
 
-        {(view === ViewMode.ADMIN_DASHBOARD || view === ViewMode.ADMIN_CONTENT || view === ViewMode.ADMIN_USERS || view === ViewMode.ADMIN_PAYMENTS || view === ViewMode.ADMIN_ADS || view === ViewMode.ADMIN_SETTINGS || view === ViewMode.ADMIN_ROYALTIES) && (
+        {(view === ViewMode.ADMIN_DASHBOARD || view === ViewMode.ADMIN_CONTENT || view === ViewMode.ADMIN_USERS || view === ViewMode.ADMIN_PAYMENTS || view === ViewMode.ADMIN_ADS || view === ViewMode.ADMIN_SETTINGS || view === ViewMode.ADMIN_ROYALTIES || view === ViewMode.ADMIN_APROVACOES || view === ViewMode.ADMIN_CANAIS) && (
           <AdminDashboard onLogout={handleLogout} currentSubView={view} setSubView={(v) => setView(v)} />
         )}
       </main>

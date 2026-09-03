@@ -894,6 +894,78 @@ class ApiService {
     }
     return response.json();
   }
+
+  // ─── Fase 5 Bloco 1, Task 10: canal público (leitor) ───────────────────────
+  // GET /api/channels/:id — shape pinado: followersCount (número) + isFollowing
+  // (bool, false se anônimo), SEM o array followers[] (dado pessoal). Público
+  // (optionalAuth no backend) — funciona sem token.
+  async getChannel(id: string) {
+    return this.request<{
+      _id: string; name: string; description?: string | null;
+      avatar?: string | null; banner?: string | null; isActive: boolean;
+      followersCount: number; isFollowing: boolean;
+      ownerId?: { _id: string; nome: string; avatar?: string } | string | null;
+    }>(`/channels/${id}`);
+  }
+
+  // Shape real de routes/channels.js: { success, followers } — followers é a
+  // CONTAGEM atualizada (não a lista), já pronta para reconciliar o otimismo
+  // da UI depois da resposta do servidor.
+  async followChannel(id: string) {
+    return this.request<{ success: boolean; followers: number }>(`/channels/${id}/follow`, { method: 'POST' });
+  }
+
+  async unfollowChannel(id: string) {
+    return this.request<{ success: boolean; followers: number }>(`/channels/${id}/follow`, { method: 'DELETE' });
+  }
+
+  // ─── Fase 5 Bloco 1, Task 10: admin — Fila de Aprovação ────────────────────
+  // Shape real de routes/adminPortal.js: lista FLAT com `tipo: 'series'|'episode'`.
+  async getAdminAprovacoes() {
+    return this.request<{ itens: any[] }>('/admin/aprovacoes');
+  }
+
+  // genre/tags são OPCIONAIS — o backend usa o gênero já salvo na série
+  // quando não vem no body (a UI só precisa mandar o que o Master editou).
+  async aprovarSerieAdmin(id: string, data: { genre?: string; tags?: string[] } = {}) {
+    return this.request<any>(`/admin/aprovacoes/series/${id}/aprovar`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async aprovarEpisodioAdmin(id: string) {
+    return this.request<any>(`/admin/aprovacoes/episodes/${id}/aprovar`, { method: 'POST' });
+  }
+
+  // tipo aceita 'series' | 'episode' | 'episodes' (o backend normaliza o
+  // plural — ver routes/adminPortal.js) — a UI sempre manda o `item.tipo`
+  // devolvido por getAdminAprovacoes, que já é singular.
+  async devolverAprovacao(tipo: 'series' | 'episode' | 'episodes', id: string, texto: string) {
+    return this.request<{ success: boolean; mensagem: any }>(`/admin/aprovacoes/${tipo}/${id}/devolver`, {
+      method: 'POST',
+      body: JSON.stringify({ texto }),
+    });
+  }
+
+  // ─── Fase 5 Bloco 1, Task 10: admin — form de canal ────────────────────────
+  // PUT /api/channels/:id, branch admin: ownerEmail transfere a titularidade
+  // (404 se o e-mail não corresponde a nenhum usuário — routes/channels.js).
+  async updateChannelAdmin(id: string, data: Partial<{ name: string; description: string; avatar: string; banner: string; ownerEmail: string }>) {
+    return this.request<any>(`/channels/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  }
+
+  async desativarCanal(id: string) {
+    return this.request<any>(`/channels/${id}/desativar`, { method: 'POST' });
+  }
+
+  // ─── Fase 5 Bloco 1, Task 10: admin — mensagens por canal ──────────────────
+  // Shape real de routes/adminPortal.js: threads agrupadas (vigente primeiro,
+  // depois arquivadas da mais recente para a mais antiga).
+  async getAdminMensagensCanal(canalId: string) {
+    return this.request<{ canalId: string; threads: any[] }>(`/admin/mensagens/${canalId}`);
+  }
+
+  async sendAdminMensagem(canalId: string, data: { texto: string; refTipo?: 'series' | 'episode'; refId?: string }) {
+    return this.request<any>(`/admin/mensagens/${canalId}`, { method: 'POST', body: JSON.stringify(data) });
+  }
 }
 
 export const api = ApiService.getInstance();

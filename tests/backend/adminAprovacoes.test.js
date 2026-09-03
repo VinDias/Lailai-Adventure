@@ -576,6 +576,32 @@ describe('POST /api/admin/aprovacoes/:tipo/:id/devolver', () => {
     expect(mensagem.texto).toBe('O ultimo painel ficou cortado.');
   });
 
+  // Ruling da revisão da T7 (ver spec Fase 5 Bloco 1): a rota de aprovar usa
+  // plural na URL (.../aprovacoes/episodes/:id/aprovar), mas :tipo do
+  // devolver só aceitava o singular ('episode') — assimetria que confundia
+  // quem integra as duas rotas. Normalizado aqui: 'episodes' (plural) é
+  // aceito e mapeado para 'episode' ANTES do check contra REF_TIPOS e da
+  // gravação — mesmo efeito do singular, refTipo salvo continua 'episode'
+  // (nunca 'episodes' — MensagemPortal.refTipo só aceita o singular).
+  it('aceita "episodes" (plural) no :tipo, normalizado para "episode"', async () => {
+    const dono = await criarDono('Devolver Episodio Plural');
+    const { episode } = await episodioSubmetidoDeSeriePublicada(dono, { title: 'Cap Devolver Plural' });
+
+    const res = await request(app)
+      .post(`/api/admin/aprovacoes/episodes/${episode._id}/devolver`)
+      .set('Authorization', ADMIN_HEADER())
+      .send({ texto: 'Ajuste o balão da fala 3.' });
+    expect(res.status).toBe(200);
+
+    const salvo = await Episode.findById(episode._id).lean();
+    expect(salvo.submittedAt).toBeNull();
+
+    const mensagem = await MensagemPortal.findOne({ canalId: dono.canal._id, refId: episode._id }).lean();
+    expect(mensagem).toBeTruthy();
+    expect(mensagem.refTipo).toBe('episode'); // nunca 'episodes'
+    expect(mensagem.texto).toBe('Ajuste o balão da fala 3.');
+  });
+
   it('devolver série NÃO devolve os episódios dela em cascata', async () => {
     const dono = await criarDono('Devolver Sem Cascata');
     const serie = await serieSubmetida(dono, { title: 'Serie Com Episodio Submetido Junto' });

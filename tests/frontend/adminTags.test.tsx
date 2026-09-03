@@ -17,6 +17,10 @@ vi.mock('../../services/api', () => ({
     listChannels: vi.fn(),
     createSeries: vi.fn(),
     updateSeries: vi.fn(),
+    // AdminDashboard busca a fila de aprovação uma vez no mount, para o
+    // badge da sidebar (Fase 5 Bloco 1, Task 10) — precisa existir no mock
+    // mesmo em testes que não exercitam essa aba.
+    getAdminAprovacoes: vi.fn().mockResolvedValue({ itens: [] }),
   },
 }));
 
