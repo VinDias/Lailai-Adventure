@@ -466,6 +466,16 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'seriesId, episode_number e title são obrigatórios.' });
     }
 
+    // episode_number duplicado na MESMA série → 400 (Fase 5 Bloco 2, Task 8
+    // — higiene do Bloco 1). Validação NA ROTA, não índice único no schema:
+    // séries antigas podem já ter duplicatas de antes desta task, e um
+    // índice único quebraria a LEITURA delas. Mesma checagem do lado do
+    // portal (routes/portal.js POST /series/:id/episodios).
+    const jaExiste = await Episode.exists({ seriesId, episode_number });
+    if (jaExiste) {
+      return res.status(400).json({ error: `Já existe um episódio com o número ${episode_number} nesta série.` });
+    }
+
     // Tradução automática da descrição (título do episódio fica intacto).
     const translationService = require('../services/translationService');
     const translations = await translationService.buildTranslationsSafe({ description }, `episódio "${title}"`);

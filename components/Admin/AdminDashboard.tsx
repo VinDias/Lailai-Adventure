@@ -149,6 +149,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       });
       setContentList(prev => prev.map(s => (s._id || s.id) === id ? { ...s, ...updated } : s));
       setEditSeriesMsg('Série atualizada!');
+      // Dívida T6 (2): a edição pode ter mudado content_rating — refetch do
+      // badge "N não classificadas" pra não ficar stale.
+      refetchAprovacoesBadges();
       setTimeout(() => setEditingSeries(null), 900);
     } catch {
       setEditSeriesMsg('Erro ao salvar a série.');
@@ -288,12 +291,23 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
   // Badge de Aprovações: buscado uma vez no load do dashboard (spec — "GET
   // /aprovacoes no load do dashboard"), independente de qual subview está
-  // ativa, para o número aparecer na sidebar mesmo sem abrir a aba.
-  useEffect(() => {
+  // ativa, para o número aparecer na sidebar mesmo sem abrir a aba. Extraído
+  // numa função (Fase 5 Bloco 2, Task 8 — Dívida T6 (2)) para poder ser
+  // chamada de novo depois de salvar uma série no PRÓPRIO admin
+  // (handleSaveSeriesEdit/handleCreateSeries abaixo) — sem isso, o badge
+  // "N não classificadas" ficava stale até o Master reabrir a tela (o
+  // AprovacoesPanel já refetchava depois de aprovar/devolver, via
+  // onNaoClassificadasChange; só faltava este caminho).
+  const refetchAprovacoesBadges = () => {
     api.getAdminAprovacoes().then(r => {
       setAprovacoesCount(r.itens.length);
       setNaoClassificadasCount(r.naoClassificadas ?? 0);
     }).catch(() => {});
+  };
+
+  useEffect(() => {
+    refetchAprovacoesBadges();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadDashboard = async () => {
@@ -846,6 +860,9 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       setNewSeries({ title: '', genre: '', description: '', cover_image: '', content_type: 'hqcine', isPremium: false, channelId: '', releaseDay: null, tags: [], content_rating: '' });
       setCoverFile(null);
       setCreateMsg('Série criada com sucesso!');
+      // Dívida T6 (2): série nasce sem content_rating (o admin publica direto,
+      // fail-safe do filtro parental) — refetch do badge "N não classificadas".
+      refetchAprovacoesBadges();
       setTimeout(() => { setCreateMsg(''); setShowCreateModal(false); }, 1500);
     } catch (e: any) {
       setCreateMsg(`Erro: ${e?.message || 'Erro ao criar série.'}`);
@@ -1037,6 +1054,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                               <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest">{NOME_ABA[item.content_type] || item.content_type}</span>
                               <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">#{idx + 1}</span>
                               {item.isPremium && <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">PREMIUM</span>}
+                              {/* Dívida T6 (2), Fase 5 Bloco 2 Task 8: indicador nas séries PUBLICADAS
+                                  sem content_rating (null OU campo ausente do acervo pré-B2) — pra o
+                                  Master achar QUAIS obras faltam classificar, não só o total do badge
+                                  do cabeçalho. Draft não conta — ainda não foi ao ar. */}
+                              {item.isPublished && !item.content_rating && (
+                                <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">Sem classificação</span>
+                              )}
                             </div>
                             <div className="flex gap-4 mt-2">
                               <span className="flex items-center gap-1 text-[10px] text-zinc-500"><Eye size={11} />{item.totalViews ?? 0}</span>

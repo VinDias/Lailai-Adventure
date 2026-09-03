@@ -1,21 +1,22 @@
 import React, { useEffect, useState } from 'react';
-import { Users, Mail, Ban, Send } from 'lucide-react';
+import { Users, Mail, Ban, RefreshCw, Send } from 'lucide-react';
 import { api } from '../../services/api';
 
 /**
- * Gerenciamento de canais (Fase 5 Bloco 1, Task 10) — admin, PT fixo. Duas
- * peças novas do form de canal (spec): campo "E-mail do dono" (PUT
- * ownerEmail — só admin processa essa branch, routes/channels.js) e botão
- * "Desativar canal" (POST /:id/desativar). Mais a aba "Mensagens" por canal
- * (GET/POST /admin/mensagens/:canalId).
+ * Gerenciamento de canais (Fase 5 Bloco 1, Task 10; Fase 5 Bloco 2, Task 8)
+ * — admin, PT fixo. Duas peças do form de canal (spec do B1): campo
+ * "E-mail do dono" (PUT ownerEmail — só admin processa essa branch,
+ * routes/channels.js) e botão "Desativar canal" (POST /:id/desativar). Mais
+ * a aba "Mensagens" por canal (GET/POST /admin/mensagens/:canalId).
  *
- * GET /api/channels (admin) só lista canais ATIVOS (`isActive: true` no
- * filtro do backend) e não devolve `isActive` no shape (`.select('name
- * ownerId')`) — depois de desativar, o canal sumiria de um refetch dessa
- * rota. Por isso o estado "inativo" é mantido só localmente (otimista, sem
- * refetch da lista) assim que a desativação é confirmada: o objetivo é
- * indicar na UI que a ação funcionou, não espelhar um estado que a própria
- * rota de listagem não devolve mais.
+ * Fase 5 Bloco 2, Task 8 (higiene do Bloco 1 — conserto: desativar não tinha
+ * inversa e o canal desativado simplesmente sumia da lista): a lista passa
+ * a usar `GET /channels?includeInactive=true` (`api.listChannels(true)`),
+ * que devolve TODOS os canais com `isActive` no shape — o badge "Inativo" e
+ * o botão "Reativar canal" (POST /:id/reativar) vêm direto desse campo do
+ * backend, sem estado local paralelo. Como o canal inativo continua na
+ * lista, ele continua clicável e a aba Mensagens continua mostrando a
+ * thread arquivada — a "porta de entrada" que sumia antes desta task.
  */
 
 interface CanalResumo {
@@ -36,6 +37,7 @@ const CanaisPanel: React.FC = () => {
   // renderizava verde como se fosse sucesso (achado da revisão da T10).
   const [ownerMsg, setOwnerMsg] = useState<{ texto: string; erro: boolean } | null>(null);
   const [deactivating, setDeactivating] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
   const [aba, setAba] = useState<'detalhes' | 'mensagens'>('detalhes');
   const [threads, setThreads] = useState<any[]>([]);
   const [loadingThreads, setLoadingThreads] = useState(false);
@@ -45,13 +47,10 @@ const CanaisPanel: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const list = await api.listChannels();
-      setChannels(prev =>
-        (list as any[]).map(c => {
-          const existente = prev.find(p => p._id === c._id);
-          return { ...c, isActive: existente ? existente.isActive : true };
-        }),
-      );
+      // includeInactive=true (Task 8): isActive vem sempre do backend, sem
+      // hack de mesclar com o estado anterior.
+      const list = await api.listChannels(true);
+      setChannels(list as any[]);
     } catch {
       setChannels([]);
     } finally {
@@ -71,8 +70,11 @@ const CanaisPanel: React.FC = () => {
     setThreads([]);
     setLoadingDetail(true);
     try {
+      // GET /channels/:id enxerga canal inativo pra admin desde a Task 8 —
+      // `full.isActive` já vem certo do backend, sem precisar mesclar com
+      // o item da lista.
       const full = await api.getChannel(ch._id);
-      setSelected({ ...full, isActive: ch.isActive !== false });
+      setSelected(full);
     } catch {
       setSelected({ ...ch });
     } finally {
@@ -108,6 +110,25 @@ const CanaisPanel: React.FC = () => {
       alert('Erro ao desativar canal.');
     } finally {
       setDeactivating(false);
+    }
+  };
+
+  // Fase 5 Bloco 2, Task 8: inverso de desativar — NÃO desarquiva nenhuma
+  // thread de mensagens (a thread arquivada era do ex-dono; o dono atual já
+  // tem a própria vigente) — ver comentário de routes/channels.js
+  // POST /:id/reativar.
+  const reativar = async () => {
+    if (!selected) return;
+    if (!confirm(`Reativar o canal "${selected.name}"?`)) return;
+    setReactivating(true);
+    try {
+      await api.reativarCanal(selected._id);
+      setSelected((s: any) => (s ? { ...s, isActive: true } : s));
+      setChannels(prev => prev.map(c => (c._id === selected._id ? { ...c, isActive: true } : c)));
+    } catch {
+      alert('Erro ao reativar canal.');
+    } finally {
+      setReactivating(false);
     }
   };
 
@@ -228,13 +249,23 @@ const CanaisPanel: React.FC = () => {
                   </div>
 
                   <div className="pt-4 border-t border-[var(--border-color)]">
-                    <button
-                      onClick={desativar}
-                      disabled={deactivating || selected.isActive === false}
-                      className="flex items-center gap-2 px-5 py-3 bg-rose-600/10 border border-rose-500/30 text-rose-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-rose-600/20 transition-all disabled:opacity-50"
-                    >
-                      <Ban size={14} /> {selected.isActive === false ? 'Canal desativado' : deactivating ? 'Desativando...' : 'Desativar canal'}
-                    </button>
+                    {selected.isActive === false ? (
+                      <button
+                        onClick={reativar}
+                        disabled={reactivating}
+                        className="flex items-center gap-2 px-5 py-3 bg-emerald-600/10 border border-emerald-500/30 text-emerald-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-emerald-600/20 transition-all disabled:opacity-50"
+                      >
+                        <RefreshCw size={14} /> {reactivating ? 'Reativando...' : 'Reativar canal'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={desativar}
+                        disabled={deactivating}
+                        className="flex items-center gap-2 px-5 py-3 bg-rose-600/10 border border-rose-500/30 text-rose-500 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-rose-600/20 transition-all disabled:opacity-50"
+                      >
+                        <Ban size={14} /> {deactivating ? 'Desativando...' : 'Desativar canal'}
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (

@@ -10,6 +10,7 @@ import '@testing-library/jest-dom';
 
 import { I18nProvider, useI18n, useT } from '../../contexts/I18nContext';
 import { TRANSLATIONS } from '../../i18n/translations';
+import VOCABULARIO_TAGS from '../../utils/tagsVocabulario.json';
 
 beforeEach(() => {
   localStorage.clear();
@@ -102,6 +103,23 @@ describe('Dicionários', () => {
       for (const [key, value] of Object.entries(TRANSLATIONS[lang])) {
         expect(value, `${lang}.${key} vazia`).not.toBe('');
       }
+    }
+  });
+
+  // Dívida T6 (5), Fase 5 Bloco 2, Task 8: teste pinando JSON↔i18n — a suíte
+  // "cobre todas as chaves do pt" acima só prova que en/es/zh acompanham o
+  // que o PRÓPRIO pt já declara (chaves 'tags.<slug>' hardcoded em i18n/
+  // translations.ts, TranslationKey estático); ela NÃO desliga se
+  // utils/tagsVocabulario.json ganhar/perder um slug sem a tradução
+  // acompanhar. Este teste lê o JSON (fonte única dos slugs) e confere: PT
+  // bate `rotuloPt` exatamente, e a chave existe (não vazia) em en/es/zh.
+  it('tags.<slug> do JSON de vocabulário estão pinadas nos 4 idiomas (PT = rotuloPt)', () => {
+    for (const { slug, rotuloPt } of VOCABULARIO_TAGS as { slug: string; rotuloPt: string }[]) {
+      const chave = `tags.${slug}` as any;
+      expect(TRANSLATIONS.pt[chave]).toBe(rotuloPt);
+      expect(TRANSLATIONS.en[chave]).toBeTruthy();
+      expect(TRANSLATIONS.es[chave]).toBeTruthy();
+      expect(TRANSLATIONS.zh[chave]).toBeTruthy();
     }
   });
 });

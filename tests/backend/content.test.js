@@ -459,6 +459,81 @@ describe('POST /api/content/episodes — criação (admin)', () => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// episode_number duplicado (Fase 5 Bloco 2, Task 8 — higiene do Bloco 1):
+// validação NA ROTA (não índice único — séries antigas podem ter duplicatas
+// de antes desta task). Mesma validação existe do lado do portal (routes/
+// portal.js POST /series/:id/episodios) — ver tests/backend/portalCrud.test.js.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('POST /api/content/episodes — episode_number duplicado (admin)', () => {
+  it('mesmo episode_number na MESMA série → 400 (não cria)', async () => {
+    const serieRes = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Serie Numero Duplicado Admin', genre: 'Drama', content_type: 'hqcine', isPublished: true });
+    const idSerie = serieRes.body._id;
+
+    const primeiro = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: idSerie, episode_number: 1, title: 'Ep Admin Um' });
+    expect(primeiro.status).toBe(201);
+
+    const duplicado = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: idSerie, episode_number: 1, title: 'Ep Admin Um De Novo' });
+    expect(duplicado.status).toBe(400);
+    expect(duplicado.body.error).toMatch(/epis[oó]dio/i);
+
+    const Episode = require('../../models/Episode');
+    const total = await Episode.countDocuments({ seriesId: idSerie });
+    expect(total).toBe(1);
+  });
+
+  it('episode_number DIFERENTE na mesma série → 201', async () => {
+    const serieRes = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Serie Numero Diferente Admin', genre: 'Drama', content_type: 'hqcine', isPublished: true });
+    const idSerie = serieRes.body._id;
+
+    await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: idSerie, episode_number: 1, title: 'Ep Admin Um Diferente' });
+
+    const segundo = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: idSerie, episode_number: 2, title: 'Ep Admin Dois Diferente' });
+    expect(segundo.status).toBe(201);
+  });
+
+  it('mesma numeração em OUTRA série → 201 (a restrição é só dentro da MESMA série)', async () => {
+    const serieARes = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Serie A Numero Admin', genre: 'Drama', content_type: 'hqcine', isPublished: true });
+    const serieBRes = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Serie B Numero Admin', genre: 'Drama', content_type: 'hqcine', isPublished: true });
+
+    await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: serieARes.body._id, episode_number: 1, title: 'Ep A1 Admin' });
+
+    const capB = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: serieBRes.body._id, episode_number: 1, title: 'Ep B1 Admin' });
+    expect(capB.status).toBe(201);
+  });
+});
+
 describe('DELETE /api/content/episodes/:id', () => {
   it('admin remove episódio e ele some da listagem', async () => {
     const create = await request(app)

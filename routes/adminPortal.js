@@ -21,6 +21,7 @@ const Series = require('../models/Series');
 const Episode = require('../models/Episode');
 const MensagemPortal = require('../models/MensagemPortal');
 const AdminLog = require('../models/AdminLog');
+const { responderCastError } = require('../utils/routeErrors');
 
 const REF_TIPOS = ['series', 'episode'];
 
@@ -108,7 +109,7 @@ router.get('/mensagens/:canalId', verifyToken, requireAdmin, async (req, res) =>
 
     res.json({ canalId: canal._id, threads });
   } catch (err) {
-    if (err.name === 'CastError') return res.status(404).json({ error: 'Canal não encontrado.' });
+    if (responderCastError(err, res, 'Canal não encontrado.')) return;
     logger.error('[AdminPortal] GET /mensagens/:canalId', err);
     res.status(500).json({ error: 'Erro ao buscar mensagens do canal.' });
   }
@@ -150,7 +151,7 @@ router.post('/mensagens/:canalId', verifyToken, requireAdmin, async (req, res) =
     if (err.name === 'ValidationError') {
       return res.status(400).json({ error: err.message });
     }
-    if (err.name === 'CastError') return res.status(404).json({ error: 'Canal não encontrado.' });
+    if (responderCastError(err, res, 'Canal não encontrado.')) return;
     logger.error('[AdminPortal] POST /mensagens/:canalId', err);
     res.status(500).json({ error: 'Erro ao enviar mensagem.' });
   }
@@ -307,7 +308,14 @@ router.post('/aprovacoes/series/:id/aprovar', verifyToken, requireAdmin, async (
 
     res.json(publicada);
   } catch (err) {
-    if (err.name === 'CastError') return res.status(404).json({ error: 'Série não encontrada.' });
+    // Dívida T6 (1) — spec: catch mapeia CastError → 404 SÓ quando
+    // `err.path === '_id'` (id malformado). CastError em QUALQUER OUTRO
+    // campo (ex.: content_rating recebendo um array/objeto no body — o
+    // Mongoose lança CastError ao castar pro String do schema, distinto da
+    // ValidationError de enum já tratada dentro de applySeriesUpdate acima)
+    // vira 400 legível — nunca 404, que mascararia um erro de INPUT do
+    // próprio Master como se a série não existisse.
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
     logger.error('[AdminPortal] POST /aprovacoes/series/:id/aprovar', err);
     res.status(500).json({ error: 'Erro ao aprovar série.' });
   }
@@ -355,7 +363,7 @@ router.post('/aprovacoes/episodes/:id/aprovar', verifyToken, requireAdmin, async
 
     res.json(episode);
   } catch (err) {
-    if (err.name === 'CastError') return res.status(404).json({ error: 'Episódio não encontrado.' });
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
     logger.error('[AdminPortal] POST /aprovacoes/episodes/:id/aprovar', err);
     res.status(500).json({ error: 'Erro ao aprovar episódio.' });
   }
@@ -430,7 +438,7 @@ router.post('/aprovacoes/:tipo/:id/devolver', verifyToken, requireAdmin, async (
 
     res.json({ success: true, mensagem });
   } catch (err) {
-    if (err.name === 'CastError') return res.status(404).json({ error: 'Recurso não encontrado.' });
+    if (responderCastError(err, res, 'Recurso não encontrado.')) return;
     logger.error('[AdminPortal] POST /aprovacoes/:tipo/:id/devolver', err);
     res.status(500).json({ error: 'Erro ao devolver.' });
   }

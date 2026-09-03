@@ -1011,3 +1011,124 @@ describe('GET /api/portal/series', () => {
     expect(res.body).toEqual({ series: [] });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Higiene do Bloco 1 (Fase 5 Bloco 2, Task 8): id malformado (CastError) nas
+// rotas do portal com :id devolve 404 — mesmo contrato do id inexistente
+// (nunca confirma nem nega existência), em vez do 500 que o catch genérico
+// devolvia antes desta task (o CastError do Mongoose caía sem tratamento
+// específico em cada rota).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Higiene do Bloco 1: CastError (id malformado) → 404 nas rotas do portal', () => {
+  const ID_MALFORMADO = 'id-nao-e-um-objectid';
+
+  it('PUT /api/portal/series/:id', async () => {
+    const dono = await criarDono('Cast PUT Series');
+    const res = await request(app)
+      .put(`/api/portal/series/${ID_MALFORMADO}`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ title: 'X' });
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/portal/series/:id/episodios', async () => {
+    const dono = await criarDono('Cast POST Episodios');
+    const res = await request(app)
+      .post(`/api/portal/series/${ID_MALFORMADO}/episodios`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ title: 'Cap', episode_number: 1 });
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/portal/episodios/:id/paineis', async () => {
+    const dono = await criarDono('Cast POST Paineis');
+    const res = await request(app)
+      .post(`/api/portal/episodios/${ID_MALFORMADO}/paineis`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ panels: [{ image_url: 'https://cdn.exemplo/x.jpg', order: 0 }] });
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/portal/series/:id/enviar', async () => {
+    const dono = await criarDono('Cast POST Enviar Serie');
+    const res = await request(app)
+      .post(`/api/portal/series/${ID_MALFORMADO}/enviar`)
+      .set('Authorization', `Bearer ${dono.token}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/portal/episodios/:id/enviar', async () => {
+    const dono = await criarDono('Cast POST Enviar Episodio');
+    const res = await request(app)
+      .post(`/api/portal/episodios/${ID_MALFORMADO}/enviar`)
+      .set('Authorization', `Bearer ${dono.token}`);
+    expect(res.status).toBe(404);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// episode_number duplicado na MESMA série → 400 (Fase 5 Bloco 2, Task 8) —
+// validação NA ROTA (não índice único no schema: séries antigas podem ter
+// duplicatas de antes desta task, e um índice único quebraria a LEITURA
+// delas). Número diferente OK; mesma numeração em OUTRA série OK. Mesma
+// validação existe do lado admin (routes/content.js POST /episodes) —
+// ver tests/backend/content.test.js.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('POST /api/portal/series/:id/episodios — episode_number duplicado', () => {
+  it('mesmo episode_number na MESMA série → 400 (não cria o segundo)', async () => {
+    const dono = await criarDono('Episodio Numero Duplicado');
+    const serie = await criarSerieDraft(dono, { title: 'Serie Numero Duplicado Portal' });
+
+    const primeiro = await request(app)
+      .post(`/api/portal/series/${serie.body._id}/episodios`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ title: 'Cap Um', episode_number: 1 });
+    expect(primeiro.status).toBe(201);
+
+    const duplicado = await request(app)
+      .post(`/api/portal/series/${serie.body._id}/episodios`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ title: 'Cap Um De Novo', episode_number: 1 });
+    expect(duplicado.status).toBe(400);
+    expect(duplicado.body.error).toMatch(/epis[oó]dio/i);
+
+    const total = await Episode.countDocuments({ seriesId: serie.body._id });
+    expect(total).toBe(1);
+  });
+
+  it('episode_number DIFERENTE na mesma série → 201', async () => {
+    const dono = await criarDono('Episodio Numero Diferente');
+    const serie = await criarSerieDraft(dono, { title: 'Serie Numero Diferente Portal' });
+
+    await request(app)
+      .post(`/api/portal/series/${serie.body._id}/episodios`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ title: 'Cap Um', episode_number: 1 });
+
+    const segundo = await request(app)
+      .post(`/api/portal/series/${serie.body._id}/episodios`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ title: 'Cap Dois', episode_number: 2 });
+    expect(segundo.status).toBe(201);
+  });
+
+  it('mesma numeração em OUTRA série → 201 (a restrição é só dentro da MESMA série)', async () => {
+    const donoA = await criarDono('Episodio Numero Outra Serie A');
+    const donoB = await criarDono('Episodio Numero Outra Serie B');
+    const serieA = await criarSerieDraft(donoA, { title: 'Serie A Numero Portal' });
+    const serieB = await criarSerieDraft(donoB, { title: 'Serie B Numero Portal' });
+
+    await request(app)
+      .post(`/api/portal/series/${serieA.body._id}/episodios`)
+      .set('Authorization', `Bearer ${donoA.token}`)
+      .send({ title: 'Cap A1', episode_number: 1 });
+
+    const capB = await request(app)
+      .post(`/api/portal/series/${serieB.body._id}/episodios`)
+      .set('Authorization', `Bearer ${donoB.token}`)
+      .send({ title: 'Cap B1', episode_number: 1 });
+    expect(capB.status).toBe(201);
+  });
+});

@@ -590,6 +590,26 @@ describe('services/parentalPinService — fórmula do backoff (datas injetadas, 
     expect(r.pinBloqueadoAte.getTime()).toBe(AGORA.getTime() + 24 * 60 * 60 * 1000);
   });
 
+  // Dívida T3 (#8) — Fase 5 Bloco 2, Task 8: fronteira EXATA do teto (a
+  // fórmula já estava certa desde a T3 — só faltava o teste). Lote 7
+  // (tentativas 34→35): 15min×2^6 = 960min = 16h, AINDA sem cortar pelo
+  // teto. Lote 8 (tentativas 39→40): a fórmula pediria 15min×2^7 = 1920min
+  // = 32h, mas o teto CORTA para 24h — é a primeira vez que Math.min entra
+  // em ação (lotes 1-7 nunca ultrapassam 24h).
+  it('fronteira do teto: lote 7 (tentativas 34→35) = 16h, ainda SEM cortar', () => {
+    const userFake = { parental: { pinTentativas: 34, pinBloqueadoAte: null } };
+    const r = parentalPinService.proximoAposErro(userFake, AGORA);
+    expect(r.pinTentativas).toBe(35);
+    expect(r.pinBloqueadoAte.getTime()).toBe(AGORA.getTime() + 16 * 60 * 60 * 1000);
+  });
+
+  it('fronteira do teto: lote 8 (tentativas 39→40) pediria 32h, mas o teto CORTA para 24h', () => {
+    const userFake = { parental: { pinTentativas: 39, pinBloqueadoAte: null } };
+    const r = parentalPinService.proximoAposErro(userFake, AGORA);
+    expect(r.pinTentativas).toBe(40);
+    expect(r.pinBloqueadoAte.getTime()).toBe(AGORA.getTime() + 24 * 60 * 60 * 1000);
+  });
+
   it('fora do múltiplo de 5 não seta bloqueio; tentativasRestantesNoLote conta certo', () => {
     const userFake = { parental: { pinTentativas: 1, pinBloqueadoAte: null } };
     const r = parentalPinService.proximoAposErro(userFake, AGORA);

@@ -11,6 +11,7 @@ const router = express.Router();
 const verifyToken = require('../middlewares/verifyToken');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
+const { responderCastError } = require('../utils/routeErrors');
 
 const Channel = require('../models/Channel');
 const Series = require('../models/Series');
@@ -337,6 +338,7 @@ router.put('/series/:id', requireCanalDoUsuario, async (req, res) => {
     if (err.name === 'ValidationError') {
       return res.status(400).json({ error: err.message });
     }
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
     logger.error('[Portal] PUT /series/:id', err);
     res.status(500).json({ error: 'Erro ao atualizar série.' });
   }
@@ -359,6 +361,16 @@ router.post('/series/:id/episodios', requireCanalDoUsuario, async (req, res) => 
       return res.status(400).json({ error: 'episode_number é obrigatório.' });
     }
 
+    // episode_number duplicado na MESMA série → 400 (Fase 5 Bloco 2, Task 8
+    // — higiene do Bloco 1). Validação NA ROTA, não índice único no schema:
+    // séries antigas podem já ter duplicatas de antes desta task, e um
+    // índice único quebraria a LEITURA delas. Mesma checagem do lado admin
+    // (routes/content.js POST /episodes).
+    const jaExiste = await Episode.exists({ seriesId: series._id, episode_number: dados.episode_number });
+    if (jaExiste) {
+      return res.status(400).json({ error: `Já existe um episódio com o número ${dados.episode_number} nesta série.` });
+    }
+
     const translationService = require('../services/translationService');
     const translations = await translationService.buildTranslationsSafe(
       { description: dados.description }, `episódio "${dados.title}" (portal)`
@@ -377,6 +389,7 @@ router.post('/series/:id/episodios', requireCanalDoUsuario, async (req, res) => 
     if (err.name === 'ValidationError') {
       return res.status(400).json({ error: err.message });
     }
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
     logger.error('[Portal] POST /series/:id/episodios', err);
     res.status(500).json({ error: 'Erro ao criar episódio.' });
   }
@@ -405,6 +418,7 @@ router.post('/episodios/:id/paineis', requireCanalDoUsuario, async (req, res) =>
     res.json({ success: true, panelCount: episode.panels.length, episode });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
     logger.error('[Portal] POST /episodios/:id/paineis', err);
     res.status(500).json({ error: 'Erro ao adicionar painéis.' });
   }
@@ -443,6 +457,7 @@ router.post('/series/:id/enviar', requireCanalDoUsuario, async (req, res) => {
     await series.save();
     res.json(series);
   } catch (err) {
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
     logger.error('[Portal] POST /series/:id/enviar', err);
     res.status(500).json({ error: 'Erro ao enviar série para aprovação.' });
   }
@@ -490,6 +505,7 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
     await episode.save();
     res.json(episode);
   } catch (err) {
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
     logger.error('[Portal] POST /episodios/:id/enviar', err);
     res.status(500).json({ error: 'Erro ao enviar episódio para aprovação.' });
   }

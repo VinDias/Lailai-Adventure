@@ -384,8 +384,12 @@ class ApiService {
     });
   }
 
-  async listChannels() {
-    return this.request<any[]>('/channels');
+  // Fase 5 Bloco 2, Task 8 (higiene do Bloco 1): `includeInactive` — só tem
+  // efeito para admin (a rota já é admin-only) — devolve TODOS os canais,
+  // com `isActive` no shape; sem o parâmetro, só ativos (regressão do shape
+  // antigo, usado pelo formulário de séries).
+  async listChannels(includeInactive = false) {
+    return this.request<any[]>(`/channels${includeInactive ? '?includeInactive=true' : ''}`);
   }
 
   // ─── Royalties (Fase 3, admin) ─────────────────────────────────────────────
@@ -1022,6 +1026,13 @@ class ApiService {
 
   async desativarCanal(id: string) {
     return this.request<any>(`/channels/${id}/desativar`, { method: 'POST' });
+  }
+
+  // Fase 5 Bloco 2, Task 8: inverso de desativarCanal — NÃO desarquiva
+  // nenhuma thread de MensagemPortal (a arquivada é do ex-dono; o dono atual
+  // tem a própria thread vigente) — ver routes/channels.js.
+  async reativarCanal(id: string) {
+    return this.request<any>(`/channels/${id}/reativar`, { method: 'POST' });
   }
 
   // ─── Fase 5 Bloco 1, Task 10: admin — mensagens por canal ──────────────────

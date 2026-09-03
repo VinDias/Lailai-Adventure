@@ -7,16 +7,25 @@ const verifyToken = require('../middlewares/verifyToken');
 const requireAdmin = require('../middlewares/requireAdmin');
 const optionalAuth = require('../middlewares/optionalAuth');
 const logger = require('../utils/logger');
+const { responderCastError } = require('../utils/routeErrors');
 
 function isAdmin(user) {
   return !!user && (user.role === 'admin' || user.role === 'superadmin');
 }
 
-// GET /api/channels — lista todos os canais ativos (admin)
-// Usado pelo formulário de séries (vínculo de canal/ilustrador — Fase 3).
+// GET /api/channels — lista canais (admin). Sem `?includeInactive=true`,
+// só ATIVOS (regressão do shape antigo — usado pelo formulário de séries,
+// vínculo de canal/ilustrador — Fase 3). Com `includeInactive=true` (Fase 5
+// Bloco 2, Task 8 — higiene do Bloco 1: desativar não tinha inversa e o
+// canal desativado simplesmente sumia da UI do admin, levando junto a porta
+// de entrada para as threads arquivadas), devolve TODOS, com `isActive` no
+// select — a rota já é admin-only (middleware abaixo), então o parâmetro só
+// tem efeito pra quem já passou por `requireAdmin`.
 router.get('/', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const channels = await Channel.find({ isActive: true }).select('name ownerId').sort({ name: 1 }).lean();
+    const includeInactive = req.query.includeInactive === 'true';
+    const filter = includeInactive ? {} : { isActive: true };
+    const channels = await Channel.find(filter).select('name ownerId isActive').sort({ name: 1 }).lean();
     res.json(channels);
   } catch (err) {
     logger.error('[Channels] GET /', err);
@@ -42,12 +51,17 @@ router.get('/me', verifyToken, async (req, res) => {
 // Shape pinado (Fase 5 Bloco 1): followersCount (número) + isFollowing
 // (bool, false se anônimo) — o array followers[] (userIds, dado pessoal)
 // NÃO é devolvido. optionalAuth: token é opcional, só afeta isFollowing.
+// Fase 5 Bloco 2, Task 8: canal INATIVO segue 404 para público/não-admin,
+// mas o ADMIN enxerga (necessário para o CanaisPanel buscar o detalhe
+// completo — dono populado etc. — de um canal listado via
+// `?includeInactive=true`); `isActive` já vem no shape por spread do doc.
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const channel = await Channel.findById(req.params.id)
       .populate('ownerId', 'nome avatar')
       .lean();
-    if (!channel || !channel.isActive) return res.status(404).json({ error: 'Canal não encontrado.' });
+    if (!channel) return res.status(404).json({ error: 'Canal não encontrado.' });
+    if (!channel.isActive && !isAdmin(req.user)) return res.status(404).json({ error: 'Canal não encontrado.' });
 
     const followers = channel.followers || [];
     const followersCount = followers.length;
@@ -56,6 +70,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
 
     res.json({ ...canalPublico, followersCount, isFollowing });
   } catch (err) {
+    if (responderCastError(err, res, 'Canal não encontrado.')) return;
     logger.error('[Channels] GET /:id', err);
     res.status(500).json({ error: 'Erro ao buscar canal.' });
   }
@@ -123,6 +138,7 @@ router.put('/:id', verifyToken, async (req, res) => {
     const { followers: _followers, ...semFollowers } = channel.toObject();
     res.json(semFollowers);
   } catch (err) {
+    if (responderCastError(err, res, 'Canal não encontrado.')) return;
     logger.error('[Channels] PUT /:id', err);
     res.status(500).json({ error: 'Erro ao atualizar canal.' });
   }
@@ -141,8 +157,37 @@ router.post('/:id/desativar', verifyToken, requireAdmin, async (req, res) => {
     if (!channel) return res.status(404).json({ error: 'Canal não encontrado.' });
     res.json(channel);
   } catch (err) {
+    if (responderCastError(err, res, 'Canal não encontrado.')) return;
     logger.error('[Channels] POST /:id/desativar', err);
     res.status(500).json({ error: 'Erro ao desativar canal.' });
+  }
+});
+
+// POST /api/channels/:id/reativar — reativa o canal (admin-only)
+// Fase 5 Bloco 2, Task 8 (higiene do Bloco 1 — cortesia registrada, não
+// faturável): a desativação nunca teve inversa; o canal desativado
+// simplesmente sumia da UI do admin (GET / só listava ativos), levando
+// junto a única porta de entrada para as threads arquivadas dele.
+//
+// DECISÃO (documentada, não implementação implícita): reativar NÃO
+// desarquiva nenhuma MensagemPortal. A thread arquivada pertence ao ex-dono
+// (arquivada no momento da transferência de titularidade — ver PUT /:id
+// acima, `MensagemPortal.arquivarThreadDoCanal`); o dono ATUAL do canal já
+// tem a própria thread vigente, intacta. Reativar só muda `isActive` — é
+// puramente o inverso de desativar, sem efeito nenhum em MensagemPortal.
+router.post('/:id/reativar', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const channel = await Channel.findByIdAndUpdate(
+      req.params.id,
+      { $set: { isActive: true } },
+      { new: true, select: '-followers' }
+    );
+    if (!channel) return res.status(404).json({ error: 'Canal não encontrado.' });
+    res.json(channel);
+  } catch (err) {
+    if (responderCastError(err, res, 'Canal não encontrado.')) return;
+    logger.error('[Channels] POST /:id/reativar', err);
+    res.status(500).json({ error: 'Erro ao reativar canal.' });
   }
 });
 
@@ -157,6 +202,7 @@ router.post('/:id/follow', verifyToken, async (req, res) => {
     if (!channel) return res.status(404).json({ error: 'Canal não encontrado.' });
     res.json({ success: true, followers: channel.followers.length });
   } catch (err) {
+    if (responderCastError(err, res, 'Canal não encontrado.')) return;
     logger.error('[Channels] POST /:id/follow', err);
     res.status(500).json({ error: 'Erro ao seguir canal.' });
   }
@@ -173,6 +219,7 @@ router.delete('/:id/follow', verifyToken, async (req, res) => {
     if (!channel) return res.status(404).json({ error: 'Canal não encontrado.' });
     res.json({ success: true, followers: channel.followers.length });
   } catch (err) {
+    if (responderCastError(err, res, 'Canal não encontrado.')) return;
     logger.error('[Channels] DELETE /:id/follow', err);
     res.status(500).json({ error: 'Erro ao deixar de seguir canal.' });
   }

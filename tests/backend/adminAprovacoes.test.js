@@ -281,6 +281,17 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
     expect(res.status).toBe(404);
   });
 
+  // Higiene do Bloco 1 (Fase 5 Bloco 2, Task 8): id malformado (CastError no
+  // path '_id') -> 404, mesmo shape do id inexistente — não mais o 500 do
+  // catch genérico.
+  it('id malformado (CastError no _id) -> 404, não 500', async () => {
+    const res = await request(app)
+      .post('/api/admin/aprovacoes/series/id-nao-e-um-objectid/aprovar')
+      .set('Authorization', ADMIN_HEADER())
+      .send({ genre: 'Aventura' });
+    expect(res.status).toBe(404);
+  });
+
   it('sem submittedAt (nada a aprovar) -> 400', async () => {
     const dono = await criarDono('Aprovar Serie Sem Submissao');
     const draft = await Series.create({ title: 'Draft Nunca Submetido', content_type: 'hiqua', channelId: dono.canal._id });
@@ -410,6 +421,29 @@ describe('POST /api/admin/aprovacoes/series/:id/aprovar', () => {
         .set('Authorization', ADMIN_HEADER())
         .send({ genre: 'Aventura', content_rating: 'adulto' });
       expect(res.status).toBe(400);
+
+      const inalterada = await Series.findById(serie._id).lean();
+      expect(inalterada.isPublished).toBe(false);
+    });
+
+    // Dívida T6 (1) — Fase 5 Bloco 2, Task 8: content_rating como ARRAY força
+    // o Mongoose a lançar CastError (não ValidationError — já coberto acima)
+    // ao castar o Array para o String do schema. Antes desta task, o catch
+    // genérico de POST /aprovacoes/series/:id/aprovar mapeava QUALQUER
+    // CastError para 404 "Série não encontrada", mascarando um erro de INPUT
+    // do próprio Master como se o recurso não existisse. Agora só CastError
+    // no path '_id' vira 404; em qualquer outro campo vira 400 legível.
+    it('content_rating como ARRAY (CastError, não ValidationError) -> 400 legível, NÃO 404, não publica', async () => {
+      const dono = await criarDono('Aprovar Serie Rating Array');
+      const serie = await serieSubmetida(dono, { title: 'Serie Rating Array' });
+
+      const res = await request(app)
+        .post(`/api/admin/aprovacoes/series/${serie._id}/aprovar`)
+        .set('Authorization', ADMIN_HEADER())
+        .send({ genre: 'Aventura', content_rating: ['kids', 'teen'] });
+      expect(res.status).toBe(400);
+      expect(res.status).not.toBe(404);
+      expect(res.body.error).toBeTruthy();
 
       const inalterada = await Series.findById(serie._id).lean();
       expect(inalterada.isPublished).toBe(false);
