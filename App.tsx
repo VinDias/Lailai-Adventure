@@ -157,7 +157,14 @@ const App: React.FC = () => {
     // setView(HQCINE) default. Capturar o pendente ANTES do await decide
     // certo nas duas execuções: o ref sobrevive ao remount do StrictMode,
     // então a 2ª leitura ainda o vê. Em produção (mount único) é inócuo.
-    const tinhaDeepLinkPendente = deepLinkRef.current !== null;
+    //
+    // Inclui pinRecoveryTokenRef (Fase 5 Bloco 2, Task 7 — fix round, MÉDIA
+    // 1): sem isso, o guard só olhava deep link — se só houvesse um token de
+    // recuperação de PIN pendente, ele passava por aqui "por sorte" (nesse
+    // ramo não há await entre setUser e setView, então o efeito consumidor
+    // do token corria depois de qualquer forma), mas era o MESMO guard
+    // incompleto usado em handleLogin, onde a corrida é real (ver lá).
+    const tinhaDeepLinkPendente = deepLinkRef.current !== null || pinRecoveryTokenRef.current !== null;
     (async () => {
       // Fica true só quando uma sessão de CONTA foi mesmo restaurada — usado
       // no finally abaixo para distinguir esse caminho do modo visitante.
@@ -233,13 +240,21 @@ const App: React.FC = () => {
   }, [user]);
 
   const handleLogin = async (u: User) => {
-    // Capturado ANTES do setUser e de qualquer await: se havia deep link
-    // pendente, o useEffect([user]) acima pode consumi-lo (zerando o ref)
-    // durante o await da migração logo abaixo — ler o ref DEPOIS do await não
-    // distingue "nunca teve deep link" de "efeito já consumiu" (os dois
+    // Capturado ANTES do setUser e de qualquer await: se havia deep link (ou
+    // token de recuperação de PIN — fix round da T7, MÉDIA 1) pendente, o
+    // useEffect([user]) acima pode consumi-lo (zerando o ref) durante o
+    // await da migração logo abaixo — ler o ref DEPOIS do await não
+    // distingue "nunca teve nada pendente" de "efeito já consumiu" (os dois
     // deixam null). A leitura síncrona aqui resolve isso, e não depende de
     // quando exatamente o efeito dispara.
-    const tinhaDeepLinkPendente = deepLinkRef.current !== null;
+    //
+    // Sequência provada (achado do revisor): setUser → o useEffect([user])
+    // do token de PIN roda no microtask seguinte, ANTES do await abaixo
+    // resolver (bootstrapSession/rede real), e já troca pra PROFILE — mas
+    // sem este guard, quando o await finalmente resolvia, o
+    // `setView(HQCINE)` default rodava por cima, e a tela de confirmação só
+    // aparecia se o usuário abrisse a Conta manualmente depois.
+    const tinhaDeepLinkPendente = deepLinkRef.current !== null || pinRecoveryTokenRef.current !== null;
     setUser(u);
     // A conta substitui o modo visitante (decisão da spec): limpa a flag
     // `lorflux_guest` para não sobrar marcado como visitante quem acabou de

@@ -121,6 +121,75 @@ describe('updateParental', () => {
   });
 });
 
+// Fix round (MÉDIA 2): as 3 rotas com retryAuthOn401=false ainda passam
+// por verifyToken ANTES da lógica de negócio — um 401 delas pode ser
+// sessão de verdade (accessToken expirou com o formulário aberto), não só
+// PIN/senha errados. request() distingue pelas 2 mensagens FIXAS de
+// middlewares/verifyToken.js ('Token inválido.' / 'Acesso negado. Token
+// não fornecido.') — qualquer outra mensagem 401 é negócio.
+describe('request() — 401 de sessão × negócio nas rotas sem retry', () => {
+  it('(a) sessão ("Token inválido.") — 1 fetch da rota + 1 refresh, SEM replay da chamada original; erro com sessaoRenovada', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({ error: 'Token inválido.' }) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ accessToken: 'novo-token' }) });
+    vi.stubGlobal('fetch', fetchMock);
+
+    let caught: any;
+    try {
+      await api.updateParental({ pin: '1234' });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught.status).toBe(401);
+    expect(caught.message).toBe('Token inválido.');
+    expect(caught.sessaoRenovada).toBe(true);
+    // PUT original + POST /auth/refresh-token — nunca um 3º replay do PUT.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toContain('/auth/refresh-token');
+  });
+
+  it('(b) negócio ("PIN incorreto." com tentativasRestantes) — NUNCA tenta refresh', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false, status: 401,
+      json: () => Promise.resolve({ error: 'PIN incorreto.', tentativasRestantes: 2 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    let caught: any;
+    try {
+      await api.updateParental({ pin: '0000' });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught.tentativasRestantes).toBe(2);
+    expect(caught.sessaoRenovada).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // sem refresh
+  });
+
+  it('(c) sessão com refresh falhando — chama onAuthExpired (logout normal), sem sessaoRenovada', async () => {
+    const onExpired = vi.fn();
+    api.setAuthExpiredCallback(onExpired);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({ error: 'Acesso negado. Token não fornecido.' }) })
+      .mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({}) }); // refresh falha
+    vi.stubGlobal('fetch', fetchMock);
+
+    let caught: any;
+    try {
+      await api.setParentalPin({ pinAtual: '1111', novoPin: '2222' });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(onExpired).toHaveBeenCalledOnce();
+    expect(caught.status).toBe(401);
+    expect(caught.sessaoRenovada).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('setParentalPin', () => {
   it('criar (sem PIN prévio) — body só com novoPin', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ temPin: true }) });

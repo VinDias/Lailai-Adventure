@@ -200,6 +200,31 @@ describe('ParentalSettings — salvar com PIN', () => {
     expect(typeof payload.pin).toBe('string');
   });
 
+  it('fix round BAIXA 5: PIN em formato inválido (\'abc\') é barrado localmente — NUNCA chama a API', async () => {
+    await renderLoaded(baseGetParental({ temPin: true }));
+
+    fireEvent.click(screen.getByRole('radio', { name: /Teen/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar preferências' }));
+    fireEvent.change(await screen.findByTestId('pin-gate-input'), { target: { value: 'abc' } });
+    fireEvent.click(screen.getByTestId('pin-gate-confirm'));
+
+    await screen.findByText('O PIN deve ter de 4 a 6 dígitos numéricos.');
+    expect(api.updateParental).not.toHaveBeenCalled();
+  });
+
+  it('fix round BAIXA 5: Enter no campo do PIN submete o formulário (sem precisar clicar no botão)', async () => {
+    vi.mocked(api.updateParental).mockResolvedValue({ classificacaoEtaria: 'teen', tagsBloqueadas: [], temPin: true });
+    await renderLoaded(baseGetParental({ temPin: true }));
+
+    fireEvent.click(screen.getByRole('radio', { name: /Teen/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar preferências' }));
+    const pinInput = await screen.findByTestId('pin-gate-input');
+    fireEvent.change(pinInput, { target: { value: '4321' } });
+    fireEvent.submit(pinInput.closest('form')!);
+
+    await waitFor(() => expect(api.updateParental).toHaveBeenCalledWith({ classificacaoEtaria: 'teen', tagsBloqueadas: [], pin: '4321' }));
+  });
+
   it('401 com tentativasRestantes > 0 — mostra a contagem', async () => {
     const err: any = new Error('PIN incorreto.');
     err.status = 401;
@@ -243,6 +268,25 @@ describe('ParentalSettings — salvar com PIN', () => {
 
     await screen.findByText(/15 minuto/);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Salvar preferências' })).toBeDisabled());
+  });
+
+  it('fix round MÉDIA 2: 401 de sessão (sessaoRenovada) mostra aviso neutro, NUNCA "PIN incorreto", e mantém o modal aberto', async () => {
+    const err: any = new Error('Token inválido.');
+    err.status = 401;
+    err.sessaoRenovada = true;
+    vi.mocked(api.updateParental).mockRejectedValueOnce(err);
+    await renderLoaded(baseGetParental({ temPin: true }));
+
+    fireEvent.click(screen.getByRole('radio', { name: /Teen/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar preferências' }));
+    fireEvent.change(await screen.findByTestId('pin-gate-input'), { target: { value: '4321' } });
+    fireEvent.click(screen.getByTestId('pin-gate-confirm'));
+
+    await screen.findByText('Sessão renovada — confirme novamente.');
+    expect(screen.queryByText(/PIN incorreto/)).not.toBeInTheDocument();
+    // Formulário continua aberto — o pedido original nunca foi avaliado
+    // pelo servidor, então não há "tentativa" pra contar, só pedir de novo.
+    expect(screen.getByTestId('pin-gate-input')).toBeInTheDocument();
   });
 });
 

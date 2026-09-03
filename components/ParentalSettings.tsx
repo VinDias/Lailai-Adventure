@@ -65,6 +65,19 @@ function formatarErroPin(err: any, t: TFunction): string {
   return err?.message || t('parental.saveGenericError');
 }
 
+/**
+ * Fix round (MÉDIA 2): `err.sessaoRenovada` vem de services/api.ts quando
+ * um 401 nas rotas sem retry era SESSÃO expirada (accessToken vencido com
+ * o formulário aberto), não PIN/senha errados — já renovado a essa altura.
+ * NUNCA deve virar "PIN incorreto" (formatarErroPin acima trataria como
+ * tal, já que o corpo pode nem ter `tentativasRestantes`). Checar isso
+ * PRIMEIRO, antes de qualquer outra interpretação do erro, é o que evita a
+ * mensagem enganosa.
+ */
+function éSessaoRenovada(err: any): boolean {
+  return !!err?.sessaoRenovada;
+}
+
 const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken, onRecoveryTokenConsumed }) => {
   const t = useT();
 
@@ -121,6 +134,15 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
   // (sem contador regressivo — decisão de escopo, ver relatório da task).
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
 
+  // Fix round (MÉDIA 2): aviso neutro quando um 401 nas rotas sem retry era
+  // sessão expirada (não PIN errado) e o refresh funcionou — o formulário
+  // segue aberto (o pedido original nunca chegou a ser avaliado pelo
+  // servidor, então não há "tentativa" a repetir), só pede pra tentar de
+  // novo já com a sessão renovada. Compartilhado entre os 4 pontos que
+  // pedem PIN/senha (só um fica aberto por vez, então não há colisão de
+  // qual modal mostra o quê).
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+
   function atualizarDraftEtaria(v: Classificacao) {
     setDraftEtaria(v);
     setSaveSuccess(false);
@@ -139,6 +161,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
     if (temPin) {
       setPinGateValue('');
       setPinGateError(null);
+      setSessionNotice(null);
       setShowPinGate(true);
     } else {
       performSave();
@@ -147,6 +170,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
 
   async function performSave(pinValue?: string) {
     setSaving(true);
+    setSessionNotice(null);
     try {
       const payload: { classificacaoEtaria: Classificacao; tagsBloqueadas: string[]; pin?: string } = {
         classificacaoEtaria: draftEtaria,
@@ -162,7 +186,9 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
       setPinGateError(null);
       setSaveSuccess(true);
     } catch (err: any) {
-      if (err?.status === 429) {
+      if (éSessaoRenovada(err)) {
+        setSessionNotice(t('parental.sessionRenewedNotice'));
+      } else if (err?.status === 429) {
         setBlockedMessage(err.message);
         setShowPinGate(false);
       } else if (temPin) {
@@ -173,6 +199,22 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
     } finally {
       setSaving(false);
     }
+  }
+
+  // Fix round (BAIXA 5): valida o formato LOCALMENTE antes de gastar uma
+  // tentativa no servidor — mesma regra de criar/trocar (submitPinModal
+  // abaixo). Sem isso, digitar 'abc' ou 3 dígitos incrementava
+  // pinTentativas por um valor que o servidor já sabe de antemão que é
+  // inválido (formatoPinValido em routes/parental.js — mas aquele 400 é só
+  // pra POST /pin; o PUT /parental trata QUALQUER pin não-vazio como uma
+  // tentativa de comparação via bcrypt).
+  function handlePinGateSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!/^\d{4,6}$/.test(pinGateValue)) {
+      setPinGateError(t('parental.pinFormatError'));
+      return;
+    }
+    performSave(pinGateValue);
   }
 
   useCamadaVoltar(showPinGate, () => setShowPinGate(false));
@@ -192,6 +234,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
     setPinModalConfirm('');
     setPinModalError(null);
     setPinManageMessage(null);
+    setSessionNotice(null);
     setPinModal(modo);
   }
 
@@ -199,6 +242,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
     e.preventDefault();
     const modo = pinModal;
     setPinModalError(null);
+    setSessionNotice(null);
     if (!/^\d{4,6}$/.test(pinModalNovo)) {
       setPinModalError(t('parental.pinFormatError'));
       return;
@@ -216,7 +260,9 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
       setPinModal(null);
       setPinManageMessage(modo === 'create' ? t('parental.pinCreateSuccess') : t('parental.pinChangeSuccess'));
     } catch (err: any) {
-      if (err?.status === 429) {
+      if (éSessaoRenovada(err)) {
+        setSessionNotice(t('parental.sessionRenewedNotice'));
+      } else if (err?.status === 429) {
         setBlockedMessage(err.message);
         setPinModal(null);
       } else {
@@ -239,12 +285,14 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
     setRemovePinAtual('');
     setRemovePinError(null);
     setPinManageMessage(null);
+    setSessionNotice(null);
     setShowRemovePin(true);
   }
 
   async function submitRemovePin(e: React.FormEvent) {
     e.preventDefault();
     setRemovePinError(null);
+    setSessionNotice(null);
     setRemovePinSaving(true);
     try {
       const r = await api.setParentalPin({ pinAtual: removePinAtual, remover: true });
@@ -252,7 +300,9 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
       setShowRemovePin(false);
       setPinManageMessage(t('parental.pinRemoveSuccess'));
     } catch (err: any) {
-      if (err?.status === 429) {
+      if (éSessaoRenovada(err)) {
+        setSessionNotice(t('parental.sessionRenewedNotice'));
+      } else if (err?.status === 429) {
         setBlockedMessage(err.message);
         setShowRemovePin(false);
       } else {
@@ -280,18 +330,24 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
     setRecoverPassword('');
     setRecoverError(null);
     setRecoverSent(false);
+    setSessionNotice(null);
     setShowRecover(true);
   }
 
   async function submitRecover(e: React.FormEvent) {
     e.preventDefault();
     setRecoverError(null);
+    setSessionNotice(null);
     setRecoverSaving(true);
     try {
       await api.recuperarPin(isLocal ? recoverPassword : undefined);
       setRecoverSent(true);
     } catch (err: any) {
-      setRecoverError(err?.message || t('parental.saveGenericError'));
+      if (éSessaoRenovada(err)) {
+        setSessionNotice(t('parental.sessionRenewedNotice'));
+      } else {
+        setRecoverError(err?.message || t('parental.saveGenericError'));
+      }
     } finally {
       setRecoverSaving(false);
     }
@@ -388,7 +444,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
                     key={tag.slug}
                     className="w-full py-3 px-4 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between"
                   >
-                    <span className="text-sm text-zinc-300">{rotulo}</span>
+                    <span className="text-sm text-[var(--text-color)]">{rotulo}</span>
                     <button
                       type="button"
                       role="switch"
@@ -432,7 +488,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
                   type="button"
                   onClick={() => abrirPinModal('create')}
                   disabled={!!blockedMessage}
-                  className="w-full py-4 bg-white/5 text-zinc-200 font-bold rounded-2xl border border-white/10 hover:bg-white/10 transition-all text-sm disabled:opacity-40"
+                  className="w-full py-4 bg-white/5 text-[var(--text-color)] font-bold rounded-2xl border border-white/10 hover:bg-white/10 transition-all text-sm disabled:opacity-40"
                 >
                   {t('parental.pinCreateButton')}
                 </button>
@@ -443,7 +499,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
                   type="button"
                   onClick={() => abrirPinModal('change')}
                   disabled={!!blockedMessage}
-                  className="py-3.5 bg-white/5 text-zinc-200 font-bold rounded-2xl border border-white/10 hover:bg-white/10 transition-all text-sm disabled:opacity-40"
+                  className="py-3.5 bg-white/5 text-[var(--text-color)] font-bold rounded-2xl border border-white/10 hover:bg-white/10 transition-all text-sm disabled:opacity-40"
                 >
                   {t('parental.pinChangeButton')}
                 </button>
@@ -458,7 +514,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
                 <button
                   type="button"
                   onClick={abrirRecuperar}
-                  className="py-3.5 bg-white/5 text-zinc-200 font-bold rounded-2xl border border-white/10 hover:bg-white/10 transition-all text-sm"
+                  className="py-3.5 bg-white/5 text-[var(--text-color)] font-bold rounded-2xl border border-white/10 hover:bg-white/10 transition-all text-sm"
                 >
                   {t('parental.pinForgotButton')}
                 </button>
@@ -466,10 +522,11 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
             )}
           </div>
 
-          {/* Modal: PIN (salvar em lote) */}
+          {/* Modal: PIN (salvar em lote). Formulário (não div solto) pra
+              Enter submeter — fix round BAIXA 5. */}
           {showPinGate && (
             <div className="fixed inset-0 z-[6500] bg-black/90 backdrop-blur-xl flex items-center justify-center p-6">
-              <div className="w-full max-w-sm bg-[#1C1C1E] p-8 rounded-[2rem] border border-white/10 animate-apple">
+              <form onSubmit={handlePinGateSubmit} className="w-full max-w-sm bg-[#1C1C1E] p-8 rounded-[2rem] border border-white/10 animate-apple">
                 <h2 className="text-xl font-black text-white mb-2">{t('parental.pinEnterLabel')}</h2>
                 <p className="text-sm text-zinc-400 mb-6">{t('parental.pinEnterHint')}</p>
                 <input
@@ -481,22 +538,22 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
                   placeholder={t('parental.pinEnterLabel')}
                   className="w-full bg-black/50 border border-white/10 rounded-2xl px-5 py-4 text-white mb-4"
                 />
+                {sessionNotice && <p className="text-amber-500 text-xs font-bold mb-4">{sessionNotice}</p>}
                 {pinGateError && <p className="text-rose-500 text-xs font-bold mb-4">{pinGateError}</p>}
                 <div className="flex gap-3">
                   <button type="button" onClick={() => setShowPinGate(false)} className="flex-1 py-3 font-bold text-zinc-400">
                     {t('portal.works.cancel')}
                   </button>
                   <button
-                    type="button"
+                    type="submit"
                     data-testid="pin-gate-confirm"
-                    onClick={() => performSave(pinGateValue)}
                     disabled={saving || !!blockedMessage}
                     className="flex-1 py-3 bg-rose-600 text-white font-black rounded-2xl disabled:opacity-50"
                   >
                     {saving ? '...' : t('parental.pinConfirmButton')}
                   </button>
                 </div>
-              </div>
+              </form>
             </div>
           )}
 
@@ -545,6 +602,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
                   />
                 </div>
 
+                {sessionNotice && <p className="text-amber-500 text-xs font-bold">{sessionNotice}</p>}
                 {pinModalError && <p className="text-rose-500 text-xs font-bold">{pinModalError}</p>}
 
                 <div className="flex gap-3 pt-2">
@@ -581,6 +639,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
                     className="w-full bg-black/50 border border-white/10 rounded-2xl px-5 py-3 text-white"
                   />
                 </div>
+                {sessionNotice && <p className="text-amber-500 text-xs font-bold">{sessionNotice}</p>}
                 {removePinError && <p className="text-rose-500 text-xs font-bold">{removePinError}</p>}
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={() => setShowRemovePin(false)} className="flex-1 py-3 font-bold text-zinc-400">
@@ -617,6 +676,7 @@ const ParentalSettings: React.FC<ParentalSettingsProps> = ({ user, recoveryToken
                         className="w-full bg-black/50 border border-white/10 rounded-2xl px-5 py-3 text-white"
                       />
                     )}
+                    {sessionNotice && <p className="text-amber-500 text-xs font-bold">{sessionNotice}</p>}
                     {recoverError && <p className="text-rose-500 text-xs font-bold">{recoverError}</p>}
                     <div className="flex gap-3 pt-2">
                       <button type="button" onClick={() => setShowRecover(false)} className="flex-1 py-3 font-bold text-zinc-400">

@@ -283,6 +283,10 @@ const pt = {
   'parental.pinIncorrectPrefix': 'PIN incorreto —',
   'parental.pinAttemptsRemainingSuffix': 'tentativa(s) restante(s)',
   'parental.pinNextAttemptBlocks': 'PIN incorreto. A próxima tentativa errada bloqueia temporariamente.',
+  // Fix round da T7 (MÉDIA 2): 401 nas rotas de PIN/senha que era sessão
+  // expirada (não PIN errado) — refresh já feito, o pedido original nunca
+  // chegou a ser avaliado pelo servidor. Aviso neutro, nunca "PIN incorreto".
+  'parental.sessionRenewedNotice': 'Sessão renovada — confirme novamente.',
   'parental.pinConfirmButton': 'Confirmar',
   'parental.pinRemoveHint': 'Remover o PIN deixa estas preferências desprotegidas até você criar um novo.',
   'parental.pinRemoveSuccess': 'PIN removido.',
@@ -556,6 +560,7 @@ const en: Record<keyof typeof pt, string> = {
   'parental.pinIncorrectPrefix': 'Incorrect PIN —',
   'parental.pinAttemptsRemainingSuffix': 'attempt(s) left',
   'parental.pinNextAttemptBlocks': 'Incorrect PIN. The next wrong attempt will temporarily lock this.',
+  'parental.sessionRenewedNotice': 'Session renewed — please confirm again.',
   'parental.pinConfirmButton': 'Confirm',
   'parental.pinRemoveHint': 'Removing the PIN leaves these preferences unprotected until you create a new one.',
   'parental.pinRemoveSuccess': 'PIN removed.',
@@ -829,6 +834,7 @@ const es: Record<keyof typeof pt, string> = {
   'parental.pinIncorrectPrefix': 'PIN incorrecto —',
   'parental.pinAttemptsRemainingSuffix': 'intento(s) restante(s)',
   'parental.pinNextAttemptBlocks': 'PIN incorrecto. El próximo intento fallido bloqueará esto temporalmente.',
+  'parental.sessionRenewedNotice': 'Sesión renovada — confirma de nuevo.',
   'parental.pinConfirmButton': 'Confirmar',
   'parental.pinRemoveHint': 'Quitar el PIN deja estas preferencias desprotegidas hasta que crees uno nuevo.',
   'parental.pinRemoveSuccess': 'PIN eliminado.',
@@ -1102,6 +1108,7 @@ const zh: Record<keyof typeof pt, string> = {
   'parental.pinIncorrectPrefix': 'PIN 码错误 —',
   'parental.pinAttemptsRemainingSuffix': '次尝试机会',
   'parental.pinNextAttemptBlocks': 'PIN 码错误。下一次输错将暂时锁定。',
+  'parental.sessionRenewedNotice': '会话已刷新 — 请重新确认。',
   'parental.pinConfirmButton': '确认',
   'parental.pinRemoveHint': '删除 PIN 码后，这些偏好设置将不受保护，直到你创建新的 PIN 码。',
   'parental.pinRemoveSuccess': 'PIN 码已删除。',

@@ -18,6 +18,13 @@ export interface AgendaItem {
   releaseDay: number;
 }
 
+// Mensagens FIXAS de middlewares/verifyToken.js — as ÚNICAS duas formas de
+// um 401 significar "sessão", nunca "negócio" (PIN/senha errados). Usado só
+// pelas rotas com `retryAuthOn401=false` (Fase 5 Bloco 2, Task 7, fix round
+// MÉDIA 2) para não confundir accessToken expirado com PIN incorreto — ver
+// comentário de `request()` abaixo.
+const SESSION_401_MESSAGES = ['Token inválido.', 'Acesso negado. Token não fornecido.'];
+
 class ApiService {
   private static instance: ApiService;
   private accessToken: string | null = null;
@@ -150,6 +157,22 @@ class ApiService {
    * request). As rotas de PIN (updateParental/setParentalPin/recuperarPin)
    * chamam com `false` por isso — um 401 delas vira erro direto, sem
    * refresh nem replay.
+   *
+   * Fix round (MÉDIA 2): `retryAuthOn401=false` NÃO significa "nunca é
+   * sessão" — essas 3 rotas passam por `verifyToken` (middlewares/
+   * verifyToken.js) ANTES da lógica de negócio, então um accessToken
+   * expirado enquanto o formulário do PIN estava aberto (>15min parado na
+   * Conta) ainda produz 401, só que com uma das DUAS mensagens fixas do
+   * middleware (`SESSION_401_MESSAGES` abaixo) — nunca as mensagens de
+   * negócio das rotas ("PIN incorreto.", "PIN obrigatório.", "Senha
+   * incorreta.", ...). Distinguir pela mensagem: se bater com o middleware,
+   * tenta o refresh (mas NUNCA repete a chamada original — o corpo dela,
+   * ex. um PIN, nunca chegou a ser avaliado pelo servidor, então repetir
+   * não teria o que "confirmar de novo" com segurança) e relança um erro
+   * com `sessaoRenovada: true` quando o refresh funciona, para o
+   * componente mostrar um aviso neutro (fora do campo de PIN) e manter o
+   * formulário aberto; se o refresh falhar, `onAuthExpired` roda normalmente
+   * (mesmo desfecho do caminho com retry).
    */
   private async request<T>(path: string, options: RequestInit = {}, retried = false, retryAuthOn401 = true): Promise<T> {
     const fullUrl = `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
@@ -180,19 +203,39 @@ class ApiService {
     }
 
     if (!response.ok) {
-      if (response.status === 401 && retryAuthOn401 && !retried) {
-        const refreshed = await this.tryRefresh();
-        if (refreshed) return this.request<T>(path, options, true, retryAuthOn401);
-        this.onAuthExpired?.();
-      }
-      const errBody = await response.json().catch(() => ({}));
       // `status` e o resto do corpo (ex.: tentativasRestantes do PIN) vão
       // junto no Error — quem chama (ParentalSettings) precisa deles além
       // da mensagem para decidir a UI (401 com contagem × 429 bloqueado).
-      const error: any = new Error(errBody.error || `Erro ${response.status}`);
-      error.status = response.status;
-      if (errBody.tentativasRestantes !== undefined) error.tentativasRestantes = errBody.tentativasRestantes;
-      throw error;
+      const construirErro = (body: any, status: number) => {
+        const error: any = new Error(body.error || `Erro ${status}`);
+        error.status = status;
+        if (body.tentativasRestantes !== undefined) error.tentativasRestantes = body.tentativasRestantes;
+        return error;
+      };
+
+      if (response.status === 401 && !retried) {
+        if (retryAuthOn401) {
+          const refreshed = await this.tryRefresh();
+          if (refreshed) return this.request<T>(path, options, true, retryAuthOn401);
+          this.onAuthExpired?.();
+        } else {
+          // Response.json() só pode ser lido uma vez — decide aqui (sessão
+          // × negócio) e reaproveita o mesmo `body` nos dois desfechos,
+          // nunca chama `response.json()` de novo.
+          const body = await response.json().catch(() => ({}));
+          if (SESSION_401_MESSAGES.includes(body.error)) {
+            const refreshed = await this.tryRefresh();
+            const error = construirErro(body, 401);
+            if (refreshed) error.sessaoRenovada = true;
+            else this.onAuthExpired?.();
+            throw error;
+          }
+          throw construirErro(body, response.status);
+        }
+      }
+
+      const errBody = await response.json().catch(() => ({}));
+      throw construirErro(errBody, response.status);
     }
 
     return await response.json();
