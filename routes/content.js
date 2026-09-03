@@ -12,6 +12,7 @@ const getIdentity = require('../utils/requestIdentity');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 const { podeVerRascunho } = require('../utils/ownership');
+const { addPanels } = require('../services/episodePanelService');
 
 const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags'];
 const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
@@ -533,35 +534,15 @@ router.delete('/episodes/:id', verifyToken, requireAdmin, async (req, res) => {
 });
 
 // POST /api/content/episodes/:id/panels — adicionar painéis webtoon (admin)
+// Lógica extraída para services/episodePanelService.js (Fase 5 Bloco 1, Task
+// 4) — o portal do ilustrador (POST /api/portal/episodios/:id/paineis) reusa
+// a MESMA função, sem duplicar validação.
 router.post('/episodes/:id/panels', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { panels } = req.body; // [{ image_url, order, translationLayers? }]
-    if (!Array.isArray(panels) || panels.length === 0) {
-      return res.status(400).json({ error: 'panels deve ser um array não vazio.' });
-    }
-
-    const episode = await Episode.findByIdAndUpdate(
-      req.params.id,
-      { $push: { panels: { $each: panels } } },
-      { new: true }
-    );
-    if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
-
-    // 5º caminho de disparo: episódio publicado sem conteúdo (esqueleto)
-    // ganha o primeiro painel aqui. O claim + a guarda de conteúdo em
-    // notifyEpisodePublished fazem o resto — este é o único anexo que de
-    // fato envia; os seguintes são no-op (claim já consumido).
-    if (episode.status === 'published') {
-      require('../services/notificationService')
-        .notifyEpisodePublished(episode._id)
-        .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
-
-      // 4º dos 6 pontos de disparo do push (Task 5, ledger).
-      require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
-    }
-
+    const episode = await addPanels(req.params.id, req.body.panels);
     res.json({ success: true, panelCount: episode.panels.length, episode });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     logger.error('[Content] POST /episodes/:id/panels', err);
     res.status(500).json({ error: 'Erro ao adicionar painéis.' });
   }
