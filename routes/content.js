@@ -1,5 +1,4 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const router = express.Router();
 const Series = require('../models/Series');
 const Episode = require('../models/Episode');
@@ -173,102 +172,29 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
-// PUT /api/content/series/:id — editar série (admin)
+// PUT /api/content/series/:id — editar série (admin). A lógica de gênero
+// required condicional/tradução/redisparo foi extraída para
+// services/seriesPublishService.js (Fase 5 Bloco 1, Task 7) — a Fila de
+// Aprovação (routes/adminPortal.js) reusa a MESMA função ao aprovar uma
+// série do portal, em vez de duplicar estas regras.
 router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const updates = pick(req.body, SERIES_FIELDS);
-
-    // Busca única do documento atual — reaproveitada pela validação de
-    // genre abaixo, pelas traduções e pela detecção de republicação.
-    const current = await Series.findById(req.params.id).select('genre description isPublished').lean();
-    if (!current) return res.status(404).json({ error: 'Série não encontrada.' });
-
-    // genre é required condicional a isPublished (ver models/Series.js),
-    // mas required: function() do Mongoose não enxerga o documento
-    // persistido no caminho de update — findByIdAndUpdate roda o validator
-    // no contexto da query, não do doc, então nada barraria publicar sem
-    // gênero ou apagar o gênero de uma série já publicada. Calculamos o
-    // ESTADO FINAL (doc atual mesclado com o payload) e barramos aqui.
-    const generoFinal = 'genre' in updates ? updates.genre : current.genre;
-    // A comparação precisa reconhecer TODOS os formatos que o cast de
-    // Boolean do Mongoose converte para true no update ('true', 1, '1',
-    // 'yes', ...) — lista manual divergiria do cast real (foi o caso:
-    // 'yes' escapava). Fonte única: o Set convertToTrue do próprio Mongoose.
-    const publicadoFinal = 'isPublished' in updates
-      ? mongoose.Schema.Types.Boolean.convertToTrue.has(updates.isPublished)
-      : current.isPublished;
-    if (publicadoFinal === true && (!generoFinal || !String(generoFinal).trim())) {
-      return res.status(400).json({ error: 'Série publicada precisa de gênero preenchido.' });
-    }
-
-    // Gênero/descrição mudaram → refaz as traduções com os valores mesclados
-    // (o campo não enviado mantém o valor atual do documento).
-    if ('genre' in updates || 'description' in updates) {
-      const translationService = require('../services/translationService');
-      const translations = await translationService.buildTranslationsSafe({
-        genre: updates.genre ?? current.genre,
-        description: updates.description ?? current.description,
-      }, `série ${req.params.id}`);
-      if (translations) updates.translations = translations;
-    }
-
-    // isPublished está no body → precisamos do valor ANTERIOR (antes do
-    // update) para detectar a transição falso→verdadeiro: série que volta a
-    // publicar "destrava" capítulos que ficaram sem notificar enquanto ela
-    // estava despublicada (o claim de notifyEpisodePublished os poupou).
-    const estavaDespublicada = !current.isPublished;
-
-    const series = await Series.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
-    if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
-
-    // publicadoFinal (e não === true estrito) para o redisparo acompanhar o
-    // mesmo critério do gate: qualquer formato que o cast publica, redispara.
-    if (estavaDespublicada && 'isPublished' in updates && publicadoFinal) {
-      redispararNotificacoesDaSerie(series._id);
-    }
-
+    const series = await require('../services/seriesPublishService').applySeriesUpdate(req.params.id, updates);
     res.json(series);
   } catch (err) {
-    // Mesmo tratamento do POST: tags inválidas (0 ou 5–15, ver models/Series.js)
-    // geram ValidationError no runValidators do findByIdAndUpdate — sem isto
-    // cairia no catch genérico e viraria 500 em vez de 400.
-    if (err.name === 'ValidationError') {
+    if (err.status === 404) return res.status(404).json({ error: err.message });
+    // Mesmo tratamento de antes: gênero final ausente (400 com status
+    // próprio) e tags inválidas (0 ou 5–15, ValidationError do runValidators
+    // do findByIdAndUpdate) — sem isto cairia no catch genérico e viraria
+    // 500 em vez de 400.
+    if (err.status === 400 || err.name === 'ValidationError') {
       return res.status(400).json({ error: err.message });
     }
     logger.error('[Content] PUT /series/:id', err);
     res.status(500).json({ error: 'Erro ao atualizar série.' });
   }
 });
-
-/**
- * Série volta a ser publicada (isPublished falso→verdadeiro): re-dispara o
- * push dos capítulos que já estavam `status: 'published'` mas ficaram sem
- * notificar enquanto a obra estava despublicada (notifyEpisodePublished
- * desfaz o claim nesse caso — ver services/notificationService.js). Episódios
- * já notificados (notificationSentAt preenchido) ficam naturalmente de fora
- * do filtro. Fire-and-forget e SEQUENCIAL (sem Promise.all) — pode haver
- * muitos episódios e publicar a série nunca deve esperar o envio.
- */
-function redispararNotificacoesDaSerie(seriesId) {
-  // Gatilho de recálculo (Etapa 11 do PDF, ledger Task 5): a série voltou a
-  // publicar — mesmo ponto de disparo do push acima, 3º dos 6 "capítulo
-  // publicado" (a republicação de série é o que reativa capítulos que
-  // ficaram represados). Fire-and-forget, molde do Bloco 2.
-  require('../services/recommendationService').dispararRecalculo(seriesId, 'capitulo_publicado');
-
-  (async () => {
-    const notificationService = require('../services/notificationService');
-    const episodios = await Episode.find({
-      seriesId, status: 'published', notificationSentAt: null,
-    }).select('_id').lean();
-
-    for (const episode of episodios) {
-      await notificationService
-        .notifyEpisodePublished(episode._id)
-        .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
-    }
-  })().catch(err => logger.error('[Push] Falha ao redisparar notificações da série', err));
-}
 
 // DELETE /api/content/series/:id — remover série (admin)
 router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
