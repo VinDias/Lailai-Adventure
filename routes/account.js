@@ -29,6 +29,7 @@ const ReadingProgress = require('../models/ReadingProgress');
 const PushSubscription = require('../models/PushSubscription');
 const SuperReaderContribution = require('../models/SuperReaderContribution');
 const MensagemPortal = require('../models/MensagemPortal');
+const { avaliarTentativaPin, paraUpdateParental } = require('../services/parentalPinService');
 
 /**
  * LGPD — Direitos do titular dos dados (Art. 18).
@@ -212,7 +213,7 @@ router.put('/me/consent', verifyToken, async (req, res) => {
 // ─── EXCLUSÃO DE CONTA (DIREITO AO ESQUECIMENTO) ─────────────────────────────
 router.delete('/me', verifyToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).select('+parental.pinHash');
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
     // Confirmação por senha para contas locais (evita exclusão acidental/CSRF).
@@ -223,6 +224,24 @@ router.delete('/me', verifyToken, async (req, res) => {
       }
       const ok = await bcrypt.compare(password, user.passwordHash || '');
       if (!ok) return res.status(401).json({ error: 'Senha incorreta.' });
+    }
+
+    // Fase 5 Bloco 2: com PIN de proteção definido, a exclusão TAMBÉM exige
+    // o PIN — de QUALQUER provider (inclusive social, que não passou pela
+    // checagem de senha acima). Sem isso, quem sabe a senha (ou já tem a
+    // sessão social aberta) apagaria a conta e recriaria sem parental —
+    // mesma brecha que o PUT fecha para as próprias tagsBloqueadas do
+    // adulto. Mesmo rate limit persistido das outras rotas do PIN. ORDEM:
+    // senha (acima, só local) → PIN (aqui) → 409 de canal ativo (abaixo) →
+    // efeitos — todas as checagens de "pode fazer isso" acontecem ANTES de
+    // qualquer side effect (Stripe, deletes).
+    const temPin = !!(user.parental && user.parental.pinHash);
+    if (temPin) {
+      const avaliacao = await avaliarTentativaPin({ user, pin: req.body?.pin });
+      if (avaliacao.updateParental) {
+        await User.findByIdAndUpdate(user._id, { $set: paraUpdateParental(avaliacao.updateParental) });
+      }
+      if (!avaliacao.ok) return res.status(avaliacao.status).json(avaliacao.body);
     }
 
     const userId = user._id;

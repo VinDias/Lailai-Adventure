@@ -2,6 +2,12 @@ const nodemailer = require('nodemailer');
 const logger = require('../utils/logger');
 
 let _transporter = null;
+// Injeção exclusiva de testes (mesmo padrão de utils/bunnyStorage.js e
+// utils/googleTokenVerifier.js — `__set*ForTests`): as rotas que enviam
+// e-mail (forgot-password, recuperação de PIN) não devem falar com um SMTP
+// de verdade em teste. Quando setado, `sendEmail` chama isto em vez de
+// montar o transporter real.
+let testSender = null;
 
 function getTransporter() {
   if (_transporter) return _transporter;
@@ -42,6 +48,8 @@ const LOGO_HTML = `
  * @returns {Promise<object>} Resultado do nodemailer (messageId, etc.)
  */
 async function sendEmail({ to, subject, html, text }) {
+  if (testSender) return testSender({ to, subject, html, text });
+
   const from = `"${process.env.FROM_NAME || 'Lorflux'}" <${process.env.FROM_EMAIL || process.env.SMTP_USER}>`;
 
   try {
@@ -53,6 +61,14 @@ async function sendEmail({ to, subject, html, text }) {
     logger.error(`[Email] Falha ao enviar para ${to} — ${subject}:`, err.message);
     throw err;
   }
+}
+
+/** Injeção exclusiva de testes (mesmo padrão do googleTokenVerifier). */
+function __setSenderForTests(fn) {
+  if (process.env.NODE_ENV !== 'test') {
+    throw new Error('__setSenderForTests só pode ser usado em NODE_ENV=test');
+  }
+  testSender = fn;
 }
 
 // ─── Templates prontos ────────────────────────────────────────────────────────
@@ -106,4 +122,23 @@ async function sendPasswordReset(user, resetUrl) {
   });
 }
 
-module.exports = { sendEmail, sendWelcome, sendPremiumConfirmation, sendPasswordReset };
+// Fase 5, Bloco 2 (Task 3) — "Recuperação de PIN" (spec rev.3): remove o PIN
+// de proteção mediante confirmação por e-mail (a UI oferece definir um novo
+// PIN depois). Molde de sendPasswordReset — mesma infra, mesmo TTL de 1h.
+async function sendParentalPinReset(user, resetUrl) {
+  return sendEmail({
+    to: user.email,
+    subject: 'Recuperação do PIN de proteção — Lorflux',
+    html: `
+      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#0a0a0b;color:#fff;padding:40px;border-radius:16px">
+        ${LOGO_HTML}
+        <h2 style="font-size:20px;font-weight:700;margin-bottom:16px">Recuperação do PIN de proteção</h2>
+        <p style="color:#d4d4d8;line-height:1.6">Clique no botão abaixo para remover o PIN de proteção da sua conta. Você poderá definir um novo PIN em seguida. O link expira em <strong>1 hora</strong>.</p>
+        <a href="${resetUrl}" style="display:inline-block;margin-top:24px;padding:12px 28px;background:#e11d48;color:#fff;border-radius:12px;font-weight:700;text-decoration:none">Remover PIN</a>
+        <p style="color:#71717a;font-size:12px;margin-top:24px">Se você não solicitou isso, ignore este e-mail.</p>
+      </div>
+    `
+  });
+}
+
+module.exports = { sendEmail, sendWelcome, sendPremiumConfirmation, sendPasswordReset, sendParentalPinReset, __setSenderForTests };

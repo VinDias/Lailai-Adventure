@@ -181,15 +181,12 @@ const loginLimiter = process.env.NODE_ENV === 'test'
       message: { error: "Muitas tentativas de login. Tente novamente em 10 minutos." }
     });
 
-// Limita rotas sensíveis de conta (cadastro, recuperação e redefinição de senha)
-// para mitigar brute-force de tokens, criação de contas em massa e email-bombing.
-const accountLimiter = process.env.NODE_ENV === 'test'
-  ? (req, res, next) => next()
-  : rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 10,
-      message: { error: "Muitas solicitações. Tente novamente mais tarde." }
-    });
+// Limita rotas sensíveis de conta (cadastro, recuperação e redefinição de
+// senha; Fase 5 Bloco 2: recuperação de PIN) para mitigar brute-force de
+// tokens, criação de contas em massa e email-bombing. Extraído para
+// middlewares/accountLimiter.js — routes/parental.js reutiliza o MESMO
+// limiter nas rotas de recuperação de PIN.
+const accountLimiter = require('./middlewares/accountLimiter');
 
 app.use("/api", globalLimiter);
 
@@ -262,6 +259,10 @@ app.use("/api/channels", require("./routes/channels"));
 app.use("/api/portal", require("./routes/portal"));
 app.use("/api/favorites", require("./routes/favorites"));
 app.use("/api/account", require("./routes/account"));
+// Fase 5, Bloco 2 (Task 3): "Classificação etária e Preferências de
+// conteúdo" + PIN de proteção. Todas as rotas exigem sessão (verifyToken
+// dentro do próprio router).
+app.use("/api/parental", require("./routes/parental"));
 app.use("/api", require("./routes/push"));
 app.use("/api/superreader", require("./routes/superReader"));
 
