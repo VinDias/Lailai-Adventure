@@ -228,3 +228,55 @@ describe('GET /api/channels/:id — shape público', () => {
     expect(outroLogado.body.isFollowing).toBe(false);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// followers[] fora de TODAS as respostas (triagem final do Bloco 1): o GET
+// público já escondia; /me, a resposta do PUT e a do desativar ainda vazavam
+// os userIds dos seguidores (dado pessoal de leitor).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('followers[] nunca sai nas demais respostas de canal', () => {
+  it('GET /channels/me não devolve followers[]', async () => {
+    const canal = await criarCanal('premium', 'Canal Me Sem Followers');
+    canal.followers = [getId('user')];
+    await canal.save();
+
+    const res = await request(app)
+      .get('/api/channels/me')
+      .set('Authorization', `Bearer ${getToken('premium')}`);
+
+    expect(res.status).toBe(200);
+    const meu = res.body.find(c => c._id === String(canal._id));
+    expect(meu).toBeDefined();
+    expect(meu.followers).toBeUndefined();
+  });
+
+  it('resposta do PUT /channels/:id não devolve followers[]', async () => {
+    const canal = await criarCanal('premium', 'Canal Put Sem Followers');
+    canal.followers = [getId('user')];
+    await canal.save();
+
+    const res = await request(app)
+      .put(`/api/channels/${canal._id}`)
+      .set('Authorization', `Bearer ${getToken('premium')}`)
+      .send({ description: 'Nova descricao' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.description).toBe('Nova descricao');
+    expect(res.body.followers).toBeUndefined();
+  });
+
+  it('resposta do POST /channels/:id/desativar não devolve followers[]', async () => {
+    const canal = await criarCanal('user', 'Canal Desativar Sem Followers');
+    canal.followers = [getId('premium')];
+    await canal.save();
+
+    const res = await request(app)
+      .post(`/api/channels/${canal._id}/desativar`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.isActive).toBe(false);
+    expect(res.body.followers).toBeUndefined();
+  });
+});

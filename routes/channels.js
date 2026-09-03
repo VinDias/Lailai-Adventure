@@ -25,9 +25,12 @@ router.get('/', verifyToken, requireAdmin, async (req, res) => {
 });
 
 // GET /api/channels/me — canais do usuário autenticado
+// Sem followers[] (userIds de leitores são dado pessoal — mesmo critério do
+// GET /:id público; o dono não precisa da lista, só de contagem se um dia
+// precisar de algo).
 router.get('/me', verifyToken, async (req, res) => {
   try {
-    const channels = await Channel.find({ ownerId: req.user.id, isActive: true }).lean();
+    const channels = await Channel.find({ ownerId: req.user.id, isActive: true }).select('-followers').lean();
     res.json(channels);
   } catch (err) {
     logger.error('[Channels] GET /me', err);
@@ -116,7 +119,9 @@ router.put('/:id', verifyToken, async (req, res) => {
     if (banner !== undefined) channel.banner = banner;
 
     await channel.save();
-    res.json(channel);
+    // followers[] fora da resposta — mesmo critério do GET /:id público.
+    const { followers: _followers, ...semFollowers } = channel.toObject();
+    res.json(semFollowers);
   } catch (err) {
     logger.error('[Channels] PUT /:id', err);
     res.status(500).json({ error: 'Erro ao atualizar canal.' });
@@ -131,7 +136,7 @@ router.post('/:id/desativar', verifyToken, requireAdmin, async (req, res) => {
     const channel = await Channel.findByIdAndUpdate(
       req.params.id,
       { $set: { isActive: false } },
-      { new: true }
+      { new: true, select: '-followers' }
     );
     if (!channel) return res.status(404).json({ error: 'Canal não encontrado.' });
     res.json(channel);
