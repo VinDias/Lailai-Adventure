@@ -2,17 +2,28 @@
 
 **Contrato: pacote R$ 3.700 aprovado 28/08 (este bloco: Controle Parental R$ 700).**
 **Fontes: PDF "Controle parental — tags privadas" (26/08) · PDF "Sistema de tags dos autores e do usuário" (31/08, `docs/sistema-de-tags-dos-autores-e-do-usuario.pdf` — SUPERA o desenho de tags do Bloco 4) · decisão 28/08 (Gênero FICA visível ao leitor).**
+**Rev. 2 — incorpora os 20 achados do painel adversarial de 4 lentes de 03/09.**
+
+**Registro comercial (achado do painel):** o PDF de tags é de 31/08, posterior
+ao fechamento do preço (28/08) — o retrabalho do sistema de tags do B4
+(vocabulário, migração de acervo e de fixtures) é ABSORVIDO no pacote: o Vin
+enviou o PDF antes do início da execução e garantiu o pagamento depois dele
+(01/09). Fica registrado para a prestação de contas, junto com a higiene do
+B1 (CastError/episode_number = conserto de bug; **reativação de canal =
+conserto da desativação sem inversa, cortesia registrada, não faturável**).
 
 ## Objetivo
 
-Um vocabulário fechado de 19 tags com DUAS funções independentes (letra do PDF):
-descoberta/recomendação (autor escolhe até 8 que representam a obra de verdade;
-Master corrige) e filtro pessoal (usuário bloqueia tags; o servidor elimina
-essas obras da experiência DELE — a obra segue publicada para os demais).
-Mais a classificação etária oficial (Kids/Teen/Young, definida pela Lorflux)
-com PIN parental. Nomenclatura OBRIGATÓRIA na UI: **"Classificação etária"**
-(Kids/Teen/Young) e **"Preferências de conteúdo"** (tags ocultadas) — NUNCA
-"controle de classificação". Uma plataforma única, sem versão por país.
+Um vocabulário fechado de 19 tags com DUAS funções independentes (letra do
+PDF): descoberta/recomendação (autor escolhe até 8 que representam a obra de
+verdade; Master corrige) e filtro pessoal (usuário bloqueia tags; o servidor
+elimina essas obras da experiência DELE — a obra segue publicada para os
+demais). Mais a classificação etária oficial (Kids/Teen/Young, definida pela
+Lorflux) com PIN. Nomenclatura OBRIGATÓRIA na UI: **"Classificação etária"**
+e **"Preferências de conteúdo"** — NUNCA "controle de classificação". Título
+da seção na Conta: **"Classificação etária e Preferências de conteúdo"**
+(neutro — sem guarda-chuva "controle parental", preservando o enquadramento
+anti-censura do Vin; o PIN aparece como "PIN de proteção").
 
 ## O vocabulário (fechado, 19 — letra do PDF)
 
@@ -21,84 +32,108 @@ Ficção Científica · Terror · Thriller · Mistério · Crime · Histórico �
 Sobrenatural · Super-heróis · Slice of Life · High School · Psicológico ·
 LGBTQIA+
 
-Armazenamento: SLUGS canônicos minúsculos sem acento (`romance`, `drama`,
-`comedia`, `acao`, `aventura`, `fantasia`, `dark-fantasy`, `ficcao-cientifica`,
-`terror`, `thriller`, `misterio`, `crime`, `historico`, `sobrenatural`,
-`super-herois`, `slice-of-life`, `high-school`, `psicologico`, `lgbtqia+`)
-em `utils/tagsVocabulario.js` (backend, fonte única: slugs + rótulo PT) e
-rótulos de exibição i18n ×4 no frontend (o leitor VÊ os nomes nas Preferências
-de conteúdo; a obra continua NUNCA exibindo as próprias tags — regra do
-Bloco 4 mantida).
+Slugs canônicos: `romance, drama, comedia, acao, aventura, fantasia,
+dark-fantasy, ficcao-cientifica, terror, thriller, misterio, crime,
+historico, sobrenatural, super-herois, slice-of-life, high-school,
+psicologico, lgbtqia+`.
 
-## O que JÁ existe (scout com file:linha)
+**Fonte ÚNICA dos slugs: `utils/tagsVocabulario.json`** (array de {slug,
+rotuloPt}) — o backend importa via `utils/tagsVocabulario.js` (require) e o
+FRONTEND importa o MESMO JSON (Vite importa JSON) guardando só o mapa
+slug→rótulo i18n ×4. Nenhuma lista duplicada — drift de slug entre camadas é
+impossível por construção (B3/5.1 reutilizam). A obra continua NUNCA
+exibindo as próprias tags ao leitor (regra do B4 mantida); o leitor vê os
+RÓTULOS do vocabulário só nas Preferências de conteúdo.
+
+## O que JÁ existe (scout com file:linha, conferido pelo painel)
 
 | Peça | Estado |
 |---|---|
-| `Series.tags` | livre 0 ou 5–15 (`models/Series.js:36`), setter normaliza minúsculas/dedupe (`:17-30`) — **validator MUDA: 0 a 8, todas do vocabulário** |
-| `Series.content_rating_sugerida` | `models/Series.js:53` (Bloco 1) — a OFICIAL (`content_rating`) nasce agora |
-| Recomendação | candidatos em `recommendationService.js:1335` (`Series.find({isPublished, content_type})`) — ponto ÚNICO de inserção do filtro; **o fallback da rota refaz um find cru em `routes/content.js:259` e TAMBÉM precisa**; afinidade/temaForte/neutro (`:1046`, `:1178`, `:1286`) seguem funcionando com o vocabulário (são agnósticos ao conteúdo das strings) |
-| Superfícies públicas | lista (`content.js:105`, **anônima pura**) · detalhe (`:127`) · episódios (`:283`) · episódio (`:313`) · search (`:23`) · agenda (`:76`, **anônima pura**) · recommendations (`:241` + fallback `:259`) · favoritos (`favorites.js:12`) · continuar (`progressService.js:215`) · canal público lista obras CLIENT-SIDE via `getSeries()` (`CanalPublico.tsx:56`) · signed-url (bunnyWebhook) |
-| PIN | NÃO existe infra nenhuma; padrão de segredo = `bcrypt` rounds 12 (`server.js:386`), confirmação tipo exclusão de conta (`account.js:204`) |
-| Export LGPD | `account.js:78` exclui só `-passwordHash` — **`parental.pinHash` vazaria; exclusão explícita obrigatória** |
-| Testes do Bloco 4 | validator: ~17 de 20 its de `recommendations.test.js:23-231` pinam 5–15; ~50 fixtures com 5 tags INVENTADAS fora do vocabulário — **migração de fixtures preservando as RELAÇÕES DE INTERSEÇÃO dos cenários (afinidade/temaForte/diversidade), nunca só trocar strings às cegas** |
-| UI de tags | `TagsChipInput` input LIVRE (`AdminDashboard.tsx:2204-2253`, contador /15) — vira seletor fechado |
-| Conta | inline em `App.tsx:451-536`; `PrivacyCenter.tsx` é o molde de painel; i18n flat ×4 idiomas |
+| `Series.tags` | livre 0 ou 5–15 (`models/Series.js:36`), setter normaliza (`:17-30` — slugs com hífen/+ sobrevivem, conferido) — validator MUDA: 0 a 8 do vocabulário |
+| `Series.content_rating_sugerida` | `models/Series.js:53` (B1) — a OFICIAL (`content_rating`) nasce agora |
+| Recomendação | candidatos em `recommendationService.js:1335` + **fallback cru em `routes/content.js:259`** (os DOIS levam o filtro); afinidade/temaForte/neutro (`:1046/:1178/:1286`) agnósticos às strings, mas NÃO à cardinalidade (ver decisão própria) |
+| Superfícies de LISTA | lista (`content.js:105`, anônima pura → ganha optionalAuth) · search séries (`:31-34`) · agenda (`:76`, anônima pura → optionalAuth) · recommendations (`:241`+`:259`) · favoritos (`favorites.js:12`) · continuar (`progressService.js:215`) · canal público client-side via `getSeries()` |
+| Superfícies de DOC ÚNICO (ALTO do painel) | detalhe (`content.js:127`) · episódios da série (`:283`, **select estreito 'isPublished channelId'**) · episódio (`:313-317`, **populate estreito**) · search ramo EPISÓDIOS (`:44-51`, **populate estreito + post-filter só de isPublished**) · signed-url (`bunnyWebhook.js:586-589`, **populate estreito**) — TODOS os selects/populates ampliam para incluir `content_rating tags`; sem isso o filtro falha ABERTO em silêncio |
+| Push | `notificationService.js:101-104` — audiência = favoritadores, SEM filtro (superfície que a rev.1 esqueceu) |
+| Admin users | `adminManagement.js:23` — projeção POR EXCLUSÃO devolveria `parental` inteiro (pinHash!) |
+| PIN | sem infra; bcrypt 12 (`server.js:386`); reset de senha NÃO toca parental (`server.js:643-659` — vira garantia testada) |
+| Export LGPD | payload é ALLOWLIST (`account.js:101-115`) — parental precisa ser ADICIONADO explicitamente (campo a campo), nunca via spread |
+| Testes que mudam | `recommendations.test.js` (~17 its validator + ~50 fixtures) · `adminAprovacoes.test.js:310-335` (tags fora do vocabulário → migrar p/ slugs) · `portalCrud.test.js:125/241` (contrato INVERTE: tags passam a ser aceitas — deliberado) e `:906` (select do portal passa a INCLUIR tags — form de edição precisa) · `adminTags.test.tsx` (contador /15 → /8, seletor fechado) |
+| UI | `TagsChipInput` livre (`AdminDashboard.tsx:2204-2253`) → seletor fechado · Conta inline `App.tsx:451-536`, molde `PrivacyCenter` · i18n flat ×4 |
 
 ## Decisões
 
 | Decisão | Escolha | Por quê |
 |---|---|---|
-| Modelo do usuário | `User.parental { classificacaoEtaria: enum kids/teen/young DEFAULT 'young', tagsBloqueadas: [slug do vocabulário] default [], pinHash: String default null }` — subdoc irmão de `consent` | Default 'young' = catálogo completo (o "sem barreiras" do Vin); quem quer restringir, restringe |
-| Classificação oficial | `Series.content_rating: enum kids/teen/young, default null`. Definida SÓ pelo Master (admin form + fila de aprovação; `content_rating_sugerida` do autor PRÉ-PREENCHE o campo na fila). **Aprovar na fila passa a exigir gênero E classificação** | "Definida oficialmente pela Lorflux" (PDF); a sugerida do Bloco 1 vira insumo, como planejado |
-| Obra sem classificação | Tratada como **'young'** (fail-safe: só aparece para quem vê tudo; some de Teen/Kids) | Errar para o lado de esconder de criança, nunca de mostrar. Catálogo atual é pequeno — o Master classifica na largada (badge de "não classificadas" no admin) |
-| Semântica etária | Kids vê `content_rating: 'kids'`; Teen vê `kids+teen`; Young vê tudo (inclusive não classificadas) | Escada padrão de classificação |
-| Filtro pessoal (tags) | `tags: { $nin: tagsBloqueadas }` — obra com QUALQUER tag bloqueada sai | Letra do PDF: "o servidor simplesmente elimina essas obras da experiência daquele usuário" |
-| Onde o filtro roda | **`utils/parentalFilter.js`** (fonte única): `getFiltroParental(userId)` → fragmento de query Mongo (`$and` de etária + tags) + `serieVisivelPara(user, serie)` p/ checagem de doc único. Aplicado em TODAS as superfícies de leitor: lista, detalhe (→404, mesmo padrão dos drafts — deep link não fura), episódios da série, episódio/leitor, **signed-url**, search, agenda, recommendations (no candidato `:1335` E no fallback `:259` — cotas/diversidade preenchem só com permitidas), favoritos (a obra some da LISTA; o favorito NÃO é apagado — desbloquear a tag traz de volta), continuar lendo. Lista e agenda ganham `optionalAuth` | Ordem do PDF: Catálogo → classificação → tags → recomendações/busca/home. Um só ponto de verdade; rota nenhuma monta filtro à mão |
-| Quem NÃO é filtrado | Anônimo/visitante (sem conta = sem preferências = young sem bloqueio); admin nas rotas ADMIN; dono de canal no PORTAL (as próprias obras) e nos próprios rascunhos (regra da T2/B1). O filtro é da EXPERIÊNCIA DE LEITURA do usuário logado | Preferência é da conta; portal/admin são operação, não consumo |
-| Artista × preferências | Tags da obra: autor escolhe até 8 no PORTAL (campo novo no form criar/editar draft — allowlist `PORTAL_SERIES_FIELDS` += tags com validação vocabulário/8); Master corrige na fila e no admin. Preferências do usuário: NUNCA exibidas na página da obra, NUNCA visíveis ou alteráveis pelo artista, não mudam metadados | Letra dos dois PDFs |
-| PIN | 4–6 dígitos, `bcrypt` rounds 12, OPCIONAL. Sem PIN: o dono da sessão muda as preferências livremente (com aviso recomendando criar). Com PIN: QUALQUER mudança de `parental` (etária, tags, trocar/remover PIN) exige o PIN atual. Rate limit: 5 tentativas/15min por usuário (mesmo espírito do accountLimiter); erradas → 401 sem vazar quantas restam com precisão? — mostra tentativas restantes (UX de parental, não de login) | Sem PIN o controle parental é decorativo (criança desfaz); com PIN, restringir é reversível só por quem o sabe |
-| Rotas | `GET /api/parental` (minhas prefs: etária, tags bloqueadas, `temPin` bool — NUNCA pinHash) · `PUT /api/parental` (body: classificacaoEtaria?, tagsBloqueadas?, `pin` obrigatório se temPin) · `POST /api/parental/pin` (define/troca/remove: `{ novoPin?, pinAtual?, remover? }` — exige pinAtual se já existe). Tudo `verifyToken`; validação de slugs contra o vocabulário (desconhecido → 400) | Superfície mínima; PIN nunca trafega de volta |
-| Migração do acervo | Passo de deploy (script `scripts/migrarTagsVocabulario.js`, idempotente): mapa manual tag-livre-atual → slug do vocabulário (catálogo conhecido); não mapeável → REMOVIDA; obra pode ficar com 0 tags (neutro derivado do B4 cobre); `content_rating` nasce null em todo o acervo → badge "não classificadas" no admin orienta o Master. Validator novo só REJEITA ESCRITA inválida — docs antigos não quebram leitura | Zero downtime; curadoria final é humana (regra do Vin: Master corrige) |
-| Fixtures do Bloco 4 | Migração DEDICADA (task própria): trocar tags inventadas por slugs do vocabulário PRESERVANDO as relações de interseção de cada cenário (sobreposição de afinidade, temaForte >50%, dedupe, fronteiras); cenários de 15/16 tags viram fronteiras de 8/9; NENHUM expect afrouxado — o revisor confere cenário a cenário | O algoritmo do B4 é agnóstico às strings; os TESTES não são. Mudar fixture sem entender o cenário = teste que passa sem provar |
-| `TagsChipInput` | Vira seletor fechado: 19 chips clicáveis (rótulo PT no admin), máx 8, contador /8; MESMO componente no admin (criar/editar/fila) e a versão i18n no portal | Fonte única de UI; o autor não digita tag — escolhe |
-| UI do leitor (Conta) | Seção "Controle parental" (molde `PrivacyCenter`): **Classificação etária** (3 opções + explicação) e **Preferências de conteúdo** (19 tags i18n como toggles "ocultar") + gestão de PIN. i18n ×4. Admin segue PT | Nomenclatura obrigatória do PDF; tudo que o leitor vê em 4 idiomas |
-| LGPD | Export inclui `parental` SEM `pinHash` (exclusão explícita no select E no payload); exclusão de conta apaga junto com o doc (já cobre) | `account.js:78` só exclui passwordHash hoje — buraco mapeado no scout |
-| Guest | Nada muda para visitante | Sem conta, sem preferências |
+| Modelo do usuário | `User.parental { classificacaoEtaria: enum kids/teen/young DEFAULT 'young', tagsBloqueadas: [slug], pinHash: { type: String, default: null, select: false }, pinTentativas: Number default 0, pinBloqueadoAte: Date default null }` — irmão de `consent`. **`select: false` no pinHash = fora de TODA query por default** (rotas do parental fazem `.select('+parental.pinHash')` para comparar); `adminManagement.js:23` ganha `-parental` na projeção (preferências são privadas — nem superadmin vê, letra do PDF de 26/08) | pinHash de 4–6 dígitos exposto quebra offline em segundos; preferências de conteúdo no painel admin contrariam o espírito do PDF |
+| Classificação oficial | `Series.content_rating: enum kids/teen/young, default null`. Só o Master define (admin form + fila; allowlist do aprovar vira `['genre','tags','content_rating']`). **A exigência "aprovar → classificação obrigatória" vive NA ROTA do aprovar (`adminPortal.js:251`), NUNCA em `applySeriesUpdate`** — o PUT admin continua publicando sem rating (fail-safe + badge cobrem o acervo). Sugerida do autor PRÉ-PREENCHE a fila; **com sugerida null (obra submetida antes do B2), o seletor abre SEM default — o Master escolhe ativamente**; mensagem do 400: "Classificação etária é obrigatória para aprovar" | Se a exigência entrasse no service compartilhado, o PUT admin do acervo quebraria — contradição interna que o painel pegou |
+| Semântica etária (FORMA da query pinada) | **POSITIVA, nunca por exclusão**: kids → `{content_rating:'kids'}`; teen → `{content_rating:{$in:['kids','teen']}}`; young → SEM cláusula. `$in` não casa null NEM campo ausente — o fail-safe (não classificada = só para young) sai DE GRAÇA e o script de migração nem precisa de `$set: null`. `serieVisivelPara` trata `undefined` e `null` como o mesmo caso | `$ne/$nin` casariam docs com campo ausente e INVERTERIAM o fail-safe em silêncio (achado do painel); matriz de testes inclui doc com campo AUSENTE, não só null |
+| Filtro pessoal (tags) | `tags: { $nin: tagsBloqueadas }` (qualquer tag bloqueada exclui; campo ausente passa — conferido) | Letra do PDF |
+| Fonte única do filtro | `utils/parentalFilter.js`: `getFiltroParental(user)` → fragmento `$and` (etária positiva + $nin) para QUERIES DE LISTA; `serieVisivelPara(user, serie)` para DOC ÚNICO — **exige que `serie` tenha `content_rating` e `tags` presentes: se o doc vier sem os campos (select estreito), LANÇA erro** (fail-closed contra regressão futura), e **devolve `true` para admin e para o DONO do canal da série** (ver exceções) | O ALTO do painel: sem a defesa, um select estreito futuro reabre o buraco calado |
+| Superfícies filtradas (lista) | lista de séries, search (ramo séries), agenda, recommendations (candidatos `:1335` E fallback `:259` — cotas preenchem só com permitidas), favoritos (some da LISTA; favorito persiste no banco — desbloquear traz de volta), continuar lendo, canal público (via lista já filtrada). Lista e agenda ganham `optionalAuth` (nunca rejeita — conferido que nenhum consumidor quebra) | Ordem do PDF |
+| Superfícies filtradas (doc único) | detalhe da série (→404, padrão dos drafts), episódios da série, episódio/leitor, signed-url, **search ramo EPISÓDIOS (post-filter com serieVisivelPara na série populada — o fragmento de query não alcança o populate)**. TODOS os selects/populates dessas posições ampliados para `+ content_rating tags`. Composição com a T2/B1: branch publicado → `serieVisivelPara` → 404/[]; branch rascunho → `podeVerRascunho` INALTERADO e sem filtro parental | Deep link não fura por NENHUM caminho; o ramo de episódios da busca era a sub-superfície fácil de esquecer (2 lentes pegaram) |
+| **Push de capítulo novo** | `notifyEpisodePublished` cruza a audiência (favoritadores) com o filtro: carrega `parental` dos userIds em lote e descarta quem não pode ver a série ANTES de buscar PushSubscriptions. Teste: favoritar → bloquear tag → publicar capítulo → zero envios; sem bloqueio → recebe | A obra "eliminada da experiência" não pode apitar com título e deep link na tela de bloqueio da criança (ALTO do painel) |
+| Writes de engajamento | `POST favorites/:seriesId`, `POST series/:id/vote`, `POST episodes/:id/vote`, `superreader/create-session`: `serieVisivelPara` → 404 (mesmo shape do detalhe). GETs de contagem ficam | Criança kids não pode favoritar/apoiar via API obra que não pode ver (alimentaria o push; checkout de obra invisível é incoerência) |
+| Exceções ao filtro | `serieVisivelPara` = true para **admin** (senão o AdminDashboard quebra: ele carrega episódios pela rota PÚBLICA `content.js:283`) e para **dono do canal da série** (senão o dono com parental setado toma 404 na PRÓPRIA obra publicada — o endpoint não sabe se a chamada veio do portal). Nas LISTAS, o filtro vale para todos (a ausência da própria obra na home do dono é autoinfligida — aceita e registrada). Anônimo/visitante: sem filtro | O painel provou a quebra do admin com file:linha; regra mora no helper, não na "superfície" |
+| PIN | 4–6 dígitos, bcrypt 12, OPCIONAL (aviso recomendando). Com PIN: QUALQUER mudança de `parental` exige o PIN — **inclusive as tagsBloqueadas do próprio adulto (escolha consciente: sem isso a criança desbloqueia; registrado, não implícito)**. Rate limit PERSISTIDO NO USER: `pinTentativas`/`pinBloqueadoAte`, 5 erros → 15min com backoff exponencial (dobra por lote), zera no acerto; key = userId (por IP não acrescenta: a rota exige a própria sessão); mostra tentativas restantes | Limiter em memória zera no restart e por IP pune a casa inteira (achado); contador persistido também entrega o "tentativas restantes" |
+| Recuperação de PIN | PIN esquecido: remoção SÓ via confirmação de senha + token dedicado por e-mail (molde do reset-password, com accountLimiter) — nunca senha sozinha (criança que sabe a senha derrubaria o PIN). Conta social (sem senha): token por e-mail apenas. **Reset/troca de senha e de e-mail NUNCA tocam em `parental` (garantia com teste)** | Sem caminho, PIN esquecido = preferências imutáveis para sempre |
+| **Exclusão de conta × PIN** | `DELETE /api/account/me` passa a exigir o PIN quando `temPin` (qualquer provider), ALÉM da senha para contas locais. **Hoje conta Google exclui com um clique** — a criança apagaria a conta e recriaria sem parental | ALTO do painel; mesma regra do PUT: desfazer a restrição (inclusive por exclusão) só com o PIN |
+| Rotas | `GET /api/parental` (etária, tagsBloqueadas, `temPin`, e a LISTA DE SLUGS do vocabulário — o frontend não hardcoda) · `PUT /api/parental` (classificacaoEtaria?, tagsBloqueadas?, `pin` se temPin) · `POST /api/parental/pin` ({novoPin?, pinAtual?, remover?}) · `POST /api/parental/pin/recuperar` + confirmação por token. Tudo verifyToken; slug desconhecido → 400; pinHash NUNCA em resposta NENHUMA (teste de shape cobre também `GET /api/admin/users` e `GET /api/auth/me`) | Superfície mínima |
+| Tags no portal/admin | Autor: até 8 no form do portal (criar/editar draft) — `PORTAL_SERIES_FIELDS` += tags com validação vocabulário/8 (**contrato do B1 INVERTE deliberadamente: tags deixam de ser ignoradas; content_type/isPublished/genre SEGUEM ignorados** — testes portalCrud:125/241 reescritos com essa distinção); select do `GET /portal/series` passa a INCLUIR tags (form de edição precisa do estado atual; portalCrud:906 re-pinado). Master corrige na fila e no admin. `TagsChipInput` vira seletor fechado (19 chips, máx 8, /8) — mesmo componente, versão i18n no portal | Letra do PDF (autor escolhe, Master corrige) |
+| Cardinalidade × algoritmo (B4) | **O mínimo 5 do B4 é REVOGADO pelo PDF ("até 8", sem mínimo) — efeito colateral ACEITO e registrado: `temaForte` dispara mais com conjuntos pequenos (1 tag × 1 tag igual = 100% > 50% = conflito)**. Testes novos de baixa cardinalidade (1×1 igual → conflito; 2×2 com 1 comum = 50% → NÃO conflito — fronteira exclusiva) além das fronteiras 8/9. Pós-migração do acervo real: smoke manual do /recommendations antes/depois, anotado no ledger | O guard-rail do B4 cai por decisão do cliente, não por acidente — assinado aqui |
+| Migração do acervo | Script `scripts/migrarTagsVocabulario.js`, idempotente, cobre **TODOS os docs de Series (publicadas, despublicadas, drafts — senão a 1ª edição de um draft leva 400)**: mapa manual tag-livre → slug; não mapeável → removida; pós-mapa aplica DEDUPE e **CAP em 8 por ordem de prioridade do mapa, com ASSERT que falha alto se >8 sobrar**; obra pode ficar com 0 (neutro derivado cobre). `content_rating` não precisa de $set (semântica positiva cobre ausente). Badge "não classificadas" no admin orienta o Master | Duas tags livres → mesmo slug e obras com 9+ mapeáveis eram buracos do script (achado); teste inclui as duas fixtures |
+| Fixtures do B4 (migração de testes) | Task dedicada com guia CONCRETO: (1) a alavanca é o validator SEM mínimo — reduzir para 2–3 tags por obra mantém disjunção pairwise dentro do orçamento de 19 slugs (cenários de 6+ obras disjuntas de 5 tags são IMPOSSÍVEIS com 19 — 4×5=20>19); (2) expects de valores exatos de afinidade são RECALCULADOS das novas frações (recalcular ≠ afrouxar); (3) o revisor confere a RELAÇÃO de cada cenário (disjunto/sobreposto/>50%), não o número | Sem o guia, o executor criaria sobreposições acidentais ou travaria (achado com a conta combinatória) |
+| UI do leitor (Conta) | Seção "Classificação etária e Preferências de conteúdo" (molde PrivacyCenter): etária (3 opções + explicação), 19 toggles i18n "ocultar", gestão do PIN de proteção. i18n ×4. Admin PT | Nomenclatura do PDF; título neutro (ver Objetivo) |
+| LGPD | Export ADICIONA `parental` explicitamente (classificacaoEtaria, tagsBloqueadas, temPin bool — campo a campo, nunca spread); exclusão de conta apaga junto (já cobre) | O payload é allowlist — o risco real era a AUSÊNCIA (violação de acesso), não vazamento (achado corrigiu o scout) |
+| Guest | Nada muda. **Limitação CONSCIENTE e registrada: logout/visitante contorna o filtro por definição — o parental é da CONTA, não do dispositivo** (modo visitante é cortesia aprovada na Fase 4). Mitigação por dispositivo = escopo futuro com o Vin | 2 lentes pediram o registro; comunicar ao Vin na entrega |
 
-## Higiene herdada do Bloco 1 (dívidas atribuídas a este bloco)
+## Higiene herdada do Bloco 1 (conserto/cortesia — não faturável no R$700)
 
-CastError de id malformado → 404 (rotas de canal + `PUT /portal/series/:id` +
-`POST /portal/episodios/:id/paineis`; padrão `adminPortal.js`) ·
-`GET /channels?includeInactive=true` (admin) com `isActive` no select +
-`POST /channels/:id/reativar` (admin) + CanaisPanel lista/reativa inativos
-(threads arquivadas voltam a ter porta de entrada) · `episode_number`
-duplicado na MESMA série → 400 (rotas portal e admin de criação).
+CastError → 404 (rotas de canal + `PUT /portal/series/:id` + `POST
+/portal/episodios/:id/paineis`) · `GET /channels?includeInactive=true` admin
+com `isActive` no select + `POST /channels/:id/reativar` + CanaisPanel
+lista/reativa inativos (conserto: desativar hoje não tem inversa) ·
+`episode_number` duplicado na MESMA série → 400 (portal e admin).
 
 ## Fora deste bloco (registrado)
 
-Curadoria/sinalização (Bloco 3 — usa as MESMAS obras filtradas? NÃO: sinalizar
-é sobre a obra publicada, independe de preferências) · temporadas/legendas/
-DDLS/publicidade (5.1) · validação de host de imagem contra CDN (5.1, dívida
-B1) · tags privadas ≠ vocabulário separado (o PDF 4 SUPEROU: mesmas 19 servem
-aos dois usos).
+Curadoria/sinalização (B3 — independe de preferências; fila de curadoria é
+rota admin, não filtrada) · temporadas/legendas/DDLS/publicidade (5.1;
+`content_rating` em Series já cobre hqcine/vcine futuros) · validação de
+host de imagem (5.1) · **busca TEXTUAL por tag: NÃO entra — descoberta é via
+recomendação (B4); busca por tag = decisão futura com o Vin (registrado para
+não virar cobrança)** · mitigação de bypass por logout/dispositivo · conta
+nova/outro dispositivo escapam do parental (limitação inerente, comunicar) ·
+índice em tags/content_rating: NÃO criar (catálogo pequeno; $nin não usa
+índice — avaliado e recusado pelo painel).
 
 ## Testes (antes do código, por task)
 
-Backend: enum do vocabulário (slug inválido → 400 em série, portal, parental);
-validator 0–8 (fronteiras 8/9; 0 ok); `content_rating` só via admin/fila
-(allowlist portal NÃO aceita; aprovar sem classificação → 400; sugerida
-pré-preenche mas Master decide); matriz do filtro por superfície × perfil
-(young vê tudo; teen não vê young nem NULL; kids só kids; tag bloqueada some
-de TODAS as superfícies — lista/detalhe 404/episódios/leitor/signed-url/
-search/agenda/recomendação incl. fallback/favoritos/continuar — teste por
-superfície, com obra 'young' sem rating e obra com tag bloqueada); anônimo vê
-tudo; admin/portal NÃO filtrados; favorito de obra bloqueada persiste no banco
-e volta ao desbloquear; PIN (define/troca/remove, PUT sem pin com temPin →
-401, rate limit 5/15min, pinHash NUNCA em resposta nenhuma — grep de shape);
-export com parental SEM pinHash; recomendação: cotas preenchem só com
-permitidas (fixture com bloqueada no topo do score — não aparece e a cota
-completa com a próxima); migração de fixtures B4 cenário a cenário (revisor
-confere as relações); script de migração idempotente (2ª rodada no-op).
-Frontend: seção Controle parental (nomenclatura EXATA), 19 toggles i18n ×4,
-fluxos de PIN, TagsChipInput fechado /8 (admin e portal), badge de não
-classificadas no admin, fila exigindo classificação.
+Backend: enum/slug inválido → 400 (série admin, portal, parental); validator
+0–8 (fronteiras 8/9; 0 ok; sem mínimo); content_rating só admin/fila
+(allowlist portal recusa; aprovar sem → 400 com a mensagem pinada; sugerida
+null na fila aprovável escolhendo na hora); **matriz filtro × superfície ×
+perfil** (young vê tudo incl. rating AUSENTE e null; teen não vê young/null/
+AUSENTE; kids só kids; tag bloqueada some de: lista, search séries E
+EPISÓDIOS, agenda, recomendação INCLUSIVE FALLBACK, favoritos-lista,
+continuar, detalhe→404, episódios, leitor, signed-url); anônimo sem filtro;
+**admin vê tudo nas superfícies compartilhadas (AdminDashboard segue
+gerenciando episódios de obra "bloqueada")**; **dono abre a própria obra
+publicada mesmo com a tag dela bloqueada** (detalhe/episódios/signed-url);
+favorito persiste e volta ao desbloquear; writes de engajamento em obra
+invisível → 404 (favoritar, votar ×2, SR create-session); **push: favoritou→
+bloqueou→capítulo novo → zero envios para ele, envio normal para os demais**;
+PIN (define/troca/remove; PUT sem pin com temPin → 401; 5 erros → bloqueio
+persistido com backoff — sobrevive a "restart" [novo require do app];
+tentativas restantes; recuperação por token; reset de senha NÃO toca
+parental); pinHash em NENHUM shape (parental, auth/me, admin/users, export);
+export COM parental (campo a campo); DELETE conta exige PIN com temPin
+(local E google); recomendação: cota completa só com permitidas (bloqueada
+no topo do score não aparece e a próxima entra); migração de fixtures B4
+cenário a cenário (relações conferidas pelo revisor; baixa cardinalidade
+1×1 e 2×2-fronteira); script de migração idempotente + fixtures >8→cap e
+duas-livres→mesmo-slug; higiene B1 (CastError 404 ×N; reativar; episode_number).
+Frontend: seção da Conta (nomenclatura EXATA, título neutro), 19 toggles
+i18n ×4 vindos do GET (sem lista hardcoded), fluxos de PIN, TagsChipInput
+fechado /8 (admin e portal), badge não classificadas, fila exigindo
+classificação com seletor sem default.
