@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const { podeVerRascunho, isAdminUser, temCanalAtivo, serieDeCanalAtivoDoUsuario } = require('../utils/ownership');
+const { serieVisivelPara } = require('../utils/parentalFilter');
 
 function toSlug(str) {
   return (str || '').toLowerCase()
@@ -583,9 +584,11 @@ router.get('/signed-url', (req, res) => {
     // canal da série (Fase 5 Bloco 1, Task 2 — "Drafts invisíveis ao
     // público"; mesmo critério de routes/content.js via utils/ownership).
     try {
+      // Fase 5, Bloco 2, Task 5: populate += content_rating tags (serieVisivelPara
+      // LANÇA sem os dois — fail-closed).
       const episode = await Episode.findOne({ bunnyVideoId: videoId })
         .select('isPremium status seriesId')
-        .populate('seriesId', 'isPublished channelId')
+        .populate('seriesId', 'isPublished channelId content_rating tags')
         .lean();
       if (!episode) return res.status(404).json({ error: 'Vídeo não encontrado.' });
 
@@ -593,6 +596,10 @@ router.get('/signed-url', (req, res) => {
       if (!publicado) {
         const podeVer = episode.seriesId && await podeVerRascunho(req.user, episode.seriesId.channelId);
         if (!podeVer) return res.status(404).json({ error: 'Vídeo não encontrado.' });
+      } else if (!(await serieVisivelPara(req.user, episode.seriesId))) {
+        // Vídeo PUBLICADO de série que o filtro parental esconde: mesmo 404
+        // dos drafts, antes de assinar qualquer URL.
+        return res.status(404).json({ error: 'Vídeo não encontrado.' });
       }
     } catch (err) {
       logger.error('[Bunny] Erro ao verificar acesso ao vídeo', err);

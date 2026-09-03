@@ -147,4 +147,31 @@ async function serieVisivelPara(user, serie) {
   return passaFiltroParental(doc?.parental, serie);
 }
 
-module.exports = { passaFiltroParental, getFiltroParental, serieVisivelPara };
+/**
+ * Carrega o fragmento CRU `{classificacaoEtaria, tagsBloqueadas}` do
+ * usuário — para consumidores que precisam do PREDICADO puro
+ * (`passaFiltroParental`) em vez do fragmento Mongo de `getFiltroParental`
+ * ou das exceções de `serieVisivelPara`. `null` para anônimo (sem `user`)
+ * OU para conta sem subdocumento `parental` gravado (legado) — mesmo
+ * "young sem bloqueio" que `passaFiltroParental(null, serie)` já trata como
+ * caso ausente.
+ *
+ * Usado pelo ramo de EPISÓDIOS do `/search` (Task 5, doc único): ali o
+ * fragmento de query de `getFiltroParental` não alcança o `populate`, então
+ * o filtro é um post-filter com `passaFiltroParental` direto na série
+ * populada — e o critério ali é "TODOS inclusive dono" (sem a exceção de
+ * `serieVisivelPara`; spec "Writes de engajamento", exceção-da-exceção: só
+ * admin fica de fora, checado pelo chamador com `isAdminUser`).
+ *
+ * Função ADITIVA (não substitui a leitura interna de `getFiltroParental`/
+ * `serieVisivelPara`, que seguem com a própria chamada a `User.findById` —
+ * já revisadas e pinadas na T4; duplicar aqui evita qualquer risco de
+ * alterar o comportamento delas).
+ */
+async function getParentalDe(user) {
+  if (!user) return null;
+  const doc = await User.findById(user.id).select('parental').lean();
+  return doc?.parental || null;
+}
+
+module.exports = { passaFiltroParental, getFiltroParental, serieVisivelPara, getParentalDe };

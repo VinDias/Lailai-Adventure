@@ -478,10 +478,17 @@ describe('GET /api/favorites — filtro parental', () => {
     expect(res.status).toBe(200);
   }
 
+  // Nota (Fase 5, Bloco 2, Task 5): POST /api/favorites/:seriesId ganhou o
+  // gate de serieVisivelPara — favoritar uma obra que o perfil NÃO enxerga
+  // agora dá 404 (coberto à parte em tests/backend/parentalDocSurfaces.test.js).
+  // As séries "invisíveis" abaixo (para o perfil que favorita) são inseridas
+  // DIRETO no banco via Favorite.create — não pelo POST, que passaria a
+  // recusar — pra isolar o que este describe cobre: o filtro do GET, não o
+  // gate do POST.
   it('kids só vê os PRÓPRIOS favoritos kids', async () => {
     const { kidsS, teenS } = await criarConjuntoClassificacoes('Favoritos27');
     await favoritar(kids, kidsS);
-    await favoritar(kids, teenS);
+    await Favorite.create({ userId: kids.id, seriesId: teenS._id }); // teenS é invisível pra kids desde a T5
     const res = await authed(request(app).get('/api/favorites'), kids);
     const ids = res.body.map((i) => String(i.seriesId));
     expect(ids).toContain(String(kidsS._id));
@@ -491,9 +498,10 @@ describe('GET /api/favorites — filtro parental', () => {
   it('teen não vê young/null/AUSENTE nos favoritos', async () => {
     const { teenS, youngS, nuloS, ausenteS } = await criarConjuntoClassificacoes('Favoritos28');
     await favoritar(teen, teenS);
-    await favoritar(teen, youngS);
-    await favoritar(teen, nuloS);
-    await favoritar(teen, ausenteS);
+    // young/nulo/ausente são invisíveis pra teen desde a T5.
+    await Favorite.create({ userId: teen.id, seriesId: youngS._id });
+    await Favorite.create({ userId: teen.id, seriesId: nuloS._id });
+    await Favorite.create({ userId: teen.id, seriesId: ausenteS._id });
     const res = await authed(request(app).get('/api/favorites'), teen);
     const ids = res.body.map((i) => String(i.seriesId));
     expect(ids).toContain(String(teenS._id));
@@ -504,7 +512,15 @@ describe('GET /api/favorites — filtro parental', () => {
 
   it('young vê todos os próprios favoritos, inclusive null e AUSENTE', async () => {
     const { kidsS, teenS, youngS, nuloS, ausenteS } = await criarConjuntoClassificacoes('Favoritos29');
-    for (const s of [kidsS, teenS, youngS, nuloS, ausenteS]) await favoritar(young, s);
+    for (const s of [kidsS, teenS, youngS, nuloS]) await favoritar(young, s);
+    // ausenteS: content_rating literalmente AUSENTE do doc (não null) — o
+    // fetch do POST (Series.findById sem select) devolve o campo undefined
+    // de verdade, e serieVisivelPara/passaFiltroParental LANÇAM por design
+    // (ruling P4 da T4, fail-closed) pra QUALQUER perfil não-admin/não-dono,
+    // mesmo um "young" que enxergaria a obra se o campo estivesse presente
+    // — limitação conhecida do guard fail-closed contra doc genuinamente
+    // sem o campo (não um select estreito), registrada no relatório da T5.
+    await Favorite.create({ userId: young.id, seriesId: ausenteS._id });
     const res = await authed(request(app).get('/api/favorites'), young);
     const ids = res.body.map((i) => String(i.seriesId));
     [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));

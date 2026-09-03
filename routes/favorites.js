@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const Favorite = require('../models/Favorite');
 const Series = require('../models/Series');
 const verifyToken = require('../middlewares/verifyToken');
-const { getFiltroParental } = require('../utils/parentalFilter');
+const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
 const logger = require('../utils/logger');
 
 // ─── FAVORITOS (lista por conta) ─────────────────────────────────────────────
@@ -44,8 +44,15 @@ router.post('/:seriesId', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'ID de série inválido.' });
     }
 
+    // Fase 5, Bloco 2, Task 5: findById sem select já traz content_rating/tags/
+    // channelId — o fetch existente já "garante" os campos por construção.
     const series = await Series.findById(req.params.seriesId).lean();
     if (!series || series.isPublished !== true) {
+      return res.status(404).json({ error: 'Série não encontrada.' });
+    }
+    if (!(await serieVisivelPara(req.user, series))) {
+      // Mesmo 404 de "não encontrada" — o filtro parental não confirma a
+      // existência da obra a quem não pode vê-la. Admin/dono: já `true`.
       return res.status(404).json({ error: 'Série não encontrada.' });
     }
 
