@@ -140,8 +140,15 @@ const TIPOS_VALIDOS = ['hqcine', 'vcine', 'hiqua'];
  * com 20+ obras em andamento numa aba via as outras abas vazias: o teto
  * global era ocupado inteiro por um só tipo de conteúdo antes do cliente
  * filtrar (o que ele fazia depois, localmente).
+ *
+ * `filtroExtra` (Fase 5, Bloco 2, Task 4 — opcional, default `{}`): fragmento
+ * Mongo do filtro parental (`utils/parentalFilter.getFiltroParental`),
+ * calculado pela rota (routes/progress.js, GET /continue) e mesclado aqui no
+ * `Series.find` final — uma obra fora do filtro simplesmente não entra no
+ * `Map` de obras válidas e sua(s) linha(s) de progresso caem no `if (!obra)
+ * continue` já existente, igual a uma obra removida do catálogo.
  */
-async function buildContinueList(identity, contentType) {
+async function buildContinueList(identity, contentType, filtroExtra = {}) {
   const corte = new Date(Date.now() - DIAS_DE_PODA * 24 * 60 * 60 * 1000);
 
   // aggregate() não faz cast automático de string para ObjectId como find()
@@ -212,7 +219,7 @@ async function buildContinueList(identity, contentType) {
   // a obra continuava aparecendo (e abrindo de verdade) no "Continuar",
   // inconsistente com o catálogo (routes/content.js) e os favoritos
   // (routes/favorites.js), que já filtram por isPublished.
-  const series = await Series.find({ _id: { $in: idsDasObras }, isPublished: true })
+  const series = await Series.find({ _id: { $in: idsDasObras }, isPublished: true, ...filtroExtra })
     .select('title cover_image content_type')
     .lean();
   const obraPorId = new Map(series.map(s => [String(s._id), s]));

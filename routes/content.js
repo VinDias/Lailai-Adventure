@@ -11,6 +11,7 @@ const getIdentity = require('../utils/requestIdentity');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 const { podeVerRascunho } = require('../utils/ownership');
+const { getFiltroParental } = require('../utils/parentalFilter');
 const { addPanels } = require('../services/episodePanelService');
 
 const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags'];
@@ -28,9 +29,18 @@ router.get('/search', optionalAuth, async (req, res) => {
     const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(escaped, 'i');
 
+    // Fase 5, Bloco 2, Task 4: fragmento do filtro parental (getFiltroParental
+    // — {} pra anônimo/admin) mesclado no ramo SÉRIES. O ramo EPISÓDIOS logo
+    // abaixo NÃO ganha o fragmento nesta task (T5 — post-filter com
+    // serieVisivelPara na série populada, porque o fragmento de query não
+    // alcança o `populate`) — mas já reusa o MESMO `filtroParental` calculado
+    // aqui, sem recomputar.
+    const filtroParental = await getFiltroParental(req.user);
+
     const seriesFilter = {
       isPublished: true,
-      $or: [{ title: regex }, { genre: regex }, { description: regex }]
+      $or: [{ title: regex }, { genre: regex }, { description: regex }],
+      ...filtroParental,
     };
 
     // Conteúdo premium aparece para todos — free vê anúncio antes de consumir (gate no cliente).
@@ -73,9 +83,13 @@ router.get('/search', optionalAuth, async (req, res) => {
 // definido, agrupadas por dia da semana (0=domingo..6=sábado, Date.getDay()).
 // Posicionada antes de /series/:id — "agenda" não colide com nenhum padrão
 // de rota deste router (sem catch-all de segmento único aqui).
-router.get('/agenda', async (req, res) => {
+// optionalAuth (Fase 5, Bloco 2, Task 4): rota continua pública — só passa a
+// enxergar `req.user` quando houver, pro filtro parental (getFiltroParental
+// — {} pra anônimo/admin) entrar no Series.find.
+router.get('/agenda', optionalAuth, async (req, res) => {
   try {
-    const series = await Series.find({ isPublished: true, releaseDay: { $ne: null } })
+    const filtroParental = await getFiltroParental(req.user);
+    const series = await Series.find({ isPublished: true, releaseDay: { $ne: null }, ...filtroParental })
       .select('title cover_image content_type releaseDay order_index')
       .sort({ order_index: 1, title: 1 })
       .lean();
@@ -102,10 +116,13 @@ router.get('/agenda', async (req, res) => {
 // ─── SERIES ────────────────────────────────────────────────────────────────
 
 // GET /api/content/series — listar séries publicadas
-router.get('/series', async (req, res) => {
+// optionalAuth (Fase 5, Bloco 2, Task 4): rota continua pública — só passa a
+// enxergar `req.user` quando houver, pro filtro parental entrar no filter.
+router.get('/series', optionalAuth, async (req, res) => {
   try {
     const { type } = req.query;
-    const filter = { isPublished: true };
+    const filtroParental = await getFiltroParental(req.user);
+    const filter = { isPublished: true, ...filtroParental };
     if (type) filter.content_type = type;
 
     const series = await Series.find(filter)
@@ -238,6 +255,10 @@ const RECOMMENDATION_CONTENT_TYPES = ['hqcine', 'vcine', 'hiqua'];
 // agregação, o que for) NUNCA vira 500 — degrada para a MESMA query manual
 // do GET /series acima (spec, seção "Rotas": "NUNCA 500 por falha de score —
 // degrada para a ordem manual"; ledger P3).
+// Fase 5, Bloco 2, Task 4: o fragmento do filtro parental é calculado UMA
+// vez aqui e usado nos DOIS caminhos — candidatos (buildRecommendations,
+// filtroExtra) E fallback cru logo abaixo — pro painel bloqueado nunca
+// aparecer nem quando o serviço de recomendação degrada.
 router.get('/recommendations', optionalAuth, async (req, res) => {
   const { type } = req.query;
   if (!RECOMMENDATION_CONTENT_TYPES.includes(type)) {
@@ -245,18 +266,20 @@ router.get('/recommendations', optionalAuth, async (req, res) => {
   }
 
   const identity = getIdentity(req) || {};
+  const filtroParental = await getFiltroParental(req.user);
 
   try {
     const recomendadas = await require('../services/recommendationService').buildRecommendations({
       contentType: type,
       userId: identity.userId,
       anonymousId: identity.anonymousId,
+      filtroExtra: filtroParental,
     });
     return res.json(recomendadas);
   } catch (err) {
     logger.error('[Content] GET /recommendations — degradando para a ordem manual', err);
     try {
-      const fallback = await Series.find({ isPublished: true, content_type: type })
+      const fallback = await Series.find({ isPublished: true, content_type: type, ...filtroParental })
         .sort({ order_index: 1, createdAt: -1 })
         .lean();
       return res.json(fallback);
