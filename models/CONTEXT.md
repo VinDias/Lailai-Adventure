@@ -20,6 +20,7 @@ Usuários da plataforma.
 ### `Series.js`
 Séries de conteúdo (container de episódios).
 - Campos: `title`, `genre`, `description`, `cover_image`
+- `genre` (Fase 5, Bloco 1) — **required CONDICIONAL a `isPublished`** (`models/Series.js:44`: `required: function () { return this.isPublished === true; }`), não mais `required: true` fixo. A série criada pelo portal do ilustrador nasce sem gênero (o Master preenche na aprovação); publicar sem gênero continua barrado. **ATENÇÃO**: `required: function()` NÃO enxerga o documento persistido no caminho de `findByIdAndUpdate` — quem publica por update precisa validar o ESTADO FINAL na aplicação (é o que `services/seriesPublishService.js:63` faz)
 - Tipo: `hqcine` | `vcine` | `hiqua`
 - `isPremium` (boolean) — se a série é exclusiva para assinantes
 - `order_index` — ordenação manual na listagem
@@ -27,6 +28,8 @@ Séries de conteúdo (container de episódios).
 - `translations` — `{ en|es|zh: { genre, description } }`, preenchido automaticamente pelo `translationService` no save (título NÃO é traduzido — decisão do cliente)
 - `channelId` (Fase 3) — ref ao `Channel` do ilustrador; agrupa a obra no relatório de royalties
 - `releaseDay` (Fase 4, Bloco 2) — dia da semana quando novos episódios são esperados (0–6: Dom–Sáb, ou null); usado pela agenda `GET /api/content/agenda` (não há notificação programada — o push de capítulo novo dispara na publicação, não no releaseDay)
+- `content_rating_sugerida` (Fase 5, Bloco 1) — `String` enum `kids|teen|young`, `default: null` (`models/Series.js:53`). Classificação **sugerida pelo ilustrador** no formulário do portal; aparece no card da Fila de Aprovação para o Master decidir. Vira classificação oficial (`content_rating`) só no Bloco 2
+- `submittedAt` (Fase 5, Bloco 1) — `Date`, `default: null` (`models/Series.js:57`). Marcador de "Enviar para aprovação": não-null = aguardando o Master. A Fila (`routes/adminPortal.js:175`) lista só `submittedAt != null` **e** `isPublished: false` — o draft que o próprio admin cria pelo fluxo antigo nunca tem este campo e por isso fica fora da fila por construção. Aprovar zera (`routes/adminPortal.js:264`); devolver também zera, devolvendo a obra ao estado editável (`routes/adminPortal.js:386`)
 - `tags` (Fase 4, Bloco 4) — `[String]`, `default: []`; alimenta a Afinidade do algoritmo de recomendação (`services/recommendationService.js`), **nunca exibida ao leitor** (`genre` continua sendo o rótulo visível). Validação (`validateTags`): **0 ou 5–15** tags, todas strings não vazias — 0 = obra antiga ainda sem curadoria, mínimo 5 só quando a obra recebe tags (evita curadoria parcial distorcer o perfil de afinidade). Normalização (`normalizeTags`, trim + minúsculas + dedupe) vive no **setter** do schema, não em `pre('validate')` — `findByIdAndUpdate(..., { runValidators: true })` roda setters no cast do update mas NÃO dispara hooks de documento, então só o setter cobre create E update
 
 ### `Episode.js`
@@ -40,6 +43,7 @@ Episódios de uma série.
 - `views`, `order_index`, `webtoonLanguageLabels`
 - `translations` — `{ en|es|zh: { description } }`, automático via `translationService`
 - `notificationSentAt` (Fase 4, Bloco 2) — timestamp de quando o push foi disparado; `null` até o primeiro disparo; previne re-envios em reprocessamento
+- `submittedAt` (Fase 5, Bloco 1) — `Date`, `default: null` (`models/Episode.js:46`); mesmo mecanismo de `Series.submittedAt`, em nível de capítulo. Um capítulo submetido continua com `status: 'draft'` — por isso `routes/portal.js:381` recusa (403) painéis novos em episódio com `submittedAt` preenchido: sem isso o ilustrador anexaria o painel N+1 enquanto o Master revisa os N primeiros, e ele iria ao ar sem revisão
 
 ### `Ad.js`
 Campanhas publicitárias próprias (interstitial + banner de feed).
@@ -73,10 +77,26 @@ Engajamento dos usuários com conteúdo.
 - Timestamp da ação
 
 ### `Channel.js`
-Canais de criadores de conteúdo.
-- `name`, `description`, `avatarUrl`, `bannerUrl`
-- `followerCount`
-- `isMonetized` — indica se o canal tem monetização ativa
+Canal do ilustrador — a unidade de agrupamento das obras no relatório de royalties (Fase 3) e o vínculo que define quem é ilustrador (Fase 5, Bloco 1).
+- `ownerId` — ref `User`, **`required`**; é o dono do canal. Não existe role "ilustrador": ser ilustrador é **derivado** de ser `ownerId` de ≥1 canal com `isActive: true` (`utils/ownership.js:31`, `routes/portal.js:35`)
+- `name` (`required`), `description`, `avatar`, `banner` — os nomes dos campos são `avatar`/`banner`, **não** `avatarUrl`/`bannerUrl`
+- `followers` — `[ObjectId ref User]`; contagem é `followers.length`, não existe campo `followerCount`. `GET /api/channels/:id` (público) devolve `followersCount` + `isFollowing` e **remove** o array (`routes/channels.js:49-53`) — os userIds dos seguidores são dado pessoal
+- `isActive` — `Boolean`, `default: true`. `false` desliga o canal do portal inteiro (todas as rotas de `routes/portal.js` e o gate de upload de imagem passam a responder 403) e desbloqueia a exclusão de conta do dono (LGPD, `routes/account.js:218`). Só admin desativa (`POST /api/channels/:id/desativar`, `routes/channels.js:129`); **não existe rota de reativar** — reativar hoje é edição direta no banco (dívida registrada)
+- `timestamps: true`
+- Não existe campo `isMonetized`
+
+### `MensagemPortal.js` (Fase 5, Bloco 1)
+Mensagem privada editor↔ilustrador do Portal do Ilustrador. Sem anexos, sem e-mail — só texto dentro do app.
+- `canalId` — ref `Channel`, `required`, `index: true`
+- `ownerUserId` — ref `User`, `required`; **é o dono VIGENTE quando a mensagem foi criada** e é o que define a "thread". A chave de thread é o par (`canalId`, `ownerUserId`) + `arquivadaEm: null`
+- `autorTipo` — enum `editor|ilustrador`, `required`; `autorUserId` — ref `User`, `required`. Nenhum dos dois vem do body: o lado do ilustrador fixa `'ilustrador'` + `req.user.id` (`routes/portal.js:587-592`) e o lado do editor fixa `'editor'` + `canal.ownerId` resolvido no servidor (`routes/adminPortal.js:138-146`)
+- `refTipo` (enum `series|episode`, `default: null`) + `refId` (`ObjectId`, `default: null`) — apontam a mensagem para uma obra/capítulo. Preenchidos automaticamente na devolução da Fila de Aprovação (`routes/adminPortal.js:389-397`) e validados como PAR contra o canal em `validarRef` (`routes/adminPortal.js:35`). A curadoria do Bloco 3 reusa este par
+- `texto` — `String`, `required`, `maxlength: 2000` (2001 caracteres → `ValidationError` → 400)
+- `lidaEm` — `Date`, `default: null`. Marca simétrica: abrir a thread no portal marca como lidas as do EDITOR (`routes/portal.js:553-556`), abrir no admin marca as do ILUSTRADOR (`routes/adminPortal.js:82-85`). O contador de não lidas de `GET /portal/meu-estudio` conta só `autorTipo: 'editor'`, `lidaEm: null`, `arquivadaEm: null` na thread vigente (`routes/portal.js:67-73`)
+- `arquivadaEm` — `Date`, `default: null`. A **troca de dono arquiva a thread inteira ANTES de trocar o `ownerId`** (`routes/channels.js:108-109`), então o sucessor abre uma thread nova e nunca lê o histórico privado do antecessor (LGPD). O admin vê tudo, vigente e arquivadas (`routes/adminPortal.js:87`)
+- `statics.arquivarThreadDoCanal(canalId, agora = new Date())` (`models/MensagemPortal.js:27`) — `agora` injetável para teste determinístico
+- `timestamps: true`. Sem índice composto próprio além do `canalId` — as consultas são sempre escopadas por canal
+- **LGPD**: na exclusão de conta, só as mensagens **autoradas** pelo titular são apagadas (`routes/account.js:285`); as do editor na mesma thread ficam (autoria de outro). O export inclui autoradas E recebidas, inclusive arquivadas, sem os ObjectIds de terceiros (`routes/account.js:96` e `:157`)
 
 ### `RefreshToken.js`
 Gerenciamento de refresh tokens JWT.

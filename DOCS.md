@@ -95,6 +95,48 @@ Os limiares das penalizações (retenção baixa <30% da escala, abandono ≥60%
 
 ---
 
+## Portal do Ilustrador (Fase 5, Bloco 1)
+
+Cada ilustrador com conta própria vinculada a um canal: página pública com botão Seguir, painel com os números dele, upload dos próprios capítulos (que só entram no ar depois da aprovação do Master) e mensagem privada editor↔ilustrador. Reaproveita a infraestrutura existente — **nenhuma variável de ambiente nova, nenhuma chave nova, nenhum passo de migração**.
+
+### Nenhum passo manual pós-deploy
+Os campos novos (`Series.content_rating_sugerida`, `Series.submittedAt`, `Episode.submittedAt`) têm `default: null` e a coleção `mensagemportals` nasce vazia no primeiro uso — o Mongoose aplica o schema sozinho, sem script de migração. O acervo existente continua funcionando como está.
+
+### Como vincular um ilustrador a um canal (é o único passo operacional)
+"Ilustrador" **não é um role** — é derivado de ser dono de um canal ativo. São dois passos no painel admin, nesta ordem:
+
+1. **Criar o canal** — `POST /api/channels` virou **admin-only** neste bloco (antes, qualquer usuário autenticado criava canal; sem essa mudança qualquer leitor se autopromoveria a ilustrador). O canal nasce com o próprio admin como dono.
+2. **Transferir a titularidade** — painel admin → **Canais** → selecionar o canal → campo **"E-mail do dono (transferir titularidade)"** → Transferir. O e-mail precisa ser de um usuário **já cadastrado** no Lorflux; e-mail sem conta responde "Usuário com esse e-mail não encontrado." Feito isso, o cartão **"Meu Estúdio"** aparece sozinho na aba Conta desse usuário no próximo carregamento.
+
+> **A transferência arquiva a thread de mensagens do dono anterior.** É intencional (LGPD): o sucessor não lê o histórico privado do antecessor. O admin continua vendo tudo em Canais → Mensagens. Transferir para o **mesmo** e-mail já vigente é no-op e não arquiva nada.
+
+### Revogar um ilustrador
+Painel admin → **Canais** → **Desativar canal**. O canal some do catálogo público (`GET /api/channels/:id` passa a responder 404), o ex-dono perde o acesso a todo o portal (403) e a exclusão de conta dele deixa de ser bloqueada. As obras publicadas **continuam no ar** — desativar canal nunca apaga conteúdo.
+
+- **Não existe rota de reativar canal.** Reativar hoje exige `isActive: true` direto no MongoDB (`db.channels.updateOne({_id: ...}, {$set: {isActive: true}})`). Dívida registrada — desative com essa consciência.
+- Transferir a titularidade para outra pessoa é a alternativa a desativar, quando a obra deve continuar tendo um dono ativo.
+
+### O que o Master precisa fazer para uma obra ir ao ar
+Painel admin → **Aprovações** (badge na sidebar = itens pendentes). Nada enviado pelo ilustrador entra no catálogo sozinho.
+- **Gênero é obrigatório para aprovar uma série** — a obra do portal nasce sem gênero (o formulário do ilustrador não tem esse campo, por decisão de contrato) e o botão Aprovar fica desabilitado até o Master preencher. Tags são opcionais (0 ou 5–15) e podem ser preenchidas na mesma tela.
+- **Aprove a série antes do capítulo.** Aprovar um capítulo de série ainda não publicada responde 400 com essa orientação.
+- **Devolver** limpa o marcador de envio (a obra volta a ser editável pelo ilustrador) e cria automaticamente a mensagem do editor na thread dele, já apontando qual obra/capítulo. Devolver uma série **não** devolve os capítulos dela em cascata.
+- Aprovar e devolver ficam registrados no `AdminLog` (`APROVAR_SERIE_PORTAL`, `APROVAR_EPISODIO_PORTAL`, `DEVOLVER_SERIE_PORTAL`, `DEVOLVER_EPISODIO_PORTAL`).
+- O card da fila mostra capa/thumbnail, descrição, classificação sugerida e a contagem de painéis — **não** um leitor página a página. Para revisar as páginas de um capítulo antes de aprovar, use **Gerenciar Conteúdo** (que lista também as séries não publicadas).
+
+### O painel de números do ilustrador não mostra R$ no mês corrente
+Decisão de contrato, não limitação técnica: o mês em aberto mostra **pontos, views válidas e % de share**, sem valor em reais, porque o pool só é confirmado no fechamento (`POST /api/admin/royalties/close`). R$ aparece só em períodos **fechados**, lidos do `RoyaltyPeriod.breakdown` filtrado ao canal, mais os apoios de Super Reader por mês. São exatamente os mesmos números do relatório admin (mesmas funções, em `services/royaltyReportService.js`) — não existe segundo cálculo que possa divergir na hora de pagar.
+
+### Uploads: o que o ilustrador pode e não pode subir
+- **Pode**: imagens (capa, thumbnail de capítulo, painéis) — `POST /api/bunny/upload-image` e `/upload-image-batch` aceitam admin **ou** dono do canal da série alvo. O ilustrador manda o `seriesId`; **o servidor deriva a pasta do storage do título da série** e ignora qualquer caminho informado no corpo.
+- **Não pode**: vídeo e áudio (`/upload`, `/upload-video`, `/upload-audio` seguem admin-only). Abrir vídeo ao ilustrador antes do gate de temporada da 5.1 reabriria o buraco do "vídeo grátis".
+- As abas **CINECOMICS** e **VERTICALSHOW** aparecem no portal **bloqueadas**, com o aviso "Publicação mediante contratação de temporada — em breve". Não há checkout nem upload por trás delas neste bloco.
+
+### Efeito colateral esperado no catálogo antigo
+A partir deste deploy as rotas públicas passam a filtrar por publicado (busca, detalhe de série, lista e detalhe de capítulo, `signed-url`). Se hoje existir no ar algum **capítulo `draft` dentro de uma série publicada**, ele deixará de aparecer para o leitor — isso é a correção, não uma regressão. Para colocá-lo de volta no ar, publique o capítulo normalmente pelo admin. Admin e dono do canal continuam vendo os próprios rascunhos, e abrir um rascunho **não** conta view nem gera evento de royalties.
+
+---
+
 ## Ativar Notificações Push na VPS
 
 ### Gerar Chaves VAPID (uma única vez)
