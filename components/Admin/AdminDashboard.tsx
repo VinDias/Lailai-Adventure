@@ -8,10 +8,12 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle, Settings, Music, Languages, Coins, Pencil
+  CheckCircle2, AlertCircle, Settings, Music, Languages, Coins, Pencil, ClipboardCheck
 } from 'lucide-react';
 import ImageWithFallback from '../ImageWithFallback';
 import RoyaltiesPanel from './RoyaltiesPanel';
+import AprovacoesPanel from './AprovacoesPanel';
+import CanaisPanel from './CanaisPanel';
 
 function isValidUrl(str: string) {
   try { return Boolean(str && new URL(str).protocol.startsWith('http')); } catch { return false; }
@@ -47,6 +49,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [contentList, setContentList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  // Badge da aba "Aprovações" (Fase 5 Bloco 1, Task 10) — buscado uma vez no
+  // load do dashboard (independente da subview atual) e mantido em sincronia
+  // pelo próprio AprovacoesPanel via onCountChange (refetch após ação).
+  const [aprovacoesCount, setAprovacoesCount] = useState(0);
 
   // Série selecionada para gerenciar episódios
   const [selectedSeries, setSelectedSeries] = useState<any>(null);
@@ -253,6 +259,13 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setSelectedEpisode(null);
     loadDashboard();
   }, [currentSubView]);
+
+  // Badge de Aprovações: buscado uma vez no load do dashboard (spec — "GET
+  // /aprovacoes no load do dashboard"), independente de qual subview está
+  // ativa, para o número aparecer na sidebar mesmo sem abrir a aba.
+  useEffect(() => {
+    api.getAdminAprovacoes().then(r => setAprovacoesCount(r.itens.length)).catch(() => {});
+  }, []);
 
   const loadDashboard = async () => {
     setLoading(true);
@@ -876,6 +889,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
           <SidebarLink active={currentSubView === ViewMode.ADMIN_CONTENT} onClick={() => { setSelectedSeries(null); setSelectedEpisode(null); setSubView(ViewMode.ADMIN_CONTENT); }} icon={<Layers size={18} />} label="Gerenciar Conteúdo" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_ADS} onClick={() => setSubView(ViewMode.ADMIN_ADS)} icon={<Megaphone size={18} />} label="Anúncios" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_ROYALTIES} onClick={() => setSubView(ViewMode.ADMIN_ROYALTIES)} icon={<Coins size={18} />} label="Royalties" />
+          <SidebarLink active={currentSubView === ViewMode.ADMIN_APROVACOES} onClick={() => setSubView(ViewMode.ADMIN_APROVACOES)} icon={<ClipboardCheck size={18} />} label="Aprovações" badge={aprovacoesCount} />
+          <SidebarLink active={currentSubView === ViewMode.ADMIN_CANAIS} onClick={() => setSubView(ViewMode.ADMIN_CANAIS)} icon={<Users size={18} />} label="Canais" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_SETTINGS} onClick={() => setSubView(ViewMode.ADMIN_SETTINGS)} icon={<Settings size={18} />} label="Configurações" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_USERS} onClick={() => setSubView(ViewMode.ADMIN_USERS)} icon={<Users size={18} />} label="Usuários" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_PAYMENTS} onClick={() => setSubView(ViewMode.ADMIN_PAYMENTS)} icon={<DollarSign size={18} />} label="Assinantes" />
@@ -1492,6 +1507,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         {/* CONFIGURAÇÕES GLOBAIS */}
         {/* ROYALTIES (Fase 3) */}
         {currentSubView === ViewMode.ADMIN_ROYALTIES && <RoyaltiesPanel />}
+
+        {/* FILA DE APROVAÇÃO + CANAIS (Fase 5 Bloco 1, Task 10) */}
+        {currentSubView === ViewMode.ADMIN_APROVACOES && <AprovacoesPanel onCountChange={setAprovacoesCount} />}
+        {currentSubView === ViewMode.ADMIN_CANAIS && <CanaisPanel />}
 
         {currentSubView === ViewMode.ADMIN_SETTINGS && (
           <div className="max-w-2xl animate-apple">
@@ -2158,9 +2177,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   );
 };
 
-const SidebarLink = ({ active, onClick, icon, label }: any) => (
+const SidebarLink = ({ active, onClick, icon, label, badge }: any) => (
   <button onClick={onClick} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all font-bold text-sm ${active ? 'bg-rose-600 text-white' : 'text-zinc-500 hover:bg-white/5'}`}>
     {icon} {label}
+    {!!badge && (
+      <span className={`ml-auto text-[10px] font-black px-2 py-0.5 rounded-full ${active ? 'bg-white text-rose-600' : 'bg-rose-600 text-white'}`}>
+        {badge}
+      </span>
+    )}
   </button>
 );
 
@@ -2177,7 +2201,7 @@ const StatCard = ({ label, value, icon }: any) => (
 // Enter/vírgula adiciona, X remove. Minúsculas e dedupe replicam na borda da
 // UI a mesma normalização do backend (models/Series.js), só para feedback
 // imediato — quem valida de verdade é o model.
-const TagsChipInput = ({ value, onChange }: { value: string[]; onChange: (tags: string[]) => void }) => {
+export const TagsChipInput = ({ value, onChange }: { value: string[]; onChange: (tags: string[]) => void }) => {
   const [draft, setDraft] = useState('');
 
   const addTag = (raw: string) => {

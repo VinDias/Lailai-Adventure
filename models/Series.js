@@ -38,13 +38,23 @@ function validateTags(tags) {
 
 const SeriesSchema = new mongoose.Schema({
   title: { type: String, required: true },
-  genre: { type: String, required: true },
+  // Required só quando a obra vai ao ar: o portal do ilustrador (Fase 5
+  // Bloco 1) cria série em draft sem gênero — o Master preenche na
+  // aprovação. Publicar sem gênero continua barrado pelo required condicional.
+  genre: { type: String, required: function () { return this.isPublished === true; } },
   description: { type: String },
   cover_image: { type: String },
   isPremium: { type: Boolean, default: false },
   content_type: { type: String, enum: ['hqcine', 'vcine', 'hiqua'], required: true },
   order_index: { type: Number, default: 0 },
   isPublished: { type: Boolean, default: false },
+  // Classificação sugerida pelo ilustrador no portal (Fase 5 Bloco 1) — vira
+  // oficial (content_rating) só no Bloco 2.
+  content_rating_sugerida: { type: String, enum: ['kids', 'teen', 'young'], default: null },
+  // Marcador de "Enviar para aprovação" do portal (Fase 5 Bloco 1): não-null
+  // = aguardando revisão do Master; a Fila de Aprovação lista só séries com
+  // este campo preenchido e ainda não publicadas.
+  submittedAt: { type: Date, default: null },
   // Dia da semana de lançamento (0=domingo) — alimenta a Agenda
   releaseDay: { type: Number, min: 0, max: 6, default: null },
   // Canal do ilustrador (Fase 3): agrupa a obra no relatório de royalties.

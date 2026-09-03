@@ -11,6 +11,7 @@ import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
 import SuperReaderButton from './SuperReaderButton';
+import CanalPublico from './CanalPublico';
 import { useCamadaVoltar } from '../utils/pilhaVoltar';
 
 interface HQCineProps {
@@ -19,9 +20,14 @@ interface HQCineProps {
   focusSeriesId?: string | null;
   onFocusConsumed?: () => void;
   onOpenAgenda?: () => void;
+  // Abre uma obra em OUTRA tela (usado pela CanalPublico — a obra clicada
+  // pode ser de qualquer content_type, não só hqcine). Opcional para não
+  // quebrar quem já renderiza HQCine sem essa prop (App.tsx passa
+  // handleSearchSelect — mesmo callback que SearchOverlay/AgendaView usam).
+  onOpenSeriesElsewhere?: (seriesId: string, contentType?: string) => void;
 }
 
-const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed, onOpenAgenda }) => {
+const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed, onOpenAgenda, onOpenSeriesElsewhere }) => {
   const t = useT();
   const { lang } = useI18n();
   const [series, setSeries] = useState<Series[]>([]);
@@ -33,6 +39,10 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
   const [likeBusy, setLikeBusy] = useState(false);
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
   const [likes, setLikes] = useState(0);
+  // Canal da série aberta (Fase 5 Bloco 1, Task 10) — nome clicável no modal
+  // de detalhe; null quando a série não tem channelId (nada aparece).
+  const [channelInfo, setChannelInfo] = useState<{ id: string; name: string } | null>(null);
+  const [viewingChannel, setViewingChannel] = useState<{ id: string; name: string } | null>(null);
   // Guarda a série aberta para descartar respostas atrasadas de uma série anterior
   const openSeriesIdRef = React.useRef<string | null>(null);
   // Lista do carrossel "Continuar", buscada aqui e reaproveitada nos cards do
@@ -80,8 +90,17 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
     setIsFavorited(false);
     setMyVote(null);
     setLikes(0);
+    setChannelInfo(null);
     const data = await api.getEpisodesBySeries(s._id);
     if (openSeriesIdRef.current === sid) setEpisodes(data);
+    // Nome do canal (Task 10) — só busca quando a série tem channelId;
+    // falha silenciosa (rede fora do ar) só deixa o link não aparecer.
+    if (s.channelId) {
+      api.getChannel(String(s.channelId)).then(c => {
+        if (openSeriesIdRef.current !== sid) return;
+        setChannelInfo({ id: String(c._id), name: c.name });
+      }).catch(() => {});
+    }
     // Carrega estado de favorito e curtidas da série (descarta respostas atrasadas)
     if (user) {
       api.getFavorites().then(favs => {
@@ -159,6 +178,10 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
 
   // Botão voltar do Android: modal de detalhe da série conta como uma camada.
   useCamadaVoltar(!!selectedSeries, () => setSelectedSeries(null));
+  // CanalPublico é uma camada à parte, empilhada sobre o modal de detalhe
+  // (mesmo padrão dos modais internos de PortalEstudio — a camada é
+  // registrada por quem controla o estado, não pelo componente exibido).
+  useCamadaVoltar(!!viewingChannel, () => setViewingChannel(null));
 
   return (
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
@@ -222,6 +245,15 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
               <div className="flex-1">
                 <h2 className="text-6xl font-black text-white mb-6 tracking-tighter italic">Original</h2>
                 <h3 className="text-4xl font-black text-white mb-4">{selectedSeries.title}</h3>
+                {channelInfo && (
+                  <button
+                    type="button"
+                    onClick={() => setViewingChannel(channelInfo)}
+                    className="text-zinc-500 hover:text-rose-400 text-xs font-black uppercase tracking-widest mb-4 transition-colors block"
+                  >
+                    {t('portal.channelLabel')}: {channelInfo.name}
+                  </button>
+                )}
                 <p className="text-zinc-400 text-lg leading-relaxed mb-8">{localizeSeries(selectedSeries, lang).description}</p>
                 {selectedSeries.isPremium && <div className="mb-4 inline-block bg-amber-500 text-black text-[10px] font-black px-4 py-1.5 rounded-full">{t('common.premium')}</div>}
                 <div className="flex flex-wrap items-center gap-4">
@@ -260,12 +292,24 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
                       {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">{t('common.premium')}</span>}
                     </div>
                     <h4 className="text-white font-bold text-lg">{ep.title}</h4>
+                    {ep.description && (
+                      <p data-testid="episode-description" className="text-zinc-500 text-xs font-medium mt-1 line-clamp-2 max-w-md">{ep.description}</p>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
+      )}
+
+      {viewingChannel && (
+        <CanalPublico
+          channelId={viewingChannel.id}
+          user={user}
+          onClose={() => setViewingChannel(null)}
+          onOpenSeries={onOpenSeriesElsewhere ?? (() => {})}
+        />
       )}
     </div>
   );

@@ -10,6 +10,8 @@ const optionalAuth = require('../middlewares/optionalAuth');
 const getIdentity = require('../utils/requestIdentity');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
+const { podeVerRascunho } = require('../utils/ownership');
+const { addPanels } = require('../services/episodePanelService');
 
 const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags'];
 const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
@@ -32,7 +34,10 @@ router.get('/search', optionalAuth, async (req, res) => {
     };
 
     // Conteúdo premium aparece para todos — free vê anúncio antes de consumir (gate no cliente).
-    const episodeFilter = { title: regex };
+    // status: 'published' — Fase 5 Bloco 1, Task 2 ("Drafts invisíveis ao
+    // público"): capítulo draft não deve aparecer na busca, mesmo que a série
+    // já esteja publicada.
+    const episodeFilter = { title: regex, status: 'published' };
 
     const [series, episodes] = await Promise.all([
       Series.find(seriesFilter).limit(20).lean(),
@@ -115,10 +120,19 @@ router.get('/series', async (req, res) => {
 });
 
 // GET /api/content/series/:id — detalhes de uma série
-router.get('/series/:id', async (req, res) => {
+// optionalAuth: rascunho (isPublished:false) é 404 pra qualquer viewer que
+// não seja admin ou dono do canal da série (Fase 5 Bloco 1, Task 2 — "Drafts
+// invisíveis ao público"). 404, nunca 403: não confirma a existência do
+// rascunho a quem não tem acesso.
+router.get('/series/:id', optionalAuth, async (req, res) => {
   try {
     const series = await Series.findById(req.params.id).lean();
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
+
+    if (!series.isPublished && !(await podeVerRascunho(req.user, series.channelId))) {
+      return res.status(404).json({ error: 'Série não encontrada.' });
+    }
+
     res.json(series);
   } catch (err) {
     logger.error('[Content] GET /series/:id', err);
@@ -158,84 +172,29 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
-// PUT /api/content/series/:id — editar série (admin)
+// PUT /api/content/series/:id — editar série (admin). A lógica de gênero
+// required condicional/tradução/redisparo foi extraída para
+// services/seriesPublishService.js (Fase 5 Bloco 1, Task 7) — a Fila de
+// Aprovação (routes/adminPortal.js) reusa a MESMA função ao aprovar uma
+// série do portal, em vez de duplicar estas regras.
 router.put('/series/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const updates = pick(req.body, SERIES_FIELDS);
-
-    // Gênero/descrição mudaram → refaz as traduções com os valores mesclados
-    // (o campo não enviado mantém o valor atual do documento).
-    if ('genre' in updates || 'description' in updates) {
-      const current = await Series.findById(req.params.id).select('genre description').lean();
-      if (!current) return res.status(404).json({ error: 'Série não encontrada.' });
-      const translationService = require('../services/translationService');
-      const translations = await translationService.buildTranslationsSafe({
-        genre: updates.genre ?? current.genre,
-        description: updates.description ?? current.description,
-      }, `série ${req.params.id}`);
-      if (translations) updates.translations = translations;
-    }
-
-    // isPublished está no body → precisamos do valor ANTERIOR (antes do
-    // update) para detectar a transição falso→verdadeiro: série que volta a
-    // publicar "destrava" capítulos que ficaram sem notificar enquanto ela
-    // estava despublicada (o claim de notifyEpisodePublished os poupou).
-    let estavaDespublicada = false;
-    if ('isPublished' in updates) {
-      const antes = await Series.findById(req.params.id).select('isPublished').lean();
-      if (!antes) return res.status(404).json({ error: 'Série não encontrada.' });
-      estavaDespublicada = !antes.isPublished;
-    }
-
-    const series = await Series.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
-    if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
-
-    if (estavaDespublicada && updates.isPublished === true) {
-      redispararNotificacoesDaSerie(series._id);
-    }
-
+    const series = await require('../services/seriesPublishService').applySeriesUpdate(req.params.id, updates);
     res.json(series);
   } catch (err) {
-    // Mesmo tratamento do POST: tags inválidas (0 ou 5–15, ver models/Series.js)
-    // geram ValidationError no runValidators do findByIdAndUpdate — sem isto
-    // cairia no catch genérico e viraria 500 em vez de 400.
-    if (err.name === 'ValidationError') {
+    if (err.status === 404) return res.status(404).json({ error: err.message });
+    // Mesmo tratamento de antes: gênero final ausente (400 com status
+    // próprio) e tags inválidas (0 ou 5–15, ValidationError do runValidators
+    // do findByIdAndUpdate) — sem isto cairia no catch genérico e viraria
+    // 500 em vez de 400.
+    if (err.status === 400 || err.name === 'ValidationError') {
       return res.status(400).json({ error: err.message });
     }
     logger.error('[Content] PUT /series/:id', err);
     res.status(500).json({ error: 'Erro ao atualizar série.' });
   }
 });
-
-/**
- * Série volta a ser publicada (isPublished falso→verdadeiro): re-dispara o
- * push dos capítulos que já estavam `status: 'published'` mas ficaram sem
- * notificar enquanto a obra estava despublicada (notifyEpisodePublished
- * desfaz o claim nesse caso — ver services/notificationService.js). Episódios
- * já notificados (notificationSentAt preenchido) ficam naturalmente de fora
- * do filtro. Fire-and-forget e SEQUENCIAL (sem Promise.all) — pode haver
- * muitos episódios e publicar a série nunca deve esperar o envio.
- */
-function redispararNotificacoesDaSerie(seriesId) {
-  // Gatilho de recálculo (Etapa 11 do PDF, ledger Task 5): a série voltou a
-  // publicar — mesmo ponto de disparo do push acima, 3º dos 6 "capítulo
-  // publicado" (a republicação de série é o que reativa capítulos que
-  // ficaram represados). Fire-and-forget, molde do Bloco 2.
-  require('../services/recommendationService').dispararRecalculo(seriesId, 'capitulo_publicado');
-
-  (async () => {
-    const notificationService = require('../services/notificationService');
-    const episodios = await Episode.find({
-      seriesId, status: 'published', notificationSentAt: null,
-    }).select('_id').lean();
-
-    for (const episode of episodios) {
-      await notificationService
-        .notifyEpisodePublished(episode._id)
-        .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
-    }
-  })().catch(err => logger.error('[Push] Falha ao redisparar notificações da série', err));
-}
 
 // DELETE /api/content/series/:id — remover série (admin)
 router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
@@ -313,11 +272,25 @@ router.get('/recommendations', optionalAuth, async (req, res) => {
 // ─── EPISODES ───────────────────────────────────────────────────────────────
 
 // GET /api/content/series/:id/episodes — episódios de uma série
+// Todos os episódios PUBLICADOS aparecem para todos os usuários (isPremium
+// vai no JSON pro cliente exibir badge e decidir o anúncio pra usuários
+// free) — sem paywall na listagem. Episódio draft/processing só aparece pro
+// admin ou pro dono do canal da série (Fase 5 Bloco 1, Task 2 — "Drafts
+// invisíveis ao público"; o portal do ilustrador, Task 4, precisa ver o
+// status dos próprios rascunhos). Série inexistente OU rascunho (isPublished
+// false) fora do alcance do viewer: [] com 200 — mantém o contrato já
+// existente pra série inexistente, sem confirmar a existência do rascunho.
 router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
   try {
-    // Todos os episódios aparecem para todos os usuários (isPremium vai no JSON
-    // para o cliente exibir badge e decidir o anúncio para usuários free).
+    const series = await Series.findById(req.params.id).select('isPublished channelId').lean();
+    const podeVerRascunhos = series ? await podeVerRascunho(req.user, series.channelId) : false;
+
+    if (!series || (!series.isPublished && !podeVerRascunhos)) {
+      return res.json([]);
+    }
+
     const filter = { seriesId: req.params.id };
+    if (!podeVerRascunhos) filter.status = 'published';
 
     const episodes = await Episode.find(filter)
       .sort({ order_index: 1, episode_number: 1 })
@@ -330,45 +303,62 @@ router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
 });
 
 // GET /api/content/episodes/:id — detalhes de um episódio
+// Episódio draft/processing (ou publicado numa série ainda não publicada) só
+// é visível pro admin ou pro dono do canal da série (Fase 5 Bloco 1, Task 2
+// — "Drafts invisíveis ao público"); qualquer outro viewer leva 404 — nunca
+// 403, pra não confirmar a existência do rascunho. Views/telemetria de
+// royalties só incrementam quando o episódio É de fato público: um admin/
+// dono revisando o próprio rascunho (QA/preview) não deve inflar contador
+// nem gerar EngagementEvent.
 router.get('/episodes/:id', optionalAuth, async (req, res) => {
   try {
-    const episode = await Episode.findById(req.params.id).populate('seriesId', 'title content_type').lean();
+    const episode = await Episode.findById(req.params.id)
+      .populate('seriesId', 'title content_type isPublished channelId')
+      .lean();
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+
+    const serieDoEpisodio = episode.seriesId; // populate — pode vir null (série apagada)
+    const publicado = episode.status === 'published' && !!serieDoEpisodio && serieDoEpisodio.isPublished === true;
+
+    if (!publicado) {
+      const podeVer = serieDoEpisodio && await podeVerRascunho(req.user, serieDoEpisodio.channelId);
+      if (!podeVer) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    }
 
     // Conteúdo premium é entregue completo para qualquer usuário — quem decide
     // exibir anúncio antes é o cliente, com base em user.isPremium.
 
-    // Incrementa views de forma não bloqueante
-    Episode.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
-      .exec()
-      .catch(err => logger.error(`[Content] Erro ao incrementar views do episódio ${req.params.id}`, err));
+    if (publicado) {
+      // Incrementa views de forma não bloqueante
+      Episode.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } })
+        .exec()
+        .catch(err => logger.error(`[Content] Erro ao incrementar views do episódio ${req.params.id}`, err));
 
-    // Telemetria de royalties (fire-and-forget): webtoon conta como leitura,
-    // vídeo como view. Dedupe/anti-fraude ficam no engagementLogger.
-    //
-    // DECISÃO (Task 5, ledger — gatilho de recálculo "view/read" da Etapa 11
-    // do PDF): NÃO dispara recommendationService.dispararRecalculo aqui. Esta
-    // é a rota de MAIOR volume do backend inteiro — toda abertura de
-    // episódio passa por ela — e computeSeriesScore refaz o contexto de
-    // normalização varrendo o catálogo publicado do MESMO content_type,
-    // custo real O(catálogo do tipo) por gatilho (CORRIGIDO na revisão da T8
-    // e de novo no fix round da revisão final, Item 4 — a estimativa antiga
-    // deste comentário, "~10 agregações", estava errada; ver nota completa
-    // em services/progressService.js, dispararSeConcluido). Mesmo um cheque
-    // barato de "computedAt > 1h" antes de decidir ainda seria uma query
-    // extra na rota mais quente do app, por um ganho marginal: o efeito de
-    // UMA view isolada no score é minúsculo, e nenhum dado se perde (o
-    // EngagementEvent é gravado de qualquer jeito, logo abaixo — a
-    // releitura fica disponível para o próximo cálculo). Os outros 5
-    // gatilhos (voto, favorito, Super Reader, conclusão de leitura, capítulo
-    // publicado) cobrem os sinais fortes de imediato; a varredura periódica
-    // de 24h (services/recommendationService.iniciarVarreduraPeriodica)
-    // absorve a deriva orgânica de views/releituras ao longo do tempo.
-    if (episode.seriesId) {
+      // Telemetria de royalties (fire-and-forget): webtoon conta como leitura,
+      // vídeo como view. Dedupe/anti-fraude ficam no engagementLogger.
+      //
+      // DECISÃO (Task 5, ledger — gatilho de recálculo "view/read" da Etapa 11
+      // do PDF): NÃO dispara recommendationService.dispararRecalculo aqui. Esta
+      // é a rota de MAIOR volume do backend inteiro — toda abertura de
+      // episódio passa por ela — e computeSeriesScore refaz o contexto de
+      // normalização varrendo o catálogo publicado do MESMO content_type,
+      // custo real O(catálogo do tipo) por gatilho (CORRIGIDO na revisão da T8
+      // e de novo no fix round da revisão final, Item 4 — a estimativa antiga
+      // deste comentário, "~10 agregações", estava errada; ver nota completa
+      // em services/progressService.js, dispararSeConcluido). Mesmo um cheque
+      // barato de "computedAt > 1h" antes de decidir ainda seria uma query
+      // extra na rota mais quente do app, por um ganho marginal: o efeito de
+      // UMA view isolada no score é minúsculo, e nenhum dado se perde (o
+      // EngagementEvent é gravado de qualquer jeito, logo abaixo — a
+      // releitura fica disponível para o próximo cálculo). Os outros 5
+      // gatilhos (voto, favorito, Super Reader, conclusão de leitura, capítulo
+      // publicado) cobrem os sinais fortes de imediato; a varredura periódica
+      // de 24h (services/recommendationService.iniciarVarreduraPeriodica)
+      // absorve a deriva orgânica de views/releituras ao longo do tempo.
       const engagementLogger = require('../services/engagementLogger');
       engagementLogger.logEvent({
-        type: episode.seriesId.content_type === 'hiqua' ? 'read' : 'view',
-        seriesId: episode.seriesId._id,
+        type: serieDoEpisodio.content_type === 'hiqua' ? 'read' : 'view',
+        seriesId: serieDoEpisodio._id,
         episodeId: episode._id,
         userId: req.user?.id,
         ip: req.ip,
@@ -470,35 +460,15 @@ router.delete('/episodes/:id', verifyToken, requireAdmin, async (req, res) => {
 });
 
 // POST /api/content/episodes/:id/panels — adicionar painéis webtoon (admin)
+// Lógica extraída para services/episodePanelService.js (Fase 5 Bloco 1, Task
+// 4) — o portal do ilustrador (POST /api/portal/episodios/:id/paineis) reusa
+// a MESMA função, sem duplicar validação.
 router.post('/episodes/:id/panels', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { panels } = req.body; // [{ image_url, order, translationLayers? }]
-    if (!Array.isArray(panels) || panels.length === 0) {
-      return res.status(400).json({ error: 'panels deve ser um array não vazio.' });
-    }
-
-    const episode = await Episode.findByIdAndUpdate(
-      req.params.id,
-      { $push: { panels: { $each: panels } } },
-      { new: true }
-    );
-    if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
-
-    // 5º caminho de disparo: episódio publicado sem conteúdo (esqueleto)
-    // ganha o primeiro painel aqui. O claim + a guarda de conteúdo em
-    // notifyEpisodePublished fazem o resto — este é o único anexo que de
-    // fato envia; os seguintes são no-op (claim já consumido).
-    if (episode.status === 'published') {
-      require('../services/notificationService')
-        .notifyEpisodePublished(episode._id)
-        .catch(err => logger.error('[Push] Falha no envio de capitulo novo', err));
-
-      // 4º dos 6 pontos de disparo do push (Task 5, ledger).
-      require('../services/recommendationService').dispararRecalculo(episode.seriesId, 'capitulo_publicado');
-    }
-
+    const episode = await addPanels(req.params.id, req.body.panels);
     res.json({ success: true, panelCount: episode.panels.length, episode });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     logger.error('[Content] POST /episodes/:id/panels', err);
     res.status(500).json({ error: 'Erro ao adicionar painéis.' });
   }

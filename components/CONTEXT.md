@@ -32,11 +32,22 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 |---------|-----------|
 | `Auth.tsx` | Tela de login/registro por e-mail/senha + botão "Entrar com Google" (Google Identity Services; aparece só quando `google_client_id` está nas settings públicas) + fluxos de esqueci/redefinir senha |
 | `Onboarding.tsx` | Walkthrough de primeiro uso — 4 passos apresentando HQCine/VCine/Hi-Qua/Conta; exibido uma vez (flag `lorflux_onboarded` no localStorage) |
-| `Profile.tsx` | Página de perfil do usuário com acesso às abas de conta e assinatura |
 | `SubscriptionTab.tsx` | Aba com status da assinatura premium e opção de upgrade |
 | `Logout.tsx` | Botão e lógica de logout |
 
-> A aba Conta (renderizada em `App.tsx`) inclui: troca de foto de perfil (upload → `/api/account/me/avatar`), Meus Favoritos, Avaliar o app (link Play Store), seletor de idioma (i18n) e Centro de Privacidade.
+> `Profile.tsx` foi **removido** na Fase 5, Bloco 1 (Task 9): era código morto — não importado por `App.tsx` — e a única coisa que ainda chamava era o antigo `POST /api/channels` aberto a qualquer usuário, que virou admin-only neste bloco. A aba Conta sempre foi renderizada pelo próprio `App.tsx`.
+
+> A aba Conta (renderizada em `App.tsx`) inclui: troca de foto de perfil (upload → `/api/account/me/avatar`), Meus Favoritos, Avaliar o app (link Play Store), seletor de idioma (i18n), Centro de Privacidade e — só para donos de canal — o cartão "Meu Estúdio".
+
+## Portal do Ilustrador (Fase 5, Bloco 1)
+
+| Arquivo | Propósito |
+|---------|-----------|
+| `MeuEstudioCard.tsx` | Cartão "Meu Estúdio" na aba Conta, montado dentro do bloco `{user && ...}` de `App.tsx` (visitante nunca o monta). Consulta `GET /api/portal/meu-estudio` ao montar e decide sozinho se existe: **200 → renderiza** (com badges de pendências de aprovação e mensagens não lidas somadas entre os canais); **qualquer falha → não renderiza nada**. Tratar todo erro como "não mostrar" é deliberado — 403 é o caso normal da maioria dos leitores, e distinguir 403 de outras falhas por texto de mensagem não seria contrato estável. Não derruba a sessão porque `services/api.ts` só reage a 401 |
+| `PortalEstudio.tsx` | Tela do portal (`ViewMode.PORTAL_ESTUDIO`), abas **Números** / **Obras** / **Mensagens**. Números: mês corrente sem R$ (só pontos/views/share), períodos fechados com R$. Obras: lista com 3 estados derivados (rascunho / em análise / publicada), criar e editar rascunho, criar capítulo, upload de capa/thumbnail/painéis com progresso e o botão "Enviar para aprovação". **Todos os campos de imagem são `<input type="file">` — não existe nenhum campo de URL no formulário**, e não existe campo Gênero (o Master preenche na aprovação); a "Classificação sugerida" é um `<select>` kids/teen/young. Seções **CINECOMICS** e **VERTICALSHOW** aparecem sempre, bloqueadas, com o aviso de temporada ("em breve") — sem checkout e sem upload. Seletor de canal aparece só para quem tem mais de um. Rótulos dos tipos sempre por `utils/contentTypeLabels.ts` (`NOME_ABA`), nunca hardcode |
+| `CanalPublico.tsx` | Página pública do canal, alcançada pelo clique no nome do canal no modal de detalhe da obra nos 3 feeds. Consome o shape novo de `GET /api/channels/:id` (`followersCount` + `isFollowing`, sem `followers[]`); as obras do canal vêm de `GET /api/content/series` filtradas por `channelId` no cliente (sem rota nova — o mesmo custo dos feeds atuais; rota dedicada quando o catálogo crescer). Seguir/Seguindo com atualização otimista e rollback em erro; **visitante vê o botão desabilitado**, mesmo padrão do favoritar nos feeds |
+| `Admin/AprovacoesPanel.tsx` | Fila de Aprovação (admin, PT fixo). Cards ordenados por antiguidade com preview (capa/thumbnail), descrição, classificação sugerida, canal e — no episódio — contagem de painéis e o estado da série-mãe. **Aprovar fica desabilitado enquanto o campo Gênero estiver vazio** (série) ou enquanto a série-mãe não estiver publicada (episódio). Reusa o `TagsChipInput` do `AdminDashboard`. Devolver abre textarea obrigatória. Após cada ação, refetch da fila e atualização do badge da sidebar via `onCountChange` |
+| `Admin/CanaisPanel.tsx` | Gerenciamento de canais (admin, PT fixo): campo "E-mail do dono" (transfere a titularidade via `PUT /api/channels/:id`), botão "Desativar canal" (com `confirm`) e aba **Mensagens** por canal, que mostra a thread vigente e as arquivadas. O resultado da transferência usa uma flag booleana de erro (não heurística sobre o texto), para o 404 de e-mail inexistente não ser pintado de verde. Como `GET /api/channels` não devolve canais inativos nem o campo `isActive`, o estado "inativo" é mantido só localmente depois de desativar |
 
 ## Monetização
 

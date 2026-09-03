@@ -11,6 +11,7 @@ import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
 import SuperReaderButton from './SuperReaderButton';
+import CanalPublico from './CanalPublico';
 import { useCamadaVoltar } from '../utils/pilhaVoltar';
 
 interface VFilmProps {
@@ -19,9 +20,13 @@ interface VFilmProps {
   focusSeriesId?: string | null;
   onFocusConsumed?: () => void;
   onOpenAgenda?: () => void;
+  // Abre uma obra em OUTRA tela (usado pela CanalPublico — ver HQCine.tsx
+  // para o comentário completo). Opcional para não quebrar quem já
+  // renderiza VFilm sem essa prop.
+  onOpenSeriesElsewhere?: (seriesId: string, contentType?: string) => void;
 }
 
-const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed, onOpenAgenda }) => {
+const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsumed, onOpenAgenda, onOpenSeriesElsewhere }) => {
   const t = useT();
   const { lang } = useI18n();
   const [series, setSeries] = useState<Series[]>([]);
@@ -34,6 +39,9 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
   const [likeBusy, setLikeBusy] = useState(false);
   const [myVote, setMyVote] = useState<'like' | 'dislike' | null>(null);
   const [likes, setLikes] = useState(0);
+  // Canal da série aberta (Fase 5 Bloco 1, Task 10) — ver HQCine.tsx.
+  const [channelInfo, setChannelInfo] = useState<{ id: string; name: string } | null>(null);
+  const [viewingChannel, setViewingChannel] = useState<{ id: string; name: string } | null>(null);
   // Guarda a série aberta para descartar respostas atrasadas de uma série anterior
   const openSeriesIdRef = React.useRef<string | null>(null);
   // Lista do carrossel "Continuar", buscada aqui e reaproveitada nos cards do
@@ -81,11 +89,19 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
     setIsFavorited(false);
     setMyVote(null);
     setLikes(0);
+    setChannelInfo(null);
     try {
       const data = await api.getSeriesContent(s._id);
       if (openSeriesIdRef.current === sid) setContent(data);
     } catch (e) {
       console.error("Error loading vfilm content", e);
+    }
+    // Nome do canal (Task 10) — só busca quando a série tem channelId.
+    if (s.channelId) {
+      api.getChannel(String(s.channelId)).then(c => {
+        if (openSeriesIdRef.current !== sid) return;
+        setChannelInfo({ id: String(c._id), name: c.name });
+      }).catch(() => {});
     }
     // Carrega estado de favorito e curtidas da série (descarta respostas atrasadas)
     if (user) {
@@ -164,6 +180,8 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
 
   // Botão voltar do Android: modal de detalhe da série conta como uma camada.
   useCamadaVoltar(!!selectedSeries, () => setSelectedSeries(null));
+  // CanalPublico — camada à parte, empilhada sobre o modal de detalhe.
+  useCamadaVoltar(!!viewingChannel, () => setViewingChannel(null));
 
   if (loading) return <div className="h-full w-full flex items-center justify-center bg-[var(--bg-color)]"><div className="w-10 h-10 border-4 border-rose-500/20 border-t-rose-500 rounded-full animate-spin" /></div>;
 
@@ -233,6 +251,15 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                  <ImageWithFallback src={selectedSeries.cover_image} className="w-64 aspect-[9/16] rounded-[2.5rem] object-cover shadow-2xl" alt={selectedSeries.title} />
                  <div className="flex-1">
                     <h2 className="text-6xl font-black text-white mb-6 tracking-tighter">{selectedSeries.title}</h2>
+                    {channelInfo && (
+                      <button
+                        type="button"
+                        onClick={() => setViewingChannel(channelInfo)}
+                        className="text-zinc-500 hover:text-rose-400 text-xs font-black uppercase tracking-widest mb-4 transition-colors block"
+                      >
+                        {t('portal.channelLabel')}: {channelInfo.name}
+                      </button>
+                    )}
                     <p className="text-zinc-400 text-lg leading-relaxed mb-8">{localizeSeries(selectedSeries, lang).description}</p>
                     <div className="flex flex-wrap items-center gap-4">
                       <button
@@ -269,6 +296,9 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                             {ep.isPremium && <span className="bg-amber-500 text-black text-[9px] font-black px-2.5 py-0.5 rounded-full">{t('common.premium')}</span>}
                          </div>
                          <h4 className="text-white font-bold text-lg">{ep.title}</h4>
+                         {ep.description && (
+                           <p data-testid="episode-description" className="text-zinc-500 text-xs font-medium mt-1 line-clamp-2 max-w-md">{ep.description}</p>
+                         )}
                       </div>
                       <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
                         <svg className="w-5 h-5 text-white fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -278,6 +308,15 @@ const VFilm: React.FC<VFilmProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
               </div>
            </div>
         </div>
+      )}
+
+      {viewingChannel && (
+        <CanalPublico
+          channelId={viewingChannel.id}
+          user={user}
+          onClose={() => setViewingChannel(null)}
+          onOpenSeries={onOpenSeriesElsewhere ?? (() => {})}
+        />
       )}
     </div>
   );

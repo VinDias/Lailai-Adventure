@@ -33,6 +33,8 @@ import { parseSuperReaderReturn } from './utils/superReaderReturn';
 import { isGuestMode, enterGuestMode, leaveGuestMode } from './utils/guestMode';
 import GuestAccountPrompt from './components/GuestAccountPrompt';
 import { useCamadaVoltar } from './utils/pilhaVoltar';
+import MeuEstudioCard from './components/MeuEstudioCard';
+import PortalEstudio from './components/PortalEstudio';
 
 const App: React.FC = () => {
   const t = useT();
@@ -297,6 +299,11 @@ const App: React.FC = () => {
   // voltar natural é para lá, não para a aba inicial, então é uma camada à
   // parte da aba abaixo (que sempre volta para HQCINE).
   useCamadaVoltar(view === ViewMode.FAVORITES, () => setView(ViewMode.PROFILE));
+  // Meu Estúdio (Fase 5 Bloco 1): mesmo padrão de Favoritos — só alcançado a
+  // partir do cartão na Conta, volta pra lá (não para a aba inicial). Camadas
+  // dos modais internos (criar/editar obra, criar capítulo, painéis) são
+  // registradas dentro do próprio PortalEstudio.
+  useCamadaVoltar(view === ViewMode.PORTAL_ESTUDIO, () => setView(ViewMode.PROFILE));
   // Aba atual (fora da inicial): VCINE/HIQUA/PROFILE contam como UMA única
   // camada — trocar entre elas não empilha de novo (a condição abaixo
   // continua `true`, o efeito interno do hook não reexecuta), só a
@@ -361,6 +368,7 @@ const App: React.FC = () => {
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
             onOpenAgenda={() => setAgendaOpen(true)}
+            onOpenSeriesElsewhere={handleSearchSelect}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -389,6 +397,7 @@ const App: React.FC = () => {
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
             onOpenAgenda={() => setAgendaOpen(true)}
+            onOpenSeriesElsewhere={handleSearchSelect}
             onOpen={(ep, series) => {
               setActiveVideo({
                 id: (ep._id || ep.id)?.toString(),
@@ -417,6 +426,7 @@ const App: React.FC = () => {
             focusSeriesId={pendingSeriesFocus}
             onFocusConsumed={() => setPendingSeriesFocus(null)}
             onOpenAgenda={() => setAgendaOpen(true)}
+            onOpenSeriesElsewhere={handleSearchSelect}
             onOpen={(ep, series, episodes) => {
               setActiveSeries(series);
               setSeriesEpisodes(episodes);
@@ -482,6 +492,10 @@ const App: React.FC = () => {
                   <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> {t('account.myFavorites')}</button>
                   <SuperReaderBadge />
                   <PushAccountToggle />
+                  {/* Meu Estúdio (Fase 5 Bloco 1): só se renderiza de verdade se
+                      GET /portal/meu-estudio devolver 200 (usuário é dono de
+                      canal ativo) — o próprio cartão decide isso ao montar. */}
+                  <MeuEstudioCard onOpen={() => setView(ViewMode.PORTAL_ESTUDIO)} />
                   <button
                     onClick={() => window.open('https://play.google.com/store/apps/details?id=com.lorflux.twa', '_blank', 'noopener,noreferrer')}
                     className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"
@@ -525,6 +539,10 @@ const App: React.FC = () => {
           <MyFavorites user={user} onOpenSeries={handleSearchSelect} />
         )}
 
+        {view === ViewMode.PORTAL_ESTUDIO && (
+          <PortalEstudio onClose={() => setView(ViewMode.PROFILE)} />
+        )}
+
         {view === ViewMode.PLAYER && activeVideo && (
           <VerticalPlayer video={activeVideo} user={user} onClose={handleClosePlayer} />
         )}
@@ -545,7 +563,7 @@ const App: React.FC = () => {
           );
         })()}
 
-        {(view === ViewMode.ADMIN_DASHBOARD || view === ViewMode.ADMIN_CONTENT || view === ViewMode.ADMIN_USERS || view === ViewMode.ADMIN_PAYMENTS || view === ViewMode.ADMIN_ADS || view === ViewMode.ADMIN_SETTINGS || view === ViewMode.ADMIN_ROYALTIES) && (
+        {(view === ViewMode.ADMIN_DASHBOARD || view === ViewMode.ADMIN_CONTENT || view === ViewMode.ADMIN_USERS || view === ViewMode.ADMIN_PAYMENTS || view === ViewMode.ADMIN_ADS || view === ViewMode.ADMIN_SETTINGS || view === ViewMode.ADMIN_ROYALTIES || view === ViewMode.ADMIN_APROVACOES || view === ViewMode.ADMIN_CANAIS) && (
           <AdminDashboard onLogout={handleLogout} currentSubView={view} setSubView={(v) => setView(v)} />
         )}
       </main>

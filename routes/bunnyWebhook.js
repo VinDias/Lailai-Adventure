@@ -7,11 +7,42 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
+const { podeVerRascunho, isAdminUser, temCanalAtivo, serieDeCanalAtivoDoUsuario } = require('../utils/ownership');
 
 function toSlug(str) {
   return (str || '').toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+/**
+ * Resolve o slug de destino de upload-image/upload-image-batch (Fase 5
+ * Bloco 1, Task 5 — "Uploads: auth"). Admin: contrato ANTIGO intacto —
+ * seriesSlug texto-livre do body, slugificado aqui exatamente como sempre
+ * foi (byte a byte, inclusive quando vazio → sem pasta de série). Dono de
+ * canal (não-admin): exige seriesId REAL no body — o servidor resolve
+ * série→canal→ownerId (utils/ownership.js) e deriva o slug do TÍTULO da
+ * série resolvida com a MESMA toSlug que o admin usa — o arquivo do
+ * ilustrador cai exatamente onde cairia se o admin subisse pra mesma série.
+ * Um eventual seriesSlug enviado por um não-admin é IGNORADO — o dono nunca
+ * escolhe o caminho. Chamar só depois de confirmar (fora daqui) que o
+ * usuário é admin OU dono de algum canal ativo.
+ * Retorna { slug } em sucesso, ou { status, error } prontos para
+ * res.status(status).json({ error }).
+ */
+async function resolveUploadSlug(req, isAdmin) {
+  if (isAdmin) {
+    return { slug: toSlug(req.body?.seriesSlug) };
+  }
+  const seriesId = req.body?.seriesId;
+  if (!seriesId) {
+    return { status: 400, error: 'seriesId é obrigatório.' };
+  }
+  const series = await serieDeCanalAtivoDoUsuario(req.user.id, seriesId);
+  if (!series) {
+    return { status: 404, error: 'Série não encontrada.' };
+  }
+  return { slug: toSlug(series.title) };
 }
 
 const imageUpload = multer({
@@ -176,120 +207,162 @@ router.post('/upload', async (req, res) => {
   });
 });
 
-// POST /api/bunny/upload-image — upload de imagem para Bunny Storage
+// POST /api/bunny/upload-image — upload de imagem para Bunny Storage.
+// Fase 5 Bloco 1, Task 5: admin OU dono do canal da serie alvo (ver
+// resolveUploadSlug acima) — nao e mais admin-only puro.
 router.post('/upload-image', (req, res) => {
   const verifyToken = require('../middlewares/verifyToken');
-  const requireAdmin = require('../middlewares/requireAdmin');
 
-  verifyToken(req, res, () => {
-    requireAdmin(req, res, () => {
-      imageUpload.single('image')(req, res, async (err) => {
-        if (err) return res.status(400).json({ error: err.message });
-        if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+  verifyToken(req, res, async () => {
+    // Gate e resolução aguardam o Mongo — sem try/catch, uma falha de infra
+    // aqui viraria unhandled rejection (derruba o processo), não 500.
+    let isAdmin;
+    try {
+      isAdmin = isAdminUser(req.user);
+      if (!isAdmin && !(await temCanalAtivo(req.user.id))) {
+        return res.status(403).json({ error: 'Voce nao e dono de nenhum canal ativo.' });
+      }
+    } catch (err) {
+      logger.error('[Bunny Storage] gate de upload-image', err);
+      return res.status(500).json({ error: 'Erro interno ao validar o upload.' });
+    }
 
-        const storageZone = process.env.BUNNY_STORAGE_ZONE;
-        const storageKey = process.env.BUNNY_STORAGE_KEY;
+    imageUpload.single('image')(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
 
-        if (!storageZone || !storageKey) {
-          return res.status(500).json({ error: 'BUNNY_STORAGE_ZONE e BUNNY_STORAGE_KEY não configurados no .env.' });
+      let target;
+      try {
+        target = await resolveUploadSlug(req, isAdmin);
+      } catch (resolveErr) {
+        logger.error('[Bunny Storage] resolveUploadSlug em upload-image', resolveErr);
+        return res.status(500).json({ error: 'Erro interno ao validar o upload.' });
+      }
+      if (target.status) return res.status(target.status).json({ error: target.error });
+
+      const storageZone = process.env.BUNNY_STORAGE_ZONE;
+      const storageKey = process.env.BUNNY_STORAGE_KEY;
+
+      if (!storageZone || !storageKey) {
+        return res.status(500).json({ error: 'BUNNY_STORAGE_ZONE e BUNNY_STORAGE_KEY não configurados no .env.' });
+      }
+
+      try {
+        const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
+        const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        const slug = target.slug;
+        const remotePath = slug ? `lorflux/series/${slug}/covers/${filename}` : `lorflux/${filename}`;
+
+        const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
+          method: 'PUT',
+          headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
+          body: req.file.buffer
+        });
+
+        if (!uploadRes.ok) {
+          const errText = await uploadRes.text();
+          logger.error('[Bunny Storage] Erro no upload:', errText);
+          return res.status(502).json({ error: 'Erro ao enviar imagem para Bunny Storage.' });
         }
 
-        try {
-          const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
-          const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-          const slug = toSlug(req.body?.seriesSlug);
-          const remotePath = slug ? `lorflux/series/${slug}/covers/${filename}` : `lorflux/${filename}`;
-
-          const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
-            method: 'PUT',
-            headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
-            body: req.file.buffer
-          });
-
-          if (!uploadRes.ok) {
-            const errText = await uploadRes.text();
-            logger.error('[Bunny Storage] Erro no upload:', errText);
-            return res.status(502).json({ error: 'Erro ao enviar imagem para Bunny Storage.' });
-          }
-
-          const cdnHostname = process.env.BUNNY_STORAGE_HOSTNAME || `${storageZone}.b-cdn.net`;
-          const url = `https://${cdnHostname}/${remotePath}`;
-          logger.info(`[Bunny Storage] Imagem enviada: ${url}`);
-          res.json({ url });
-        } catch (err) {
-          logger.error('[Bunny Storage Upload Error]', err);
-          res.status(500).json({ error: 'Erro interno ao fazer upload.' });
-        }
-      });
+        const cdnHostname = process.env.BUNNY_STORAGE_HOSTNAME || `${storageZone}.b-cdn.net`;
+        const url = `https://${cdnHostname}/${remotePath}`;
+        logger.info(`[Bunny Storage] Imagem enviada: ${url}`);
+        res.json({ url });
+      } catch (err) {
+        logger.error('[Bunny Storage Upload Error]', err);
+        res.status(500).json({ error: 'Erro interno ao fazer upload.' });
+      }
     });
   });
 });
 
 // POST /api/bunny/upload-image-batch — upload em lote de imagens para Bunny Storage (até 138 painéis)
+// Fase 5 Bloco 1, Task 5: mesma guarda de upload-image (admin OU dono do
+// canal da serie alvo).
 router.post('/upload-image-batch', (req, res) => {
   const verifyToken = require('../middlewares/verifyToken');
-  const requireAdmin = require('../middlewares/requireAdmin');
 
-  verifyToken(req, res, () => {
-    requireAdmin(req, res, () => {
-      const batchUpload = multer({
-        storage: multer.memoryStorage(),
-        limits: { fileSize: 50 * 1024 * 1024, files: 138 },
-        fileFilter: (req, file, cb) => {
-          const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-          allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error(`Arquivo "${file.originalname}" não é uma imagem válida.`));
-        }
-      });
+  verifyToken(req, res, async () => {
+    // Mesmo motivo do upload-image: await de Mongo fora de try/catch viraria
+    // unhandled rejection em falha de infra.
+    let isAdmin;
+    try {
+      isAdmin = isAdminUser(req.user);
+      if (!isAdmin && !(await temCanalAtivo(req.user.id))) {
+        return res.status(403).json({ error: 'Voce nao e dono de nenhum canal ativo.' });
+      }
+    } catch (err) {
+      logger.error('[Bunny Storage] gate de upload-image-batch', err);
+      return res.status(500).json({ error: 'Erro interno ao validar o upload.' });
+    }
 
-      batchUpload.array('images', 138)(req, res, async (err) => {
-        if (err) return res.status(400).json({ error: err.message });
-        if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    const batchUpload = multer({
+      storage: multer.memoryStorage(),
+      limits: { fileSize: 50 * 1024 * 1024, files: 138 },
+      fileFilter: (req, file, cb) => {
+        const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        allowed.includes(file.mimetype) ? cb(null, true) : cb(new Error(`Arquivo "${file.originalname}" não é uma imagem válida.`));
+      }
+    });
 
-        const storageZone = process.env.BUNNY_STORAGE_ZONE;
-        const storageKey = process.env.BUNNY_STORAGE_KEY;
+    batchUpload.array('images', 138)(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
 
-        if (!storageZone || !storageKey) {
-          return res.status(500).json({ error: 'BUNNY_STORAGE_ZONE e BUNNY_STORAGE_KEY não configurados no .env.' });
-        }
+      let target;
+      try {
+        target = await resolveUploadSlug(req, isAdmin);
+      } catch (resolveErr) {
+        logger.error('[Bunny Storage] resolveUploadSlug em upload-image-batch', resolveErr);
+        return res.status(500).json({ error: 'Erro interno ao validar o upload.' });
+      }
+      if (target.status) return res.status(target.status).json({ error: target.error });
 
-        const cdnHostname = process.env.BUNNY_STORAGE_HOSTNAME || `${storageZone}.b-cdn.net`;
+      const storageZone = process.env.BUNNY_STORAGE_ZONE;
+      const storageKey = process.env.BUNNY_STORAGE_KEY;
 
-        const uploadOne = async (file, index) => {
-          try {
-            const ext = (file.originalname.split('.').pop() || 'jpg').toLowerCase();
-            const filename = `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.${ext}`;
-            const slug = toSlug(req.body?.seriesSlug);
-            const remotePath = slug ? `lorflux/series/${slug}/panels/${filename}` : `lorflux/panels/${filename}`;
+      if (!storageZone || !storageKey) {
+        return res.status(500).json({ error: 'BUNNY_STORAGE_ZONE e BUNNY_STORAGE_KEY não configurados no .env.' });
+      }
 
-            const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
-              method: 'PUT',
-              headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
-              body: file.buffer
-            });
+      const cdnHostname = process.env.BUNNY_STORAGE_HOSTNAME || `${storageZone}.b-cdn.net`;
 
-            if (!uploadRes.ok) {
-              const errText = await uploadRes.text();
-              logger.error(`[Bunny Batch] Falha no arquivo "${file.originalname}":`, errText);
-              return { success: false, filename: file.originalname, index, error: 'Erro no Bunny Storage.' };
-            }
+      const uploadOne = async (file, index) => {
+        try {
+          const ext = (file.originalname.split('.').pop() || 'jpg').toLowerCase();
+          const filename = `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}.${ext}`;
+          const slug = target.slug;
+          const remotePath = slug ? `lorflux/series/${slug}/panels/${filename}` : `lorflux/panels/${filename}`;
 
-            const url = `https://${cdnHostname}/${remotePath}`;
-            return { success: true, filename: file.originalname, index, url };
-          } catch (e) {
-            logger.error(`[Bunny Batch] Exceção no arquivo "${file.originalname}":`, e);
-            return { success: false, filename: file.originalname, index, error: e.message };
+          const uploadRes = await fetch(`https://${process.env.BUNNY_STORAGE_ENDPOINT || 'storage.bunnycdn.com'}/${storageZone}/${remotePath}`, {
+            method: 'PUT',
+            headers: { 'AccessKey': storageKey, 'Content-Type': 'application/octet-stream' },
+            body: file.buffer
+          });
+
+          if (!uploadRes.ok) {
+            const errText = await uploadRes.text();
+            logger.error(`[Bunny Batch] Falha no arquivo "${file.originalname}":`, errText);
+            return { success: false, filename: file.originalname, index, error: 'Erro no Bunny Storage.' };
           }
-        };
 
-        const settled = await Promise.allSettled(req.files.map((f, i) => uploadOne(f, i)));
-        const results = settled.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: r.reason?.message });
+          const url = `https://${cdnHostname}/${remotePath}`;
+          return { success: true, filename: file.originalname, index, url };
+        } catch (e) {
+          logger.error(`[Bunny Batch] Exceção no arquivo "${file.originalname}":`, e);
+          return { success: false, filename: file.originalname, index, error: e.message };
+        }
+      };
 
-        const successCount = results.filter(r => r.success).length;
-        const failCount = results.length - successCount;
+      const settled = await Promise.allSettled(req.files.map((f, i) => uploadOne(f, i)));
+      const results = settled.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: r.reason?.message });
 
-        logger.info(`[Bunny Batch] Lote concluído: ${successCount} ok, ${failCount} falhas de ${results.length} arquivos`);
-        res.json({ results, successCount, failCount, total: results.length });
-      });
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.length - successCount;
+
+      logger.info(`[Bunny Batch] Lote concluído: ${successCount} ok, ${failCount} falhas de ${results.length} arquivos`);
+      res.json({ results, successCount, failCount, total: results.length });
     });
   });
 });
@@ -504,10 +577,23 @@ router.get('/signed-url', (req, res) => {
       return res.status(503).json({ error: 'Streaming indisponível: token de mídia não configurado.' });
     }
 
-    // Só assinamos vídeos que pertencem a um episódio conhecido (evita assinar IDs arbitrários).
+    // Só assinamos vídeos que pertencem a um episódio conhecido (evita assinar
+    // IDs arbitrários) E publicado — episódio draft/processing (ou publicado
+    // numa série ainda não publicada) só é assinado pro admin ou pro dono do
+    // canal da série (Fase 5 Bloco 1, Task 2 — "Drafts invisíveis ao
+    // público"; mesmo critério de routes/content.js via utils/ownership).
     try {
-      const episode = await Episode.findOne({ bunnyVideoId: videoId }).select('isPremium').lean();
+      const episode = await Episode.findOne({ bunnyVideoId: videoId })
+        .select('isPremium status seriesId')
+        .populate('seriesId', 'isPublished channelId')
+        .lean();
       if (!episode) return res.status(404).json({ error: 'Vídeo não encontrado.' });
+
+      const publicado = episode.status === 'published' && !!episode.seriesId && episode.seriesId.isPublished === true;
+      if (!publicado) {
+        const podeVer = episode.seriesId && await podeVerRascunho(req.user, episode.seriesId.channelId);
+        if (!podeVer) return res.status(404).json({ error: 'Vídeo não encontrado.' });
+      }
     } catch (err) {
       logger.error('[Bunny] Erro ao verificar acesso ao vídeo', err);
       return res.status(500).json({ error: 'Erro ao verificar acesso.' });

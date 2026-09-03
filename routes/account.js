@@ -28,6 +28,7 @@ const PasswordResetToken = require('../models/PasswordResetToken');
 const ReadingProgress = require('../models/ReadingProgress');
 const PushSubscription = require('../models/PushSubscription');
 const SuperReaderContribution = require('../models/SuperReaderContribution');
+const MensagemPortal = require('../models/MensagemPortal');
 
 /**
  * LGPD — Direitos do titular dos dados (Art. 18).
@@ -77,7 +78,7 @@ router.get('/me/export', verifyToken, async (req, res) => {
     const user = await User.findById(req.user.id).select('-passwordHash').lean();
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
-    const [votes, seriesVotes, favorites, channels, readingProgress, pushSubscriptions, superReaderContributions] = await Promise.all([
+    const [votes, seriesVotes, favorites, channels, readingProgress, pushSubscriptions, superReaderContributions, portalMessages] = await Promise.all([
       Vote.find({ userId: req.user.id }).lean(),
       SeriesVote.find({ userId: req.user.id }).lean(),
       Favorite.find({ userId: req.user.id }).lean(),
@@ -87,6 +88,13 @@ router.get('/me/export', verifyToken, async (req, res) => {
       SuperReaderContribution.find({ userId: req.user.id })
         .select('seriesId amountCents currency createdAt')
         .populate('seriesId', 'title')
+        .lean(),
+      // Fase 5 Bloco 1 (LGPD, Task 8): mensagens do portal em que o usuário
+      // é autor OU dono da thread — inclusive de threads JÁ ARQUIVADAS (ele
+      // era o dono vigente quando escreveu/recebeu; a troca de dono não
+      // revoga o direito de acesso aos próprios dados, Art. 18 II/V).
+      MensagemPortal.find({ $or: [{ autorUserId: req.user.id }, { ownerUserId: req.user.id }] })
+        .sort({ createdAt: 1 })
         .lean(),
     ]);
 
@@ -108,7 +116,10 @@ router.get('/me/export', verifyToken, async (req, res) => {
       votes: votes.map(v => ({ episodeId: v.episodeId, type: v.type, createdAt: v.createdAt })),
       seriesVotes: seriesVotes.map(v => ({ seriesId: v.seriesId, type: v.type, createdAt: v.createdAt })),
       favorites: favorites.map(f => ({ seriesId: f.seriesId, createdAt: f.createdAt })),
-      channels: channels.map(c => ({ id: c._id, name: c.name, description: c.description, createdAt: c.createdAt })),
+      // Vínculo de canal (Fase 5 Bloco 1, LGPD): canais onde o titular é
+      // ownerId — inclui isActive (canal desativado ainda é vínculo dele,
+      // até ser transferido).
+      channels: channels.map(c => ({ id: c._id, name: c.name, description: c.description, isActive: c.isActive, createdAt: c.createdAt })),
       readingProgress: readingProgress.map(p => ({
         seriesId: p.seriesId,
         episodeId: p.episodeId,
@@ -137,6 +148,20 @@ router.get('/me/export', verifyToken, async (req, res) => {
         amountCents: c.amountCents,
         currency: c.currency,
         createdAt: c.createdAt,
+      })),
+      // Mensagens do Portal do Ilustrador (Fase 5 Bloco 1, LGPD): autoradas
+      // OU recebidas pelo titular, mesmo de threads arquivadas. Sem
+      // autorUserId/ownerUserId crus — autorTipo já diz quem escreveu
+      // ('ilustrador' é o próprio titular; 'editor' é a Lorflux) sem expor o
+      // id de terceiros no export.
+      portalMessages: portalMessages.map(m => ({
+        canalId: m.canalId,
+        autorTipo: m.autorTipo,
+        texto: m.texto,
+        refTipo: m.refTipo,
+        refId: m.refId,
+        arquivadaEm: m.arquivadaEm,
+        createdAt: m.createdAt,
       })),
     };
 
@@ -180,6 +205,41 @@ router.delete('/me', verifyToken, async (req, res) => {
       if (!ok) return res.status(401).json({ error: 'Senha incorreta.' });
     }
 
+    const userId = user._id;
+
+    // LGPD (Fase 5 Bloco 1, Task 8): dono de canal ATIVO não pode excluir a
+    // conta — a obra publicada não pode ficar sem dono. Checado ANTES de
+    // qualquer efeito colateral (Stripe, deletes) para que o request
+    // bloqueado seja atômico: nada é tocado quando barrado aqui. Porta de
+    // saída: o editor desativa o canal (POST /channels/:id/desativar) ou
+    // transfere a titularidade (PUT /channels/:id ownerEmail) — qualquer um
+    // dos dois desbloqueia a exclusão. 409 (não 400): não é o corpo do
+    // request que está errado, é o estado atual da conta que impede a ação.
+    const temCanalAtivo = await Channel.exists({ ownerId: userId, isActive: true });
+    if (temCanalAtivo) {
+      return res.status(409).json({
+        error: 'Você é dono de um canal ativo. Para excluir sua conta, transfira a titularidade do canal ou peça ao editor para desativá-lo.',
+      });
+    }
+
+    // Canais INATIVOS do usuário NUNCA são apagados (obra publicada não pode
+    // sumir com a conta do ex-dono, spec Fase 5 Bloco 1) — são transferidos
+    // ao primeiro usuário admin (role admin/superadmin, o de createdAt mais
+    // antigo) como dono "guarda-chuva" até o editor decidir um novo
+    // ilustrador. Se nenhum admin existir (teoricamente impossível: o
+    // sistema sempre tem ao menos um), aborta em vez de órfãozar o canal.
+    // O LOOKUP do admin roda ANTES do cancel do Stripe: o abort de 500 não
+    // pode acontecer com a assinatura já cancelada (achado da revisão da T8).
+    const canaisInativos = await Channel.find({ ownerId: userId, isActive: false }).select('_id').lean();
+    let primeiroAdmin = null;
+    if (canaisInativos.length > 0) {
+      primeiroAdmin = await User.findOne({ role: { $in: ['admin', 'superadmin'] } }).sort({ createdAt: 1 });
+      if (!primeiroAdmin) {
+        logger.error(`[Account] DELETE /me: exclusão abortada — nenhum admin disponível para receber canais de ${maskEmail(user.email)}.`);
+        return res.status(500).json({ error: 'Erro ao excluir conta: nenhum administrador disponível para receber seus canais.' });
+      }
+    }
+
     // Best-effort: cancela a assinatura no Stripe para cessar o tratamento/cobrança.
     if (user.stripeSubscriptionId && process.env.STRIPE_SECRET_KEY) {
       try {
@@ -190,12 +250,20 @@ router.delete('/me', verifyToken, async (req, res) => {
       }
     }
 
-    const userId = user._id;
+    if (canaisInativos.length > 0) {
+      await Channel.updateMany(
+        { _id: { $in: canaisInativos.map(c => c._id) } },
+        { $set: { ownerId: primeiroAdmin._id } }
+      );
+    }
+
     await Promise.all([
       Vote.deleteMany({ userId }),
       SeriesVote.deleteMany({ userId }),
       Favorite.deleteMany({ userId }),
-      Channel.deleteMany({ ownerId: userId }),
+      // Channel.deleteMany REMOVIDO (Fase 5 Bloco 1): canal inativo é
+      // transferido ao admin acima — nunca apagado; canal ativo já bloqueou
+      // a exclusão mais acima. Obra publicada jamais some com a conta.
       ReadingProgress.deleteMany({ userId }),
       PushSubscription.deleteMany({ userId }),
       Channel.updateMany({ followers: userId }, { $pull: { followers: userId } }),
@@ -210,6 +278,11 @@ router.delete('/me', verifyToken, async (req, res) => {
       // não por usuário). Anonimiza (userId: null) em vez de deletar — sem o
       // vínculo pessoal, deixa de ser dado pessoal (LGPD).
       SuperReaderContribution.updateMany({ userId }, { $set: { userId: null } }),
+      // Mensagens do portal autoradas pelo usuário são comunicação privada
+      // dele — apagadas. As do EDITOR na mesma thread ficam (autoria do
+      // editor, não dele) — preservam o histórico do canal para o admin/
+      // próximo dono, mesmo órfãs de interlocutor.
+      MensagemPortal.deleteMany({ autorUserId: userId }),
     ]);
 
     await User.findByIdAndDelete(userId);

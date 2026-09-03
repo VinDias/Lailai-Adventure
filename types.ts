@@ -58,13 +58,20 @@ export enum ViewMode {
   READER = 'READER',
   PROFILE = 'PROFILE',
   FAVORITES = 'FAVORITES',
+  // Portal do Ilustrador (Fase 5 Bloco 1) — só alcançável a partir do cartão
+  // "Meu Estúdio" na Conta, e só para quem é dono de canal.
+  PORTAL_ESTUDIO = 'PORTAL_ESTUDIO',
   ADMIN_DASHBOARD = 'ADMIN_DASHBOARD',
   ADMIN_USERS = 'ADMIN_USERS',
   ADMIN_CONTENT = 'ADMIN_CONTENT',
   ADMIN_PAYMENTS = 'ADMIN_PAYMENTS',
   ADMIN_ADS = 'ADMIN_ADS',
   ADMIN_SETTINGS = 'ADMIN_SETTINGS',
-  ADMIN_ROYALTIES = 'ADMIN_ROYALTIES'
+  ADMIN_ROYALTIES = 'ADMIN_ROYALTIES',
+  // Fase 5 Bloco 1, Task 10: Fila de Aprovação (portal do ilustrador) e
+  // gerenciamento de canais (e-mail do dono/desativar/mensagens).
+  ADMIN_APROVACOES = 'ADMIN_APROVACOES',
+  ADMIN_CANAIS = 'ADMIN_CANAIS'
 }
 
 export interface AdminStats {
@@ -159,6 +166,10 @@ export interface Series {
   isPremium: boolean;
   content_type?: string;
   order_index?: number;
+  // Canal/ilustrador dono da obra (Fase 3; nome clicável no modal de
+  // detalhe abre CanalPublico — Fase 5 Bloco 1, Task 10). Ausente em obras
+  // sem canal vinculado.
+  channelId?: string;
 }
 
 // Fix: Export missing Chapter type

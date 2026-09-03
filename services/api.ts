@@ -780,6 +780,192 @@ class ApiService {
   async getSuperReaderMin() {
     return this.request<{ minCents: number }>('/superreader/min');
   }
+
+  // ─── Fase 5 Bloco 1: Portal do Ilustrador (Meu Estúdio) ────────────────────
+  // Shapes reais de routes/portal.js — ver comentários lá para o contrato
+  // completo de cada rota. 403 (não é dono de canal ativo) chega como Error
+  // comum (this.request lança); quem chama decide o que fazer (o cartão da
+  // Conta trata qualquer falha como "não mostrar").
+
+  async getMeuEstudio() {
+    return this.request<{
+      canais: { channelId: string; name: string; avatar: string | null; obras: number; pendentes: number; mensagensNaoLidas: number }[];
+    }>('/portal/meu-estudio');
+  }
+
+  // period 'YYYY-MM' opcional — sem ele, o backend usa o mês corrente.
+  // Mês corrente: canais vêm SEM `amount` (nunca R$ antes do fechamento).
+  async getPortalResumo(period?: string) {
+    const path = period ? `/portal/resumo?period=${encodeURIComponent(period)}` : '/portal/resumo';
+    return this.request<{
+      period: string;
+      status: 'aberto' | 'fechado';
+      canais: { channelId: string; channelName: string; points: number; share: number; amount?: number }[];
+      superReader: { porCanal: { channelId: string; channelName: string | null; apoios: number; autorCents: number }[] };
+      periodosFechadosDisponiveis: string[];
+    }>(path);
+  }
+
+  // Lista as próprias séries (rascunho/em análise/publicada), mais recente
+  // primeiro — GET /api/portal/series (routes/portal.js).
+  async getPortalSeries() {
+    return this.request<{ series: any[] }>('/portal/series');
+  }
+
+  async createPortalSeries(data: { title: string; description?: string; content_rating_sugerida?: 'kids' | 'teen' | 'young' | null; channelId?: string }) {
+    return this.request<any>('/portal/series', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async updatePortalSeries(id: string, data: Partial<{ title: string; description: string; cover_image: string; content_rating_sugerida: 'kids' | 'teen' | 'young' | null }>) {
+    return this.request<any>(`/portal/series/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  }
+
+  async createPortalEpisodio(seriesId: string, data: { title: string; description?: string; episode_number: number; thumbnail?: string }) {
+    return this.request<any>(`/portal/series/${seriesId}/episodios`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async addPortalPaineis(episodeId: string, panels: { image_url: string; order: number }[]) {
+    return this.request<{ success: boolean; panelCount: number; episode: any }>(`/portal/episodios/${episodeId}/paineis`, {
+      method: 'POST',
+      body: JSON.stringify({ panels }),
+    });
+  }
+
+  async enviarPortalSerie(seriesId: string) {
+    return this.request<any>(`/portal/series/${seriesId}/enviar`, { method: 'POST' });
+  }
+
+  async enviarPortalEpisodio(episodeId: string) {
+    return this.request<any>(`/portal/episodios/${episodeId}/enviar`, { method: 'POST' });
+  }
+
+  // limit default do backend é 100 (thread pequena — não pagina neste bloco,
+  // ver spec/plano); `before` (ISO) só quando o caller explicitamente rolar
+  // pra cima.
+  async getPortalMensagens(params: { canalId?: string; limit?: number; before?: string } = {}) {
+    const qs = new URLSearchParams();
+    if (params.canalId) qs.set('canalId', params.canalId);
+    if (params.limit !== undefined) qs.set('limit', String(params.limit));
+    if (params.before) qs.set('before', params.before);
+    const query = qs.toString();
+    return this.request<{ canalId: string; mensagens: any[] }>(`/portal/mensagens${query ? `?${query}` : ''}`);
+  }
+
+  async sendPortalMensagem(data: { texto: string; canalId?: string }) {
+    return this.request<any>('/portal/mensagens', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  // Upload do ilustrador (Fase 5 Bloco 1, Task 5): contrato PRÓPRIO, diferente
+  // do admin — envia `seriesId` real (não `seriesSlug` texto-livre); o
+  // servidor resolve série→canal→dono e deriva o slug lá dentro. Mesmas rotas
+  // de uploadImageToBunny/uploadImagesBatchToBunny (upload-image[-batch]),
+  // que já aceitam admin OU dono do canal da série alvo.
+  async uploadPortalImage(file: File, seriesId: string): Promise<string> {
+    const formData = new FormData();
+    formData.append('image', file);
+    formData.append('seriesId', seriesId);
+    const response = await fetch(`${API_URL}/bunny/upload-image`, {
+      method: 'POST',
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      body: formData,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro ao fazer upload: ${response.status}`);
+    }
+    const data = await response.json();
+    return data.url;
+  }
+
+  async uploadPortalImagesBatch(files: File[], seriesId: string): Promise<{ results: Array<{ success: boolean; filename: string; index: number; url?: string; error?: string }>; successCount: number; failCount: number; total: number }> {
+    const formData = new FormData();
+    files.forEach(f => formData.append('images', f));
+    formData.append('seriesId', seriesId);
+    const response = await fetch(`${API_URL}/bunny/upload-image-batch`, {
+      method: 'POST',
+      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
+      body: formData,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erro ao fazer upload em lote: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  // ─── Fase 5 Bloco 1, Task 10: canal público (leitor) ───────────────────────
+  // GET /api/channels/:id — shape pinado: followersCount (número) + isFollowing
+  // (bool, false se anônimo), SEM o array followers[] (dado pessoal). Público
+  // (optionalAuth no backend) — funciona sem token.
+  async getChannel(id: string) {
+    return this.request<{
+      _id: string; name: string; description?: string | null;
+      avatar?: string | null; banner?: string | null; isActive: boolean;
+      followersCount: number; isFollowing: boolean;
+      ownerId?: { _id: string; nome: string; avatar?: string } | string | null;
+    }>(`/channels/${id}`);
+  }
+
+  // Shape real de routes/channels.js: { success, followers } — followers é a
+  // CONTAGEM atualizada (não a lista), já pronta para reconciliar o otimismo
+  // da UI depois da resposta do servidor.
+  async followChannel(id: string) {
+    return this.request<{ success: boolean; followers: number }>(`/channels/${id}/follow`, { method: 'POST' });
+  }
+
+  async unfollowChannel(id: string) {
+    return this.request<{ success: boolean; followers: number }>(`/channels/${id}/follow`, { method: 'DELETE' });
+  }
+
+  // ─── Fase 5 Bloco 1, Task 10: admin — Fila de Aprovação ────────────────────
+  // Shape real de routes/adminPortal.js: lista FLAT com `tipo: 'series'|'episode'`.
+  async getAdminAprovacoes() {
+    return this.request<{ itens: any[] }>('/admin/aprovacoes');
+  }
+
+  // genre/tags são OPCIONAIS — o backend usa o gênero já salvo na série
+  // quando não vem no body (a UI só precisa mandar o que o Master editou).
+  async aprovarSerieAdmin(id: string, data: { genre?: string; tags?: string[] } = {}) {
+    return this.request<any>(`/admin/aprovacoes/series/${id}/aprovar`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async aprovarEpisodioAdmin(id: string) {
+    return this.request<any>(`/admin/aprovacoes/episodes/${id}/aprovar`, { method: 'POST' });
+  }
+
+  // tipo aceita 'series' | 'episode' | 'episodes' (o backend normaliza o
+  // plural — ver routes/adminPortal.js) — a UI sempre manda o `item.tipo`
+  // devolvido por getAdminAprovacoes, que já é singular.
+  async devolverAprovacao(tipo: 'series' | 'episode' | 'episodes', id: string, texto: string) {
+    return this.request<{ success: boolean; mensagem: any }>(`/admin/aprovacoes/${tipo}/${id}/devolver`, {
+      method: 'POST',
+      body: JSON.stringify({ texto }),
+    });
+  }
+
+  // ─── Fase 5 Bloco 1, Task 10: admin — form de canal ────────────────────────
+  // PUT /api/channels/:id, branch admin: ownerEmail transfere a titularidade
+  // (404 se o e-mail não corresponde a nenhum usuário — routes/channels.js).
+  async updateChannelAdmin(id: string, data: Partial<{ name: string; description: string; avatar: string; banner: string; ownerEmail: string }>) {
+    return this.request<any>(`/channels/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  }
+
+  async desativarCanal(id: string) {
+    return this.request<any>(`/channels/${id}/desativar`, { method: 'POST' });
+  }
+
+  // ─── Fase 5 Bloco 1, Task 10: admin — mensagens por canal ──────────────────
+  // Shape real de routes/adminPortal.js: threads agrupadas (vigente primeiro,
+  // depois arquivadas da mais recente para a mais antiga).
+  async getAdminMensagensCanal(canalId: string) {
+    return this.request<{ canalId: string; threads: any[] }>(`/admin/mensagens/${canalId}`);
+  }
+
+  async sendAdminMensagem(canalId: string, data: { texto: string; refTipo?: 'series' | 'episode'; refId?: string }) {
+    return this.request<any>(`/admin/mensagens/${canalId}`, { method: 'POST', body: JSON.stringify(data) });
+  }
 }
 
 export const api = ApiService.getInstance();

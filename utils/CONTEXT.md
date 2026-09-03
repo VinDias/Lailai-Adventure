@@ -27,6 +27,13 @@ Gerenciamento da estrutura de diretórios locais.
 - Cria as pastas de conteúdo necessárias no sistema de arquivos
 - Usado durante o setup inicial e no processamento de uploads temporários
 
+### `ownership.js` (Fase 5, Bloco 1)
+Ponto único de "quem enxerga o que não está publicado" e "quem pode subir imagem para qual série" — centralizado aqui para `routes/content.js`, `routes/bunnyWebhook.js` e `routes/portal.js` não divergirem.
+- `isAdminUser(user)` — `role` `admin` ou `superadmin`; tolera `user` ausente (`optionalAuth` pode não popular `req.user`)
+- `podeVerRascunho(user, channelId)` — admin sempre; senão, só o dono do canal ao qual a série pertence (`Channel.ownerId === user.id`). Anônimo ou logado não-dono → `false`. **Quem chama trata o "não" como 404, nunca 403** — 403 confirmaria a existência do rascunho. Usado por `GET /content/series/:id`, `GET /content/series/:id/episodes`, `GET /content/episodes/:id` e `GET /bunny/signed-url`. Não checa `isActive` do canal: o dono de um canal desativado ainda vê os próprios rascunhos (decisão implícita, registrada em `routes/CONTEXT.md`)
+- `temCanalAtivo(userId)` — o usuário é `ownerId` de algum canal com `isActive: true`? É o gate barato do upload de imagem, rodado **antes do multer**; `false` → 403
+- `serieDeCanalAtivoDoUsuario(userId, seriesId)` — a série ALVO pertence a um canal ativo DESTE usuário? Devolve a série (com `title`, para derivar o slug do storage) ou `null`. Série inexistente, sem canal, de outro dono **ou com `_id` malformado** (o `CastError` é capturado e vira `null`, `ownership.js:48`) produzem o MESMO `null` → 404, sem confirmar nada
+
 ### `requestIdentity.js` (Fase 4)
 `getIdentity(req)` — descobre de quem é a requisição de progresso: conta logada (`req.user.id`) sempre vence; senão cai para o visitante via cabeçalho `X-Anonymous-Id` (validado como UUID v4). Devolve `null` quando nenhum dos dois está presente. Usado por `routes/progress.js`.
 

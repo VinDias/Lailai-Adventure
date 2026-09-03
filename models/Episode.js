@@ -40,7 +40,10 @@ const EpisodeSchema = new mongoose.Schema({
   views: { type: Number, default: 0 },
   order_index: { type: Number, default: 0 },
   // Guarda de envio único do push de capítulo novo
-  notificationSentAt: { type: Date, default: null }
+  notificationSentAt: { type: Date, default: null },
+  // Marcador de "Enviar para aprovação" do portal (Fase 5 Bloco 1) — ver
+  // Series.submittedAt para o mesmo mecanismo em nível de obra.
+  submittedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Episode', EpisodeSchema);

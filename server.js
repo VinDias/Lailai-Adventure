@@ -249,11 +249,17 @@ app.use("/api/admin/management", require("./routes/admin"));
 app.use("/api/admin/users", require("./routes/adminManagement"));
 app.use("/api/admin/ads", require("./routes/ads"));
 app.use("/api/admin/royalties", require("./routes/royalties"));
+// Portal do Ilustrador, lado do editor (Fase 5 Bloco 1, Task 6). Montado em
+// /api/admin puro (não /api/admin/mensagens): a spec pina os caminhos como
+// filhos diretos de /admin (/admin/mensagens/:canalId hoje, /admin/aprovacoes
+// na Task 7) — routes/adminPortal.js define as rotas relativas a partir daqui.
+app.use("/api/admin", require("./routes/adminPortal"));
 app.use("/api/me", require("./routes/progress"));
 app.use("/api/settings", require("./routes/settings"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
 app.use("/api/content", require("./routes/content"));
 app.use("/api/channels", require("./routes/channels"));
+app.use("/api/portal", require("./routes/portal"));
 app.use("/api/favorites", require("./routes/favorites"));
 app.use("/api/account", require("./routes/account"));
 app.use("/api", require("./routes/push"));
