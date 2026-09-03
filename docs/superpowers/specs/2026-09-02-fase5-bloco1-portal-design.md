@@ -109,7 +109,9 @@ criação draft nunca dispara push/recálculo; aprovar exige gênero, publica e
 dispara (os 6 caminhos continuam verdes); devolver gera mensagem com ref;
 thread (ordem, lidaEm, limites, escopo por dono vigente, **arquivamento na troca
 de dono** — novo dono não lê histórico antigo); uploads: dono válido ok, A→série
-de B = 403, slug derivado server-side, vídeo/áudio seguem admin-only; shape
+de B = **404** (mesmo padrão de não confirmar existência dos drafts; 403 só
+para quem não é dono de canal nenhum), slug derivado server-side, vídeo/áudio
+seguem admin-only; shape
 público do canal sem `followers[]`; exclusão bloqueada para dono ativo →
 desativar → exclusão passa (LGPD do restante intacta); export inclui mensagens
 e vínculo.

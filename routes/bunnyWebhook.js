@@ -214,16 +214,30 @@ router.post('/upload-image', (req, res) => {
   const verifyToken = require('../middlewares/verifyToken');
 
   verifyToken(req, res, async () => {
-    const isAdmin = isAdminUser(req.user);
-    if (!isAdmin && !(await temCanalAtivo(req.user.id))) {
-      return res.status(403).json({ error: 'Voce nao e dono de nenhum canal ativo.' });
+    // Gate e resolução aguardam o Mongo — sem try/catch, uma falha de infra
+    // aqui viraria unhandled rejection (derruba o processo), não 500.
+    let isAdmin;
+    try {
+      isAdmin = isAdminUser(req.user);
+      if (!isAdmin && !(await temCanalAtivo(req.user.id))) {
+        return res.status(403).json({ error: 'Voce nao e dono de nenhum canal ativo.' });
+      }
+    } catch (err) {
+      logger.error('[Bunny Storage] gate de upload-image', err);
+      return res.status(500).json({ error: 'Erro interno ao validar o upload.' });
     }
 
     imageUpload.single('image')(req, res, async (err) => {
       if (err) return res.status(400).json({ error: err.message });
       if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
 
-      const target = await resolveUploadSlug(req, isAdmin);
+      let target;
+      try {
+        target = await resolveUploadSlug(req, isAdmin);
+      } catch (resolveErr) {
+        logger.error('[Bunny Storage] resolveUploadSlug em upload-image', resolveErr);
+        return res.status(500).json({ error: 'Erro interno ao validar o upload.' });
+      }
       if (target.status) return res.status(target.status).json({ error: target.error });
 
       const storageZone = process.env.BUNNY_STORAGE_ZONE;
@@ -270,9 +284,17 @@ router.post('/upload-image-batch', (req, res) => {
   const verifyToken = require('../middlewares/verifyToken');
 
   verifyToken(req, res, async () => {
-    const isAdmin = isAdminUser(req.user);
-    if (!isAdmin && !(await temCanalAtivo(req.user.id))) {
-      return res.status(403).json({ error: 'Voce nao e dono de nenhum canal ativo.' });
+    // Mesmo motivo do upload-image: await de Mongo fora de try/catch viraria
+    // unhandled rejection em falha de infra.
+    let isAdmin;
+    try {
+      isAdmin = isAdminUser(req.user);
+      if (!isAdmin && !(await temCanalAtivo(req.user.id))) {
+        return res.status(403).json({ error: 'Voce nao e dono de nenhum canal ativo.' });
+      }
+    } catch (err) {
+      logger.error('[Bunny Storage] gate de upload-image-batch', err);
+      return res.status(500).json({ error: 'Erro interno ao validar o upload.' });
     }
 
     const batchUpload = multer({
@@ -288,7 +310,13 @@ router.post('/upload-image-batch', (req, res) => {
       if (err) return res.status(400).json({ error: err.message });
       if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
 
-      const target = await resolveUploadSlug(req, isAdmin);
+      let target;
+      try {
+        target = await resolveUploadSlug(req, isAdmin);
+      } catch (resolveErr) {
+        logger.error('[Bunny Storage] resolveUploadSlug em upload-image-batch', resolveErr);
+        return res.status(500).json({ error: 'Erro interno ao validar o upload.' });
+      }
       if (target.status) return res.status(target.status).json({ error: target.error });
 
       const storageZone = process.env.BUNNY_STORAGE_ZONE;
