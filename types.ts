@@ -58,6 +58,9 @@ export enum ViewMode {
   READER = 'READER',
   PROFILE = 'PROFILE',
   FAVORITES = 'FAVORITES',
+  // Portal do Ilustrador (Fase 5 Bloco 1) — só alcançável a partir do cartão
+  // "Meu Estúdio" na Conta, e só para quem é dono de canal.
+  PORTAL_ESTUDIO = 'PORTAL_ESTUDIO',
   ADMIN_DASHBOARD = 'ADMIN_DASHBOARD',
   ADMIN_USERS = 'ADMIN_USERS',
   ADMIN_CONTENT = 'ADMIN_CONTENT',

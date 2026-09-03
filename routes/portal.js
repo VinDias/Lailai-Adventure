@@ -166,6 +166,29 @@ router.get('/resumo', requireCanalDoUsuario, async (req, res) => {
   }
 });
 
+// GET /api/portal/series — lista as séries dos canais ATIVOS do usuário
+// (rascunho, em análise ou publicada), mais recente primeiro. Nasceu na
+// Task 9 (frontend): a aba Obras do portal precisa listar as próprias
+// obras persistidas entre sessões — sem esta rota, o único jeito de saber
+// o _id de uma série era tê-la acabado de criar na mesma sessão do
+// navegador (POST /series devolve o doc, mas nada listava depois). Mesmo
+// padrão de campos/lean de GET /meu-estudio acima e de GET /admin/
+// aprovacoes (routes/adminPortal.js): select explícito, sem N+1. Episódios
+// de cada série continuam vindo de GET /api/content/series/:id/episodes
+// (já dono-aware desde a Task 2) — não duplicado aqui.
+router.get('/series', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const series = await Series.find({ channelId: { $in: req.portalChannelIds } })
+      .select('title description cover_image content_type isPublished submittedAt content_rating_sugerida channelId createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ series });
+  } catch (err) {
+    logger.error('[Portal] GET /series', err);
+    res.status(500).json({ error: 'Erro ao listar suas séries.' });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 // CRUD do portal + submissão (Task 4). Toda rota abaixo já passa por
 // verifyToken (router.use no topo) + requireCanalDoUsuario. Ownership do

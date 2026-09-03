@@ -855,3 +855,62 @@ describe('Draft do portal nunca dispara push nem recálculo do algoritmo', () =>
     }
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/portal/series — lista das próprias séries (Task 9, frontend: a
+// aba Obras precisa persistir o _id das séries entre sessões — POST /series
+// devolve o doc criado, mas nada listava depois).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('GET /api/portal/series', () => {
+  it('sem token → 401; usuário sem canal → 403', async () => {
+    const semAuth = await request(app).get('/api/portal/series');
+    expect(semAuth.status).toBe(401);
+
+    const tokenSemCanal = await criarUsuarioSemCanal('Lista Sem Canal');
+    const semCanal = await request(app)
+      .get('/api/portal/series')
+      .set('Authorization', `Bearer ${tokenSemCanal}`);
+    expect(semCanal.status).toBe(403);
+  });
+
+  it('lista só as séries dos PRÓPRIOS canais, mais recente primeiro, shape pinado', async () => {
+    const donoA = await criarDono('Lista A');
+    const donoB = await criarDono('Lista B');
+
+    await criarSerieDraft(donoA, { title: 'Serie A1', description: 'Desc A1' });
+    await new Promise(r => setTimeout(r, 5));
+    const a2 = await criarSerieDraft(donoA, { title: 'Serie A2', content_rating_sugerida: 'kids' });
+    await criarSerieDraft(donoB, { title: 'Serie B1' });
+
+    const res = await request(app)
+      .get('/api/portal/series')
+      .set('Authorization', `Bearer ${donoA.token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.series).toHaveLength(2);
+    // Mais recente primeiro.
+    expect(res.body.series[0]._id).toBe(a2.body._id);
+    expect(res.body.series.map(s => s.title).sort()).toEqual(['Serie A1', 'Serie A2']);
+    expect(res.body.series.every(s => s.title !== 'Serie B1')).toBe(true);
+
+    const item = res.body.series.find(s => s.title === 'Serie A2');
+    expect(item).toMatchObject({
+      title: 'Serie A2',
+      content_type: 'hiqua',
+      isPublished: false,
+      submittedAt: null,
+      content_rating_sugerida: 'kids',
+    });
+    expect(item.channelId).toBe(String(donoA.canal._id));
+  });
+
+  it('sem série alguma → { series: [] }', async () => {
+    const dono = await criarDono('Lista Vazia');
+    const res = await request(app)
+      .get('/api/portal/series')
+      .set('Authorization', `Bearer ${dono.token}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ series: [] });
+  });
+});
