@@ -21,6 +21,8 @@ const Series = require('../models/Series');
 const Episode = require('../models/Episode');
 const MensagemPortal = require('../models/MensagemPortal');
 const AdminLog = require('../models/AdminLog');
+// Fase 5 Bloco 3: badge "Curadoria N" e removidaPelaCuradoria em GET /aprovacoes.
+const CasoCuradoria = require('../models/CasoCuradoria');
 const { responderCastError } = require('../utils/routeErrors');
 
 const REF_TIPOS = ['series', 'episode'];
@@ -190,6 +192,38 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
       Series.countDocuments({ isPublished: true, content_rating: null }),
     ]);
 
+    // Fase 5 Bloco 3 — as DUAS leituras da curadoria ficam FORA do Promise.all
+    // acima e num try/catch próprio: esta rota é o único caminho do Master
+    // para publicar (código do Bloco 1 em produção) e não pode cair junto com
+    // um bloco novo. Degrada para badge zerado e nenhum aviso de remoção —
+    // mesmo padrão da reavaliação isolada em routes/adminCuradoria.js
+    // (GET /curadoria), onde um erro do gatilho de maturação não derruba a
+    // listagem.
+    let curadoria = { abertos: 0, graves: 0 };
+    let removidos = [];
+    try {
+      // badge "Curadoria N" — mesma request do badge de Aprovações
+      // (AdminDashboard.tsx refetchAprovacoesBadges), sem rota nova.
+      const casosAbertos = await CasoCuradoria.find({ emAberto: true }).select('prioridade').lean();
+      curadoria = { abertos: casosAbertos.length, graves: casosAbertos.filter(c => c.prioridade === 'grave').length };
+      // Obra removida pela curadoria e reenviada pelo artista — o Master não
+      // deve aprovar às cegas. Último caso 'remover' por série, uma query
+      // $in + Map (sem N+1).
+      removidos = seriesPendentes.length
+        ? await CasoCuradoria.find({ seriesId: { $in: seriesPendentes.map(s => s._id) }, decisao: 'remover' })
+            .sort({ decisaoEm: -1 }).select('seriesId decisaoEm motivoDecisao').lean()
+        : [];
+    } catch (err) {
+      logger.error('[AdminPortal] curadoria indisponível na fila de aprovação', err && err.message);
+      curadoria = { abertos: 0, graves: 0 };
+      removidos = [];
+    }
+    const removidaPorSerie = new Map();
+    for (const c of removidos) {
+      const k = String(c.seriesId);
+      if (!removidaPorSerie.has(k)) removidaPorSerie.set(k, { decisaoEm: c.decisaoEm, motivo: c.motivoDecisao ?? null });
+    }
+
     // Séries dos episódios pendentes (o preview do episódio precisa de
     // título + isPublished da série-mãe — é o que a T10 usa pra saber se
     // deve orientar "aprove a série primeiro"). Uma query só, sem N+1.
@@ -225,6 +259,7 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
       tags: s.tags ?? [],
       canal: previewCanal(s.channelId),
       submittedAt: s.submittedAt,
+      removidaPelaCuradoria: removidaPorSerie.get(String(s._id)) ?? null,
     }));
 
     const itensEpisodio = episodiosPendentes.map(e => {
@@ -245,7 +280,7 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
     const itens = [...itensSerie, ...itensEpisodio]
       .sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
 
-    res.json({ itens, naoClassificadas });
+    res.json({ itens, naoClassificadas, curadoria });
   } catch (err) {
     logger.error('[AdminPortal] GET /aprovacoes', err);
     res.status(500).json({ error: 'Erro ao montar a fila de aprovação.' });

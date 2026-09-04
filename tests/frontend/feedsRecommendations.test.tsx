@@ -32,6 +32,13 @@ vi.mock('../../services/api', () => ({
     getPublicSettings: vi.fn().mockResolvedValue({}),
     getSuperReaderMin: vi.fn().mockResolvedValue({ minCents: 500 }),
     createSuperReaderSession: vi.fn(),
+    // Fase 5 Bloco 3: o SinalizarButton vive no MESMO modal de detalhe dos 3
+    // feeds. Hoje todos os renders daqui usam user={null} (o botão nem
+    // consulta), mas o primeiro caso logado que alguém acrescentar derrubaria
+    // o render inteiro com um TypeError síncrono que o `.catch` do efeito não
+    // intercepta — o mock é a rede de segurança.
+    getMinhaSinalizacao: vi.fn().mockResolvedValue({ jaSinalizada: false, motivo: null }),
+    sinalizarSerie: vi.fn().mockResolvedValue({ jaSinalizada: false }),
   },
 }));
 

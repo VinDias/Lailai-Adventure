@@ -210,6 +210,9 @@ class ApiService {
         const error: any = new Error(body.error || `Erro ${status}`);
         error.status = status;
         if (body.tentativasRestantes !== undefined) error.tentativasRestantes = body.tentativasRestantes;
+        // Fase 5 Bloco 3: código de negócio (ex.: 'propria_obra') — a UI
+        // escolhe a mensagem i18n por ele, não pelo texto PT do servidor.
+        if (body.code) error.code = body.code;
         return error;
       };
 
@@ -991,8 +994,20 @@ class ApiService {
   // Shape real de routes/adminPortal.js: lista FLAT com `tipo: 'series'|'episode'`.
   // `naoClassificadas` (Fase 5 Bloco 2, Task 6): contagem para o badge do
   // AdminDashboard — MESMA resposta, sem rota dedicada.
+  // `curadoria` (Fase 5 Bloco 3, Task 7) alimenta o badge "Curadoria N" do
+  // AdminDashboard pela MESMA request — é OPCIONAL no tipo porque o backend
+  // degrada para o objeto zerado (e, num deploy antigo, nem manda o campo)
+  // quando a leitura da curadoria falha: a Fila de Aprovação é código do
+  // Bloco 1 em produção e nunca cai por causa deste bloco
+  // (routes/adminPortal.js:195-220). O item de série ganhou
+  // `removidaPelaCuradoria` — como `itens` é `any[]` aqui, o campo é
+  // declarado onde é lido (AprovacoesPanel.ItemAprovacao).
   async getAdminAprovacoes() {
-    return this.request<{ itens: any[]; naoClassificadas: number }>('/admin/aprovacoes');
+    return this.request<{
+      itens: any[];
+      naoClassificadas: number;
+      curadoria?: { abertos: number; graves: number };
+    }>('/admin/aprovacoes');
   }
 
   // genre/tags/content_rating são OPCIONAIS na leitura do backend (que usa o
@@ -1093,6 +1108,45 @@ class ApiService {
 
   async confirmarRecuperacaoPin(token: string) {
     return this.request<{ message: string }>('/parental/pin/recuperar/confirmar', { method: 'POST', body: JSON.stringify({ token }) });
+  }
+
+  // ─── Fase 5 Bloco 3: sinalização de conteúdo (leitor) ─────────────────────
+  // Shapes reais de routes/sinalizacao.js. Nunca devolvem contagens (regra 8
+  // do Vin) — só o estado do PRÓPRIO usuário.
+  async getMinhaSinalizacao(seriesId: string) {
+    return this.request<{ jaSinalizada: boolean; motivo: string | null }>(`/content/series/${seriesId}/sinalizacao`);
+  }
+
+  async sinalizarSerie(seriesId: string, data: { motivo: string; descricao?: string }) {
+    return this.request<{ jaSinalizada: boolean }>(`/content/series/${seriesId}/sinalizar`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  // ─── Fase 5 Bloco 3, Task 7: Fila de Revisão (admin) ──────────────────────
+  // Shapes reais de routes/adminCuradoria.js. As 4 ações respondem 409 quando
+  // outro curador já fechou/reivindicou o caso — quem chama trata pelo
+  // `error.status` (construirErro acima o preenche) e RECARREGA a fila.
+  async getAdminCuradoria(status: 'abertos' | 'fechado' = 'abertos') {
+    return this.request<{ casos: any[]; total: number; graves: number }>(`/admin/curadoria?status=${status}`);
+  }
+
+  // As três ações que FECHAM o caso devolvem `avisoArtista`: o resultado do
+  // aviso de fechamento, gravado no caso pelo backend. `!== 'enviado'` não é
+  // erro — a decisão valeu — mas o curador precisa saber que o artista ficou
+  // sem a mensagem (regra 7 do Vin) e avisá-lo pela aba Canais.
+  async curadoriaAprovar(casoId: string, data: { observacao?: string; abuso?: boolean } = {}) {
+    return this.request<{ caso: any; avisoArtista: string }>(`/admin/curadoria/${casoId}/aprovar`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async curadoriaReclassificar(casoId: string, data: { content_rating: 'kids' | 'teen' | 'young'; observacao?: string }) {
+    return this.request<{ caso: any; avisoArtista: string }>(`/admin/curadoria/${casoId}/reclassificar`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async curadoriaSolicitarCorrecao(casoId: string, data: { texto: string }) {
+    return this.request<{ caso: any }>(`/admin/curadoria/${casoId}/solicitar-correcao`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async curadoriaRemover(casoId: string, data: { motivo: string; observacao?: string }) {
+    return this.request<{ caso: any; avisoArtista: string }>(`/admin/curadoria/${casoId}/remover`, { method: 'POST', body: JSON.stringify(data) });
   }
 }
 

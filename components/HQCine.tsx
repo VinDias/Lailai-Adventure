@@ -11,6 +11,7 @@ import { isPremiumActive } from '../utils/premium';
 import { useT, useI18n } from '../contexts/I18nContext';
 import { localizeSeries } from '../i18n/localizeContent';
 import SuperReaderButton from './SuperReaderButton';
+import SinalizarButton from './SinalizarButton';
 import CanalPublico from './CanalPublico';
 import { useCamadaVoltar } from '../utils/pilhaVoltar';
 
@@ -275,6 +276,7 @@ const HQCine: React.FC<HQCineProps> = ({ user, onOpen, focusSeriesId, onFocusCon
                     <span className="font-black text-sm">{likes}</span>
                   </button>
                   <SuperReaderButton user={user} seriesId={selectedSeries._id} />
+                  <SinalizarButton user={user} seriesId={selectedSeries._id} />
                 </div>
               </div>
             </div>

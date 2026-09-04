@@ -40,6 +40,13 @@ vi.mock('../../services/api', () => ({
     removeSeriesVote: vi.fn(),
     getSuperReaderMin: vi.fn().mockResolvedValue({ minCents: 500 }),
     getChannel: vi.fn(),
+    // Fase 5 Bloco 3: o SinalizarButton vive no MESMO modal de detalhe dos 3
+    // feeds. Hoje todos os renders daqui usam user={null} (o botão nem
+    // consulta), mas o primeiro caso logado que alguém acrescentar derrubaria
+    // o render inteiro com um TypeError síncrono que o `.catch` do efeito não
+    // intercepta — o mock é a rede de segurança.
+    getMinhaSinalizacao: vi.fn().mockResolvedValue({ jaSinalizada: false, motivo: null }),
+    sinalizarSerie: vi.fn().mockResolvedValue({ jaSinalizada: false }),
   },
 }));
 
@@ -166,5 +173,24 @@ describe('HiQua — descrição do capítulo + canal clicável', () => {
     const linkCanal = await screen.findByText(/Canal do Vin/);
     fireEvent.click(linkCanal);
     expect(await screen.findByTestId('canal-publico-mock')).toBeInTheDocument();
+  });
+});
+
+// Fix round, item 12: os renders deste arquivo eram todos com user={null},
+// então o SinalizarButton nunca chegava a consultar a API — o mock que os dois
+// métodos ganharam acima ficaria sem prova. Este caso LOGADO é a prova.
+describe('modal de detalhe com usuário LOGADO — SinalizarButton no ar', () => {
+  const leitor: any = { id: 'u1', email: 'a@a.com', nome: 'Ana', isPremium: false, role: 'user', provider: 'local', criadoEm: '', followingChannelIds: [] };
+  const serie = { _id: 's1', title: 'Série Logada', genre: 'Ação', description: 'Desc', cover_image: '', content_type: 'hqcine', isPremium: false, isPublished: true };
+
+  it('HQCine logado: o botão de sinalizar monta e consulta o estado da obra, sem derrubar o feed', async () => {
+    vi.mocked(api.getSeries).mockResolvedValue([serie] as any);
+    vi.mocked(api.getEpisodesBySeries).mockResolvedValue([]);
+
+    render(<HQCine user={leitor} onOpen={vi.fn()} />);
+    fireEvent.click(await screen.findByText('Série Logada'));
+
+    expect(await screen.findByTestId('sinalizar-button')).toBeInTheDocument();
+    await waitFor(() => expect(api.getMinhaSinalizacao).toHaveBeenCalledWith('s1'));
   });
 });

@@ -8,12 +8,13 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle, Settings, Music, Languages, Coins, Pencil, ClipboardCheck
+  CheckCircle2, AlertCircle, Settings, Music, Languages, Coins, Pencil, ClipboardCheck, ShieldAlert
 } from 'lucide-react';
 import ImageWithFallback from '../ImageWithFallback';
 import RoyaltiesPanel from './RoyaltiesPanel';
 import AprovacoesPanel from './AprovacoesPanel';
 import CanaisPanel from './CanaisPanel';
+import CuradoriaPanel from './CuradoriaPanel';
 // Fonte ÚNICA dos 19 slugs do vocabulário fechado de tags (Fase 5 Bloco 2) —
 // o TagsChipInput (admin/fila) importa o MESMO JSON que o backend
 // (utils/tagsVocabulario.js), nunca uma lista duplicada (spec, "O
@@ -70,6 +71,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   // ao lado de `itens`); mantido em sincronia pelo próprio AprovacoesPanel
   // via onNaoClassificadasChange (refetch após aprovar/devolver).
   const [naoClassificadasCount, setNaoClassificadasCount] = useState(0);
+  // Badge "Curadoria N" (Fase 5 Bloco 3, Task 7) — MESMA resposta de GET
+  // /admin/aprovacoes (`curadoria.abertos`, routes/adminPortal.js): a fila da
+  // curadoria não tem rota de contagem própria nem polling. Refeito após
+  // qualquer ação do CuradoriaPanel (onChange).
+  const [curadoriaCount, setCuradoriaCount] = useState(0);
+  // `graves` vem na MESMA resposta e não pode ser descartado: caso grave é
+  // prioridade máxima (regra 4 do Vin) e ficava visualmente igual a um normal.
+  const [curadoriaGraves, setCuradoriaGraves] = useState(0);
 
   // Série selecionada para gerenciar episódios
   const [selectedSeries, setSelectedSeries] = useState<any>(null);
@@ -302,6 +311,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     api.getAdminAprovacoes().then(r => {
       setAprovacoesCount(r.itens.length);
       setNaoClassificadasCount(r.naoClassificadas ?? 0);
+      // Fase 5 Bloco 3: `curadoria` pode faltar (o backend degrada para zero
+      // se a leitura da curadoria falhar — a Fila de Aprovação nunca cai por
+      // causa dela).
+      setCuradoriaCount(r.curadoria?.abertos ?? 0);
+      setCuradoriaGraves(r.curadoria?.graves ?? 0);
     }).catch(() => {});
   };
 
@@ -941,6 +955,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
           <SidebarLink active={currentSubView === ViewMode.ADMIN_ADS} onClick={() => setSubView(ViewMode.ADMIN_ADS)} icon={<Megaphone size={18} />} label="Anúncios" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_ROYALTIES} onClick={() => setSubView(ViewMode.ADMIN_ROYALTIES)} icon={<Coins size={18} />} label="Royalties" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_APROVACOES} onClick={() => setSubView(ViewMode.ADMIN_APROVACOES)} icon={<ClipboardCheck size={18} />} label="Aprovações" badge={aprovacoesCount} />
+          <SidebarLink
+            active={currentSubView === ViewMode.ADMIN_CURADORIA}
+            onClick={() => setSubView(ViewMode.ADMIN_CURADORIA)}
+            icon={<ShieldAlert size={18} />}
+            label="Curadoria"
+            badge={curadoriaCount}
+            badgeDestaque={curadoriaGraves > 0}
+            badgeTitle={curadoriaCount ? `${curadoriaCount} caso(s) aberto(s) · ${curadoriaGraves} grave(s)` : undefined}
+          />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_CANAIS} onClick={() => setSubView(ViewMode.ADMIN_CANAIS)} icon={<Users size={18} />} label="Canais" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_SETTINGS} onClick={() => setSubView(ViewMode.ADMIN_SETTINGS)} icon={<Settings size={18} />} label="Configurações" />
           <SidebarLink active={currentSubView === ViewMode.ADMIN_USERS} onClick={() => setSubView(ViewMode.ADMIN_USERS)} icon={<Users size={18} />} label="Usuários" />
@@ -1582,6 +1605,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
           <AprovacoesPanel onCountChange={setAprovacoesCount} onNaoClassificadasChange={setNaoClassificadasCount} />
         )}
         {currentSubView === ViewMode.ADMIN_CANAIS && <CanaisPanel />}
+
+        {/* FILA DE REVISÃO DA CURADORIA (Fase 5 Bloco 3, Task 7) — onChange
+            refaz os badges pela mesma request da Fila de Aprovação. */}
+        {currentSubView === ViewMode.ADMIN_CURADORIA && (
+          <CuradoriaPanel onChange={refetchAprovacoesBadges} onAbrirCanais={() => setSubView(ViewMode.ADMIN_CANAIS)} />
+        )}
 
         {currentSubView === ViewMode.ADMIN_SETTINGS && (
           <div className="max-w-2xl animate-apple">
@@ -2270,11 +2299,14 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   );
 };
 
-const SidebarLink = ({ active, onClick, icon, label, badge }: any) => (
-  <button onClick={onClick} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all font-bold text-sm ${active ? 'bg-rose-600 text-white' : 'text-zinc-500 hover:bg-white/5'}`}>
+// `badgeDestaque` (Fase 5 Bloco 3): há caso GRAVE na contagem — anel de
+// destaque para a prioridade máxima do Vin não se perder num número igual ao
+// das outras abas. `badgeTitle` é o detalhe em texto (tooltip/leitor de tela).
+const SidebarLink = ({ active, onClick, icon, label, badge, badgeDestaque, badgeTitle }: any) => (
+  <button onClick={onClick} title={badgeTitle} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all font-bold text-sm ${active ? 'bg-rose-600 text-white' : 'text-zinc-500 hover:bg-white/5'}`}>
     {icon} {label}
     {!!badge && (
-      <span className={`ml-auto text-[10px] font-black px-2 py-0.5 rounded-full ${active ? 'bg-white text-rose-600' : 'bg-rose-600 text-white'}`}>
+      <span className={`ml-auto text-[10px] font-black px-2 py-0.5 rounded-full ${badgeDestaque ? 'bg-rose-600 text-white ring-2 ring-amber-400' : active ? 'bg-white text-rose-600' : 'bg-rose-600 text-white'}`}>
         {badge}
       </span>
     )}

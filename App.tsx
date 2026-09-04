@@ -37,6 +37,28 @@ import MeuEstudioCard from './components/MeuEstudioCard';
 import PortalEstudio from './components/PortalEstudio';
 import ParentalSettings from './components/ParentalSettings';
 
+/**
+ * Views que o AdminDashboard atende. Lista ÚNICA e exportada porque a
+ * condição de render era uma cadeia de `||` e o Bloco 3 esqueceu de
+ * acrescentar ADMIN_CURADORIA nela: clicar na aba nova desmontava o dashboard
+ * inteiro e deixava o <main> vazio (nenhum teste pegou — todos montam o
+ * AdminDashboard direto). tests/frontend/appAdminCuradoriaView.test.tsx
+ * IMPORTA esta lista e exige que todo ViewMode `ADMIN_*` esteja aqui, para o
+ * esquecimento não se repetir na próxima aba.
+ */
+export const ADMIN_VIEWS: ReadonlySet<ViewMode> = new Set([
+  ViewMode.ADMIN_DASHBOARD,
+  ViewMode.ADMIN_CONTENT,
+  ViewMode.ADMIN_USERS,
+  ViewMode.ADMIN_PAYMENTS,
+  ViewMode.ADMIN_ADS,
+  ViewMode.ADMIN_SETTINGS,
+  ViewMode.ADMIN_ROYALTIES,
+  ViewMode.ADMIN_APROVACOES,
+  ViewMode.ADMIN_CANAIS,
+  ViewMode.ADMIN_CURADORIA,
+]);
+
 const App: React.FC = () => {
   const t = useT();
   const { lang, setLang } = useI18n();
@@ -620,7 +642,7 @@ const App: React.FC = () => {
           );
         })()}
 
-        {(view === ViewMode.ADMIN_DASHBOARD || view === ViewMode.ADMIN_CONTENT || view === ViewMode.ADMIN_USERS || view === ViewMode.ADMIN_PAYMENTS || view === ViewMode.ADMIN_ADS || view === ViewMode.ADMIN_SETTINGS || view === ViewMode.ADMIN_ROYALTIES || view === ViewMode.ADMIN_APROVACOES || view === ViewMode.ADMIN_CANAIS) && (
+        {ADMIN_VIEWS.has(view) && (
           <AdminDashboard onLogout={handleLogout} currentSubView={view} setSubView={(v) => setView(v)} />
         )}
       </main>

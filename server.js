@@ -33,6 +33,9 @@ conexaoMongo
     require('./services/recommendationService')
       .iniciarVarreduraPeriodica()
       .catch(err => console.error('[Algoritmo] Falha ao iniciar varredura periodica', err));
+    // Fase 5 Bloco 3: reavaliação diária das sinalizações pendentes (contas
+    // que completaram a idade mínima) — mesmas guardas da varredura acima.
+    require('./services/curadoriaService').iniciarReavaliacaoPeriodica();
   })
   .catch(err => {
     console.error('❌ Erro ao conectar MongoDB:', err);
@@ -256,10 +259,12 @@ app.use("/api/admin/royalties", require("./routes/royalties"));
 // filhos diretos de /admin (/admin/mensagens/:canalId hoje, /admin/aprovacoes
 // na Task 7) — routes/adminPortal.js define as rotas relativas a partir daqui.
 app.use("/api/admin", require("./routes/adminPortal"));
+app.use("/api/admin", require("./routes/adminCuradoria")); // Fase 5 Bloco 3: Fila de Revisao
 app.use("/api/me", require("./routes/progress"));
 app.use("/api/settings", require("./routes/settings"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
 app.use("/api/content", require("./routes/content"));
+app.use("/api/content", require("./routes/sinalizacao")); // Fase 5 Bloco 3: sinalizar conteudo (leitor)
 app.use("/api/channels", require("./routes/channels"));
 app.use("/api/portal", require("./routes/portal"));
 app.use("/api/favorites", require("./routes/favorites"));

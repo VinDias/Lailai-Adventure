@@ -32,6 +32,12 @@ vi.mock('../../services/api', () => ({
     // série e busca o mínimo ao montar.
     getSuperReaderMin: vi.fn().mockResolvedValue({ minCents: 500 }),
     createSuperReaderSession: vi.fn(),
+    // SinalizarButton (Fase 5 Bloco 3) monta na mesma fila de ações e consulta
+    // o estado do próprio usuário ao montar. O componente tolera rejeição
+    // (404 = "sem estado"), mas um mock SEM o método derruba o render inteiro
+    // com "api.getMinhaSinalizacao is not a function".
+    getMinhaSinalizacao: vi.fn().mockResolvedValue({ jaSinalizada: false, motivo: null }),
+    sinalizarSerie: vi.fn(),
   },
 }));
 
