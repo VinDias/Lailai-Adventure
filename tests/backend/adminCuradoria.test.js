@@ -587,6 +587,51 @@ describe('consolidação: concorrência e robustez das ações', () => {
     expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(2); // abertura + 1 fechamento
   });
 
+  it('rodada 3 (a): quem PERDEU o lock por expiração no meio da ação NÃO altera a obra — 409 com a obra intacta', async () => {
+    const { serie } = await criarObra({ title: 'Perdeu o Lock 9' });
+    const caso = await abrirCasoGrave(serie);
+    const originalReivindicar = svc.reivindicarCaso;
+    let statusB = null;
+    // A reivindica; a reivindicação de A envelhece 6 minutos (expira) e B
+    // toma o caso por expiração e VENCE. A precisa descobrir que perdeu o
+    // lock ANTES de despublicar — senão a obra sai do ar com a decisão
+    // 'aprovar' de B gravada e o artista lê "obra mantida sem alterações".
+    const spy = vi.spyOn(svc, 'reivindicarCaso').mockImplementationOnce(async (id, opts) => {
+      const token = await originalReivindicar(id, opts);
+      await CasoCuradoria.updateOne({ _id: id }, { $set: { reivindicadoEm: new Date(Date.now() - 6 * 60 * 1000) } });
+      const rB = await request(app).post(`/api/admin/curadoria/${caso._id}/aprovar`).set('Authorization', ADMIN()).send({});
+      statusB = rB.status;
+      return token; // A segue achando que tem o lock
+    });
+    const rA = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'Cópia.' });
+    spy.mockRestore();
+
+    expect(statusB).toBe(200);
+    expect(rA.status).toBe(409);
+    expect((await Series.findById(serie._id).lean()).isPublished).toBe(true);
+    expect(await CasoCuradoria.findById(caso._id).lean()).toMatchObject({ status: 'fechado', decisao: 'aprovar' });
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_REMOVER', targetId: String(serie._id) })).toBe(0);
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_APROVAR', targetId: String(serie._id) })).toBe(1);
+    // o artista recebeu só abertura + o aviso do aprovar (nenhum de remoção)
+    const avisos = await MensagemPortal.find({ refId: serie._id }).sort({ createdAt: 1 }).lean();
+    expect(avisos).toHaveLength(2);
+    expect(avisos[1].texto).toMatch(/mantida sem alterações/);
+  });
+
+  it('rodada 3 (d): falha ANTES de alterar a obra loga que a obra NÃO foi tocada (log forense honesto)', async () => {
+    const { serie } = await criarObra({ title: 'Log Honesto 5' });
+    const caso = await abrirCasoGrave(serie);
+    await Series.deleteOne({ _id: serie._id }); // applySeriesUpdate lança 404 antes de escrever
+    const logger = require('../../utils/logger');
+    const spy = vi.spyOn(logger, 'error');
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'x' });
+    const mensagens = spy.mock.calls.map(c => String(c[0])).join('\n');
+    spy.mockRestore();
+    expect(r.status).toBe(404);
+    expect(mensagens).toMatch(/remover falhou sem alterar a obra/);
+    expect(mensagens).not.toMatch(/APÓS alterar a obra/);
+  });
+
   it('rodada 2 (e): solicitar-correcao LIBERA o mutex — reivindicadoEm volta a null e a ação seguinte no mesmo caso é aceita', async () => {
     const { serie } = await criarObra({ title: 'Libera Mutex 4' });
     const caso = await abrirCasoGrave(serie);

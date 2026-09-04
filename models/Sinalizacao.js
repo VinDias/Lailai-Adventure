@@ -33,8 +33,12 @@ SinalizacaoSchema.index({ seriesId: 1, revisadaEm: 1, valida: 1 });
 // `grave` não tem seriesId no filtro, então o índice acima (prefixado por
 // seriesId) não serve — o explain provou COLLSCAN, numa query que roda a cada
 // abertura da fila do admin, no boot e uma vez por dia. Esta ordem de chaves
-// cobre o $match (as duas igualdades no prefixo) E o $group (seriesId e grave
-// vêm do próprio índice, sem FETCH).
+// serve o $match (as duas igualdades no prefixo) e carrega seriesId/grave
+// para o $group. O plano continua com um FETCH depois do IXSCAN — igualdade
+// a `null` nunca é coberta pelo índice (o valor pode ser null OU o campo
+// pode estar ausente, e a chave não distingue os dois), então o documento
+// precisa ser lido para reconferir. O ganho é sair do COLLSCAN, não a
+// cobertura.
 SinalizacaoSchema.index({ revisadaEm: 1, valida: 1, seriesId: 1, grave: 1 });
 
 // `grave` é DERIVADO do motivo (spec rev.3, decisão "Modelo Sinalizacao") —

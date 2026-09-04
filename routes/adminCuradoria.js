@@ -166,12 +166,26 @@ async function avisar(series, texto, adminId) {
 
 // Mutex das 4 ações (svc.reivindicarCaso). 409 com mensagem PRÓPRIA: "já
 // fechado" (de carregarCasoAberto) e "outro curador decidindo agora" são
-// situações diferentes para quem está na tela. Devolve true se pode seguir.
+// situações diferentes para quem está na tela. Devolve o TOKEN de posse (que
+// acompanha todas as escritas da ação) ou null se perdeu a disputa.
 const EM_DISPUTA = 'Este caso está sendo decidido por outro curador. Recarregue a fila.';
 async function reivindicar(caso, res) {
-  if (await svc.reivindicarCaso(caso._id)) return true;
-  res.status(409).json({ error: EM_DISPUTA });
-  return false;
+  const token = await svc.reivindicarCaso(caso._id);
+  if (!token) res.status(409).json({ error: EM_DISPUTA });
+  return token;
+}
+
+/**
+ * Reconfere a posse IMEDIATAMENTE antes de alterar a obra. A janela entre o
+ * claim e o applySeriesUpdate é de milissegundos, mas é por ela que o cenário
+ * caro passa: se a reivindicação expirou e outro curador tomou o caso, quem
+ * perdeu ainda despublicaria/reclassificaria a obra e só então levaria 409 —
+ * a obra fora do ar com a decisão de outro gravada (viola a regra 1 do Vin).
+ * Isto reduz a janela de RECLAMACAO_VALIDADE_MS para milissegundos; fechá-la
+ * de vez exigiria transação/outbox (fora do escopo — registrado).
+ */
+async function aindaEhMeu(casoId, token) {
+  return !!(await CasoCuradoria.exists({ _id: casoId, reivindicadoEm: token }));
 }
 
 async function logAdmin(req, action, caso, details) {
@@ -196,16 +210,17 @@ router.post('/curadoria/:casoId/aprovar', async (req, res) => {
     // outras três: sem passar pelo mutex ela venceria o fechamento de um
     // `remover` que JÁ despublicou a obra — o artista receberia "obra mantida
     // sem alterações" com a obra fora do ar (rodada 2).
-    if (!await reivindicar(caso, res)) return;
+    const token = await reivindicar(caso, res);
+    if (!token) return;
     try {
       const abuso = req.body.abuso === true;
-      const fechado = await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: req.user.id, observacao: obs.observacao, abuso });
+      const fechado = await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: req.user.id, observacao: obs.observacao, abuso, token });
       const series = await Series.findById(caso.seriesId).select('title channelId').lean();
       const aviso = await avisar(series, series ? svc.TEXTOS.aprovar(series.title) : '', req.user.id);
       await logAdmin(req, 'CURADORIA_APROVAR', caso, { abuso, avisoArtista: aviso.status });
       res.json({ caso: fechado });
     } catch (err) {
-      await svc.devolverReivindicacao(caso._id);
+      await svc.devolverReivindicacao(caso._id, token);
       throw err;
     }
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/aprovar'); }
@@ -224,22 +239,30 @@ router.post('/curadoria/:casoId/reclassificar', async (req, res) => {
     // REIVINDICA antes de tocar na obra — ver svc.reivindicarCaso. Quem perde
     // a corrida responde 409 sem ter reclassificado nada; qualquer falha
     // daqui em diante devolve o mutex e o caso volta inteiro para a fila.
-    if (!await reivindicar(caso, res)) return;
+    const token = await reivindicar(caso, res);
+    if (!token) return;
+    let obraAlterada = false;
     try {
+      if (!await aindaEhMeu(caso._id, token)) {
+        return res.status(409).json({ error: EM_DISPUTA });
+      }
       const { applySeriesUpdate } = require('../services/seriesPublishService');
       await applySeriesUpdate(caso.seriesId, { content_rating });
-      const fechado = await svc.fecharCaso(caso, { decisao: 'reclassificar', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: content_rating });
+      obraAlterada = true;
+      const fechado = await svc.fecharCaso(caso, { decisao: 'reclassificar', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: content_rating, token });
       const series = await Series.findById(caso.seriesId).select('title channelId').lean();
       const aviso = await avisar(series, series ? svc.TEXTOS.reclassificar(series.title, svc.ROTULO_RATING[content_rating]) : '', req.user.id);
       await logAdmin(req, 'CURADORIA_RECLASSIFICAR', caso, { content_rating, avisoArtista: aviso.status });
       res.json({ caso: fechado });
     } catch (err) {
-      await svc.devolverReivindicacao(caso._id);
-      // A obra pode JÁ ter sido reclassificada com o caso ainda aberto: a
-      // ordem (reivindicar -> alterar obra -> fechar) é a única que garante
-      // que ninguém mais mexe na obra deste caso. Repetir a ação é
-      // idempotente (applySeriesUpdate com o mesmo valor é no-op).
-      logger.error(`[AdminCuradoria] reclassificar falhou APÓS alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`, err && err.message);
+      await svc.devolverReivindicacao(caso._id, token);
+      // A mensagem distingue os dois mundos: falha ANTES do applySeriesUpdate
+      // (série apagada, gênero faltando) não tocou em nada; falha depois
+      // deixou a obra reclassificada com o caso ainda aberto — repetir a ação
+      // é idempotente (applySeriesUpdate com o mesmo valor é no-op).
+      logger.error(obraAlterada
+        ? `[AdminCuradoria] reclassificar falhou APÓS alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`
+        : `[AdminCuradoria] reclassificar falhou sem alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`, err && err.message);
       throw err;
     }
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/reclassificar'); }
@@ -263,7 +286,8 @@ router.post('/curadoria/:casoId/solicitar-correcao', async (req, res) => {
     if (!canal) {
       return res.status(400).json({ error: 'Obra sem canal: não há artista para avisar. Use aprovar, reclassificar ou remover.' });
     }
-    if (!await reivindicar(caso, res)) return;
+    const token = await reivindicar(caso, res);
+    if (!token) return;
     try {
       // Update CONDICIONAL a `emAberto:true`, ANTES de enviar a mensagem
       // (consolidação, item 2): o `caso.save()` de antes escrevia sobre um
@@ -277,12 +301,12 @@ router.post('/curadoria/:casoId/solicitar-correcao', async (req, res) => {
       // Esta é a única ação que NÃO fecha o caso, então ela mesma libera o
       // mutex no próprio $set.
       const atualizado = await CasoCuradoria.updateOne(
-        { _id: caso._id, emAberto: true },
+        { _id: caso._id, emAberto: true, reivindicadoEm: token },
         { $set: { status: 'aguardando_artista', motivoDecisao: t.texto, reivindicadoEm: null } },
       );
       if (atualizado.matchedCount === 0) {
-        await svc.devolverReivindicacao(caso._id);
-        return res.status(409).json({ error: 'Caso já fechado.' });
+        await svc.devolverReivindicacao(caso._id, token);
+        return res.status(409).json({ error: EM_DISPUTA });
       }
       caso.status = 'aguardando_artista';
       caso.motivoDecisao = t.texto;
@@ -293,7 +317,7 @@ router.post('/curadoria/:casoId/solicitar-correcao', async (req, res) => {
       await logAdmin(req, 'CURADORIA_SOLICITAR_CORRECAO', caso, { mensagemId: String(aviso.mensagemId) });
       res.json({ caso });
     } catch (err) {
-      await svc.devolverReivindicacao(caso._id);
+      await svc.devolverReivindicacao(caso._id, token);
       throw err;
     }
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/solicitar-correcao'); }
@@ -312,8 +336,13 @@ router.post('/curadoria/:casoId/remover', async (req, res) => {
     // 409 na resposta, obra despublicada, ZERO AdminLog e o artista recebendo
     // "obra mantida sem alterações" do vencedor (viola a regra 1 do Vin:
     // quem muda a obra é quem decide o caso).
-    if (!await reivindicar(caso, res)) return;
+    const token = await reivindicar(caso, res);
+    if (!token) return;
+    let obraAlterada = false;
     try {
+      if (!await aindaEhMeu(caso._id, token)) {
+        return res.status(409).json({ error: EM_DISPUTA });
+      }
       // DESPUBLICAR, nunca DELETE (regra 1): episódios, favoritos e votos de
       // terceiros ficam; o artista pode corrigir e reenviar. Obra já
       // despublicada por fora -> no-op do update, o caso fecha normalmente.
@@ -323,19 +352,24 @@ router.post('/curadoria/:casoId/remover', async (req, res) => {
       // submittedAt!=null && !isPublished) antes do artista sequer reenviar.
       const { applySeriesUpdate } = require('../services/seriesPublishService');
       await applySeriesUpdate(caso.seriesId, { isPublished: false, submittedAt: null });
-      const fechado = await svc.fecharCaso(caso, { decisao: 'remover', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: t.texto });
+      obraAlterada = true;
+      const fechado = await svc.fecharCaso(caso, { decisao: 'remover', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: t.texto, token });
       const series = await Series.findById(caso.seriesId).select('title channelId').lean();
       const aviso = await avisar(series, series ? svc.TEXTOS.remover(series.title, t.texto) : '', req.user.id);
       await logAdmin(req, 'CURADORIA_REMOVER', caso, { motivo: t.texto, avisoArtista: aviso.status });
       res.json({ caso: fechado });
     } catch (err) {
-      await svc.devolverReivindicacao(caso._id);
+      await svc.devolverReivindicacao(caso._id, token);
       // LIMITAÇÃO DECLARADA: se a falha veio DEPOIS do applySeriesUpdate, a
       // obra já está fora do ar com o caso ainda aberto na fila. Inverter a
       // ordem não resolve (aí a obra ficaria no ar com o caso fechado, que é
       // pior: some da fila). O caso volta destravado e repetir a ação é
-      // idempotente — este log é o que liga uma coisa à outra na apuração.
-      logger.error(`[AdminCuradoria] remover falhou APÓS alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`, err && err.message);
+      // idempotente — este log é o que liga uma coisa à outra na apuração, e
+      // por isso ele só afirma "APÓS alterar a obra" quando a obra foi mesmo
+      // alterada (400/404 do applySeriesUpdate não tocam em nada).
+      logger.error(obraAlterada
+        ? `[AdminCuradoria] remover falhou APÓS alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`
+        : `[AdminCuradoria] remover falhou sem alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`, err && err.message);
       throw err;
     }
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/remover'); }

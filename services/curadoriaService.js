@@ -338,6 +338,12 @@ function pararReavaliacaoPeriodica() {
  * A reivindicação EXPIRA em RECLAMACAO_VALIDADE_MS: processo derrubado no
  * meio de uma ação (deploy, OOM) libera o caso sozinho, sem job de
  * saneamento e sem intervenção no banco.
+ *
+ * Devolve o TOKEN de posse (a própria data gravada) ou `null` se o caso já
+ * está com outro curador. O token é a PROVA de posse e tem de acompanhar
+ * todas as escritas da ação: um lock com prazo mas sem token não é lock —
+ * quando a expiração corre no meio da ação, o dono antigo continua achando
+ * que manda e fecha/altera por cima de quem tomou o caso (rodada 3).
  */
 async function reivindicarCaso(casoId, { agora = new Date() } = {}) {
   const CasoCuradoria = require('../models/CasoCuradoria');
@@ -350,21 +356,27 @@ async function reivindicarCaso(casoId, { agora = new Date() } = {}) {
     },
     { $set: { reivindicadoEm: agora } },
   );
-  return r.modifiedCount === 1;
+  return r.modifiedCount === 1 ? agora : null;
 }
 
 /**
- * Libera o mutex quando a ação falhou no meio. Só toca `reivindicadoEm` —
- * `emAberto` fica como está, então NÃO existe E11000 possível aqui (a versão
- * anterior devolvia `emAberto:true` e podia colidir com um caso irmão criado
- * na janela). Erro de banco é logado e não propaga: quem chama está
- * propagando o erro ORIGINAL, e a expiração de RECLAMACAO_VALIDADE_MS cobre
- * a liberação de qualquer forma.
+ * Libera o mutex quando a ação falhou no meio. SÓ O DONO libera: o filtro
+ * casa `reivindicadoEm` com o token de quem está devolvendo — um catch
+ * tardio de quem já perdeu o caso por expiração não pode destravar o curador
+ * que está trabalhando nele agora (rodada 3). Sem token, no-op.
+ *
+ * Só toca `reivindicadoEm` — `emAberto` fica como está, então NÃO existe
+ * E11000 possível aqui. Erro de banco é logado e não propaga: quem chama
+ * está propagando o erro ORIGINAL, e a expiração cobre a liberação.
  */
-async function devolverReivindicacao(casoId) {
+async function devolverReivindicacao(casoId, token) {
   const CasoCuradoria = require('../models/CasoCuradoria');
+  if (!token) {
+    logger.debug(`[Curadoria] devolver reivindicação sem token (caso ${casoId}) — ignorado`);
+    return;
+  }
   try {
-    await CasoCuradoria.updateOne({ _id: casoId }, { $set: { reivindicadoEm: null } });
+    await CasoCuradoria.updateOne({ _id: casoId, reivindicadoEm: token }, { $set: { reivindicadoEm: null } });
   } catch (err) {
     logger.error('[Curadoria] devolver reivindicação falhou', err && err.message);
   }
@@ -392,12 +404,18 @@ async function devolverReivindicacao(casoId) {
  * reivindicado continua aberto até ser realmente decidido aqui. O mesmo
  * `$set` LIBERA o mutex (`reivindicadoEm:null`) — caso fechado não fica
  * reivindicado.
+ *
+ * `token` (rodada 3) = a prova de posse devolvida por `reivindicarCaso`; o
+ * filtro exige que o mutex AINDA seja deste curador. Sem ele, quem perdeu o
+ * caso por expiração no meio da ação fechava por cima de quem tomou o lugar.
+ * O default `null` casa exatamente com "caso não reivindicado", que é o
+ * estado em que o serviço é chamado direto (fora das rotas).
  */
-async function fecharCaso(caso, { decisao, adminId, observacao = null, motivoDecisao = null, abuso = false, agora = new Date() }) {
+async function fecharCaso(caso, { decisao, adminId, observacao = null, motivoDecisao = null, abuso = false, agora = new Date(), token = null }) {
   const Sinalizacao = require('../models/Sinalizacao');
   const CasoCuradoria = require('../models/CasoCuradoria');
   const decidido = await CasoCuradoria.findOneAndUpdate(
-    { _id: caso._id, emAberto: true },
+    { _id: caso._id, emAberto: true, reivindicadoEm: token },
     {
       $set: {
         emAberto: false, status: 'fechado', decisao,

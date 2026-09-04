@@ -370,18 +370,20 @@ describe('consolidação: avaliação sob concorrência e custo da reavaliação
     await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
     const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
     const t0 = new Date();
-    expect(await svc.reivindicarCaso(caso._id, { agora: t0 })).toBe(true);
-    expect(await svc.reivindicarCaso(caso._id, { agora: new Date(t0.getTime() + 60 * 1000) })).toBe(false);
+    // devolve o TOKEN de posse (a data gravada), não um booleano
+    expect(await svc.reivindicarCaso(caso._id, { agora: t0 })).toEqual(t0);
+    expect(await svc.reivindicarCaso(caso._id, { agora: new Date(t0.getTime() + 60 * 1000) })).toBeNull();
     // 6 minutos depois (> RECLAMACAO_VALIDADE_MS) o caso destrava sozinho,
     // sem job de saneamento e sem intervenção no banco.
-    expect(await svc.reivindicarCaso(caso._id, { agora: new Date(t0.getTime() + 6 * 60 * 1000) })).toBe(true);
+    const t6 = new Date(t0.getTime() + 6 * 60 * 1000);
+    expect(await svc.reivindicarCaso(caso._id, { agora: t6 })).toEqual(t6);
   });
 
   it('rodada 2 (d): caso REIVINDICADO continua barrando um caso IRMÃO da mesma obra (o índice único parcial segue valendo)', async () => {
     const { serie } = await criarObra({ title: 'Sem Irmao 7' });
     await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
     const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
-    expect(await svc.reivindicarCaso(caso._id)).toBe(true);
+    expect(await svc.reivindicarCaso(caso._id)).toBeTruthy();
     // Reivindicar NÃO pode mexer em `emAberto`: era isso que liberava o
     // índice único {seriesId, emAberto:true} e deixava esta avaliação abrir
     // um 2º caso para a mesma obra (com 2º aviso ao artista).
@@ -390,6 +392,42 @@ describe('consolidação: avaliação sob concorrência e custo da reavaliação
     expect(String(mesmo._id)).toBe(String(caso._id));
     expect(await CasoCuradoria.countDocuments({ seriesId: serie._id })).toBe(1);
     expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(1);
+  });
+
+  it('rodada 3 (b): devolver a reivindicação de TERCEIRO não derruba o mutex do dono atual', async () => {
+    const { serie } = await criarObra({ title: 'Devolucao de Terceiro 6' });
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    const t0 = new Date();
+    const tokenA = await svc.reivindicarCaso(caso._id, { agora: t0 });
+    // A expira e B toma o caso
+    const t6 = new Date(t0.getTime() + 6 * 60 * 1000);
+    const tokenB = await svc.reivindicarCaso(caso._id, { agora: t6 });
+    expect(tokenB).toBeTruthy();
+    expect(await svc.reivindicarCaso(caso._id, { agora: new Date(t6.getTime() + 1000) })).toBeNull();
+    // o catch TARDIO de A devolve a reivindicação: sem o token no filtro,
+    // isso destravava o caso que B está decidindo AGORA.
+    await svc.devolverReivindicacao(caso._id, tokenA);
+    expect(await svc.reivindicarCaso(caso._id, { agora: new Date(t6.getTime() + 2000) })).toBeNull();
+    // e o dono de verdade continua conseguindo devolver
+    await svc.devolverReivindicacao(caso._id, tokenB);
+    expect(await svc.reivindicarCaso(caso._id, { agora: new Date(t6.getTime() + 3000) })).toBeTruthy();
+  });
+
+  it('rodada 3 (c): fecharCaso com token que não é o do dono NÃO fecha o caso', async () => {
+    const { serie } = await criarObra({ title: 'Token Errado 4' });
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    const token = await svc.reivindicarCaso(caso._id);
+    await expect(svc.fecharCaso(caso, { decisao: 'aprovar', adminId: auth.getId('admin'), token: new Date(token.getTime() - 1000), agora: AGORA }))
+      .rejects.toMatchObject({ status: 409 });
+    const relido = await CasoCuradoria.findById(caso._id).lean();
+    expect(relido).toMatchObject({ emAberto: true, status: 'aberto', decisao: null });
+    expect(relido.reivindicadoEm).toEqual(token);
+    // com o token certo, fecha e libera o mutex
+    const fechado = await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: auth.getId('admin'), token, agora: AGORA });
+    expect(fechado.status).toBe('fechado');
+    expect(fechado.reivindicadoEm).toBeNull();
   });
 
   it('item 4: reavaliarPendentes só consulta as obras que já podem disparar (curto-circuito no banco)', async () => {
