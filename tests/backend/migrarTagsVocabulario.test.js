@@ -6,26 +6,36 @@
  * docs/superpowers/plans/2026-09-03-fase5-bloco2-parental.md (Task 9).
  *
  * Cobre a lógica exposta por scripts/migrarTagsVocabulario.js —
- * `planejarMigracao` (pura, em memória) e `aplicarMigracao` (orquestra
- * leitura + escrita + backfill). NÃO cobre a CLI (`if (require.main ===
- * module)`, que só faz parse de --apply e imprime — sem lógica própria) nem
- * o mapa de produção em si além de um teste de sanidade das entradas.
+ * `planejarMigracao` (pura, em memória), `aplicarMigracao` (orquestra
+ * leitura + escrita + backfill) e `parseArgv` (parse estrito dos argumentos
+ * da CLI, exportado justamente pra ser testável sem subir a CLI de verdade).
+ * NÃO cobre o `if (require.main === module)` em si (console.log/process.exit
+ * — sem lógica própria além de chamar `parseArgv`/`aplicarMigracao`/
+ * `imprimirRelatorio`) nem o mapa de produção além de testes de sanidade.
+ *
+ * Fix round (revisão da Task 9): MEDIA 1 (parse estrito — `--apply
+ * --dry-run` juntos e argumento desconhecido viram erro, nunca dry-run
+ * silencioso), BAIXA 2 (tags já válidas mas fora da ordem canônica SÃO
+ * regravadas uma vez — reordenação), BAIXA 3 (erro no meio do loop de
+ * escrita carrega `escritasFeitas`), INFO 4 (`tags: null`/objeto não é
+ * "ausente" — tratado como `[]`), INFO 7 (todo slug tem entrada de
+ * identidade no mapa).
  *
  * Isolamento: só Series é limpa entre testes (beforeEach) — este arquivo não
  * usa User/app/auth, então não há necessidade do padrão de
  * parentalListSurfaces.test.js de preservar usuários entre testes.
  */
 const db = require('../helpers/db');
-const { isSlugValido } = require('../../utils/tagsVocabulario');
+const { isSlugValido, VOCABULARIO } = require('../../utils/tagsVocabulario');
 
 let Series;
-let planejarMigracao, aplicarMigracao, normalizarChaveTag;
+let planejarMigracao, aplicarMigracao, normalizarChaveTag, parseArgv;
 let MAPA;
 
 beforeAll(async () => {
   await db.connect();
   Series = require('../../models/Series');
-  ({ planejarMigracao, aplicarMigracao, normalizarChaveTag } = require('../../scripts/migrarTagsVocabulario'));
+  ({ planejarMigracao, aplicarMigracao, normalizarChaveTag, parseArgv } = require('../../scripts/migrarTagsVocabulario'));
   MAPA = require('../../scripts/mapaTagsVocabulario');
 });
 
@@ -90,6 +100,40 @@ describe('scripts/mapaTagsVocabulario — sanidade do mapa manual', () => {
     for (const chave of Object.keys(MAPA)) {
       expect(normalizarChaveTag(chave)).toBe(chave);
     }
+  });
+
+  it('(INFO 7) TODO slug do vocabulário oficial tem uma entrada de IDENTIDADE no mapa (mapa[slug] === slug) — prioridadeDoSlug depende disso', () => {
+    for (const { slug } of VOCABULARIO) {
+      expect(MAPA[slug]).toBe(slug);
+    }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// parseArgv — parse estrito dos argumentos da CLI (fix round, achado MEDIA 1)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('parseArgv — parse estrito de --apply/--dry-run', () => {
+  it('conflito: --apply e --dry-run juntos → ok:false, NUNCA aplica silenciosamente', () => {
+    const r1 = parseArgv(['--apply', '--dry-run']);
+    const r2 = parseArgv(['--dry-run', '--apply']); // ordem inversa — mesmo resultado
+    expect(r1.ok).toBe(false);
+    expect(r1.mensagem).toMatch(/ambíguo/i);
+    expect(r2.ok).toBe(false);
+  });
+
+  it('desconhecido: qualquer argumento fora de --apply/--dry-run → ok:false com mensagem clara (não vira dry-run silencioso)', () => {
+    for (const argv of [['--APPLY'], ['apply'], ['--bogus'], ['--apply', '--bogus']]) {
+      const r = parseArgv(argv);
+      expect(r.ok).toBe(false);
+      expect(r.mensagem).toMatch(/não reconhecido/i);
+    }
+  });
+
+  it('ok: sem argumento, --dry-run explícito e --apply resolvem dryRun corretamente', () => {
+    expect(parseArgv([])).toEqual({ ok: true, dryRun: true });
+    expect(parseArgv(['--dry-run'])).toEqual({ ok: true, dryRun: true });
+    expect(parseArgv(['--apply'])).toEqual({ ok: true, dryRun: false });
   });
 });
 
@@ -259,5 +303,76 @@ describe('aplicarMigracao — orquestração ponta a ponta', () => {
     // como estava, provando que a escrita nunca começou.
     expect(boaDepois.tags).toEqual(['suspense']);
     expect(ruimDepois.tags).toEqual(['furry']);
+  });
+
+  it('(BAIXA 2) tags já válidas mas FORA da ordem canônica são reordenadas na 1ª rodada e viram no-op só na 2ª', async () => {
+    // 'drama' (prioridade 1) e 'romance' (prioridade 0) — ordem canônica é
+    // ['romance', 'drama']; a fixture grava na ordem INVERSA de propósito.
+    const serie = await criarSerieComTagsLivres(unico('ForaDeOrdem'), ['drama', 'romance']);
+
+    const primeira = await aplicarMigracao({ dryRun: false, mapa: MAPA });
+    const depoisDaPrimeira = await Series.findById(serie._id).lean();
+    expect(depoisDaPrimeira.tags).toEqual(['romance', 'drama']); // reordenada
+    const planoDaSerie1 = primeira.planos.find((p) => String(p.id) === String(serie._id));
+    expect(planoDaSerie1.mudou).toBe(true); // 1ª rodada MUDARIA (reordenação)
+
+    const segunda = await aplicarMigracao({ dryRun: false, mapa: MAPA });
+    const depoisDaSegunda = await Series.findById(serie._id).lean();
+    expect(depoisDaSegunda.tags).toEqual(['romance', 'drama']); // idêntica
+    const planoDaSerie2 = segunda.planos.find((p) => String(p.id) === String(serie._id));
+    expect(planoDaSerie2.mudou).toBe(false); // 2ª rodada é no-op de verdade
+  });
+
+  it('(INFO 4) tags: null (campo presente mas não-array) é tratado como [] e gravado de verdade no --apply — não fica órfão', async () => {
+    const nula = await criarSerieComTagsLivres(unico('TagsNull'), null);
+    const objetoPerdido = await criarSerieComTagsLivres(unico('TagsObjeto'), { foo: 'bar' });
+
+    const [planoNula] = planejarMigracao([await Series.findById(nula._id).lean()], MAPA);
+    expect(planoNula.semTagsNoDocumento).toBe(false); // não é "ausente" — é presente e não-array
+    expect(planoNula.tagsFinais).toEqual([]);
+    expect(planoNula.mudou).toBe(true); // null !== [] — precisa escrever
+
+    await aplicarMigracao({ dryRun: false, mapa: MAPA });
+
+    const nulaDepois = await Series.findById(nula._id).lean();
+    const objetoDepois = await Series.findById(objetoPerdido._id).lean();
+    expect(nulaDepois.tags).toEqual([]); // gravado de verdade, não ficou null
+    expect(objetoDepois.tags).toEqual([]); // idem pro objeto perdido
+  });
+
+  it('(BAIXA 3) erro NO MEIO do loop de escrita: aplicarMigracao pendura escritasFeitas no erro — mensagem não pode mentir dizendo "nada gravado"', async () => {
+    const a = await criarSerieComTagsLivres(unico('Parcial1'), ['suspense']);
+    const b = await criarSerieComTagsLivres(unico('Parcial2'), ['policial']);
+
+    const updateOneOriginal = Series.updateOne.bind(Series);
+    const spy = vi.spyOn(Series, 'updateOne');
+    let chamadas = 0;
+    spy.mockImplementation((...args) => {
+      chamadas += 1;
+      if (chamadas === 2) return Promise.reject(new Error('Falha simulada no 2º updateOne'));
+      return updateOneOriginal(...args);
+    });
+
+    let erroCapturado;
+    try {
+      await aplicarMigracao({ dryRun: false, mapa: MAPA });
+    } catch (err) {
+      erroCapturado = err;
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(erroCapturado).toBeDefined();
+    expect(erroCapturado.message).toContain('Falha simulada');
+    expect(erroCapturado.escritasFeitas).toBe(1); // exatamente 1 write bem-sucedido antes da falha
+
+    // Prova a gravação PARCIAL: exatamente UMA das duas obras foi alterada.
+    const aDepois = await Series.findById(a._id).lean();
+    const bDepois = await Series.findById(b._id).lean();
+    const alteradas = [
+      JSON.stringify(aDepois.tags) !== JSON.stringify(['suspense']),
+      JSON.stringify(bDepois.tags) !== JSON.stringify(['policial']),
+    ].filter(Boolean).length;
+    expect(alteradas).toBe(1);
   });
 });

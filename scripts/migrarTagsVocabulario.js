@@ -105,20 +105,31 @@ function prioridadeDoSlug(slug, mapa) {
 function planejarUmaSerie(serie, mapa) {
   const id = serie._id;
   const titulo = serie.title;
-  const tagsAtuais = serie.tags;
+  const tagsBrutas = serie.tags;
 
-  // Doc legado que nunca teve o campo `tags` gravado (`Array.isArray` falso
-  // pra `undefined`) — não é responsabilidade deste script preenchê-lo: fica
-  // como está aqui e o backfillCamposParental() (chamado por aplicarMigracao
-  // depois da escrita dos tags) cobre com `[]`, no mesmo padrão do
-  // content_rating ausente (spec rev.4, achado da Task 5).
-  if (!Array.isArray(tagsAtuais)) {
+  // Doc legado que nunca teve o campo `tags` gravado — campo VERDADEIRAMENTE
+  // ausente (`undefined`), distinto de presente-mas-do-tipo-errado (`null`,
+  // um objeto, etc. — ver o `else` logo abaixo). Só o ausente de verdade fica
+  // pro backfillCamposParental() (chamado por aplicarMigracao depois da
+  // escrita dos tags), no mesmo padrão do content_rating ausente (spec
+  // rev.4, achado da Task 5).
+  if (tagsBrutas === undefined) {
     return {
       id, titulo, semTagsNoDocumento: true,
       tagsAtuais: undefined, tagsFinais: undefined,
       removidas: [], capadas: [], mudou: false, resolucoes: [],
     };
   }
+
+  // Fix round (achado INFO 4): campo PRESENTE mas não-array (`null` de uma
+  // escrita crua malformada, um objeto perdido, etc.) NÃO é "ausente" — não
+  // entra no backfill (`Array.isArray(null)` é `false`, mas a query do
+  // backfill é `{tags:{$exists:false}}`, que não casa `null`) e ficaria
+  // órfão para sempre, rejeitado pelo validator do model (0-8 array) na
+  // primeira edição futura. Tratado AQUI como "sem tags" (equivalente a
+  // `[]`) — se `--apply`, grava `[]` de verdade (ver `mudou` abaixo:
+  // `JSON.stringify(null) !== JSON.stringify([])` → dispara a escrita).
+  const tagsAtuais = Array.isArray(tagsBrutas) ? tagsBrutas : [];
 
   const resolucoes = tagsAtuais.map((tagOriginal) => {
     const { chave, slug } = resolverTag(tagOriginal, mapa);
@@ -147,6 +158,10 @@ function planejarUmaSerie(serie, mapa) {
   // pós-corte ainda violar o contrato do validator (0-8, todas do
   // vocabulário). Com o mapa correto isso nunca deveria disparar — é a
   // proteção contra um mapa editado com um slug errado (não existente).
+  // (INFO 6, fix round: `candidatos.slice(0, 8)` logo acima já TORNA este
+  // `length > 8` matematicamente inalcançável hoje — cinto-e-suspensórios
+  // pela letra da spec ("ASSERT que falha alto se >8 sobrar"), mantido caso
+  // um refactor futuro mexa no corte e o slice deixe de garantir o limite.)
   if (tagsFinais.length > 8) {
     throw new Error(
       `ASSERT migrarTagsVocabulario: série "${titulo}" (${id}) ficou com ${tagsFinais.length} tags depois do corte — esperado no máximo 8. Migração abortada, nada foi escrito.`
@@ -160,9 +175,13 @@ function planejarUmaSerie(serie, mapa) {
     }
   }
 
-  const mudou = JSON.stringify(tagsAtuais) !== JSON.stringify(tagsFinais);
+  // Compara contra `tagsBrutas` (o valor CRU do doc), não o `tagsAtuais`
+  // coagido — senão um `tags: null` cujas 0 tags resolvidas dão `tagsFinais
+  // = []` pareceria "igual" (`[]` === `[]`) e NUNCA seria gravado, deixando
+  // o `null` órfão pra sempre (achado INFO 4).
+  const mudou = JSON.stringify(tagsBrutas) !== JSON.stringify(tagsFinais);
 
-  return { id, titulo, semTagsNoDocumento: false, tagsAtuais, tagsFinais, removidas, capadas, mudou, resolucoes };
+  return { id, titulo, semTagsNoDocumento: false, tagsAtuais: tagsBrutas, tagsFinais, removidas, capadas, mudou, resolucoes };
 }
 
 /**
@@ -217,10 +236,23 @@ async function aplicarMigracao({ dryRun = true, mapa = MAPA_PADRAO } = {}) {
   }
 
   if (!dryRun) {
-    for (const plano of planos) {
-      if (!plano.semTagsNoDocumento && plano.mudou) {
-        await Series.updateOne({ _id: plano.id }, { $set: { tags: plano.tagsFinais } });
+    // Contador de escritas bem-sucedidas — se o loop parar no MEIO (ex.: o
+    // Mongo cai depois de já ter gravado algumas obras), o erro carrega
+    // `escritasFeitas` pendurado (fix round, achado BAIXA 3) pra quem
+    // chamou (a CLI) saber que NÃO foi "0 escritas, nada gravado": algumas
+    // obras já foram — o script é idempotente, então basta corrigir o
+    // problema e rodar `--apply` de novo (as já gravadas viram no-op).
+    let escritasFeitas = 0;
+    try {
+      for (const plano of planos) {
+        if (!plano.semTagsNoDocumento && plano.mudou) {
+          await Series.updateOne({ _id: plano.id }, { $set: { tags: plano.tagsFinais } });
+          escritasFeitas++;
+        }
       }
+    } catch (err) {
+      err.escritasFeitas = escritasFeitas;
+      throw err;
     }
   }
 
@@ -303,24 +335,88 @@ function imprimirRelatorio({ resumo, planos, backfill, dryRun }) {
   }
 }
 
-if (require.main === module) {
-  require('dotenv').config();
-  const dryRun = !process.argv.includes('--apply');
+const USO = 'Uso: node scripts/migrarTagsVocabulario.js            (dry-run, não escreve nada)\n'
+  + '     node scripts/migrarTagsVocabulario.js --apply    (grava de verdade)';
+const FLAGS_RECONHECIDAS = ['--apply', '--dry-run'];
 
-  (async () => {
-    try {
-      await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/lorflux');
-      const resultado = await aplicarMigracao({ dryRun, mapa: MAPA_PADRAO });
-      imprimirRelatorio(resultado);
-      await mongoose.disconnect();
-      process.exit(0);
-    } catch (err) {
-      console.error('❌ Migração abortada — nenhuma escrita foi feita.');
-      console.error(err);
-      try { await mongoose.disconnect(); } catch (_) { /* ignora */ }
-      process.exit(1);
-    }
-  })();
+/**
+ * Parse ESTRITO dos argumentos da CLI (`process.argv.slice(2)`) — fix round,
+ * achado MEDIA 1: antes, `!argv.includes('--apply')` tratava QUALQUER coisa
+ * que não fosse literalmente `--apply` como dry-run — incluindo
+ * `--apply --dry-run` juntos, que na prática APLICAVA (gravava) porque
+ * `--apply` também estava presente. Um operador que digitasse os dois por
+ * engano (ou um typo como `--APPLY`) não tinha como saber que a intenção
+ * dele não foi respeitada.
+ *
+ * Só `--apply` e `--dry-run` são reconhecidos. Retorna:
+ *   { ok: true, dryRun }    — argumentos válidos, dryRun já resolvido
+ *   { ok: false, mensagem } — inválido; quem chama NUNCA deve conectar no
+ *                             Mongo nesse caso (a CLI abaixo checa `ok`
+ *                             ANTES de `mongoose.connect`).
+ * Inválido quando:
+ *   - `--apply` E `--dry-run` juntos (ambíguo — nenhum prevalece, erro);
+ *   - qualquer argumento fora de `--apply`/`--dry-run` (typo do operador
+ *     precisa virar erro alto, nunca um dry-run silencioso disfarçado).
+ */
+function parseArgv(argv) {
+  const desconhecidos = argv.filter((a) => !FLAGS_RECONHECIDAS.includes(a));
+  if (desconhecidos.length > 0) {
+    return {
+      ok: false,
+      mensagem: `Argumento(s) não reconhecido(s): ${desconhecidos.join(', ')}.\n${USO}`,
+    };
+  }
+
+  const temApply = argv.includes('--apply');
+  const temDryRun = argv.includes('--dry-run');
+  if (temApply && temDryRun) {
+    return {
+      ok: false,
+      mensagem: `--apply e --dry-run juntos são ambíguos — escolha um (sem nenhum dos dois = dry-run).\n${USO}`,
+    };
+  }
+
+  return { ok: true, dryRun: !temApply };
+}
+
+if (require.main === module) {
+  const parsed = parseArgv(process.argv.slice(2));
+  if (!parsed.ok) {
+    console.error(`❌ ${parsed.mensagem}`);
+    process.exit(1);
+  } else {
+    require('dotenv').config();
+
+    (async () => {
+      try {
+        await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/lorflux');
+        const resultado = await aplicarMigracao({ dryRun: parsed.dryRun, mapa: MAPA_PADRAO });
+        imprimirRelatorio(resultado);
+        await mongoose.disconnect();
+        process.exit(0);
+      } catch (err) {
+        // Fix round, achado BAIXA 3: a mensagem antiga ("nenhuma escrita foi
+        // feita") era falsa quando o loop de escrita falhava NO MEIO — já
+        // tinha gravado algumas obras antes do erro. `err.escritasFeitas`
+        // (pendurado por aplicarMigracao) diz a verdade: 0 = realmente nada
+        // foi gravado (erro na leitura/planejamento, ANTES do loop); >0 =
+        // gravação parcial — o script é idempotente, então corrigir e rodar
+        // `--apply` de novo é seguro (as já gravadas viram no-op).
+        const escritasFeitas = typeof err.escritasFeitas === 'number' ? err.escritasFeitas : 0;
+        if (escritasFeitas === 0) {
+          console.error('❌ Migração abortada — 0 escritas, nada foi gravado.');
+        } else {
+          console.error(
+            `❌ Migração interrompida NO MEIO da escrita — ${escritasFeitas} obra(s) já foi(ram) gravada(s) antes da falha. `
+            + 'O script é idempotente: corrija o problema abaixo e rode "--apply" de novo (as obras já gravadas viram no-op).'
+          );
+        }
+        console.error(err);
+        try { await mongoose.disconnect(); } catch (_) { /* ignora */ }
+        process.exit(1);
+      }
+    })();
+  }
 }
 
 module.exports = {
@@ -329,4 +425,5 @@ module.exports = {
   resolverTag,
   prioridadeDoSlug,
   normalizarChaveTag,
+  parseArgv,
 };
