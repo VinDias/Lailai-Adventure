@@ -71,7 +71,9 @@ export enum ViewMode {
   // Fase 5 Bloco 1, Task 10: Fila de Aprovação (portal do ilustrador) e
   // gerenciamento de canais (e-mail do dono/desativar/mensagens).
   ADMIN_APROVACOES = 'ADMIN_APROVACOES',
-  ADMIN_CANAIS = 'ADMIN_CANAIS'
+  ADMIN_CANAIS = 'ADMIN_CANAIS',
+  // Fase 5 Bloco 3, Task 7: Fila de Revisão da curadoria (CuradoriaPanel).
+  ADMIN_CURADORIA = 'ADMIN_CURADORIA'
 }
 
 export interface AdminStats {

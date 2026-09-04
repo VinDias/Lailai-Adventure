@@ -29,6 +29,11 @@ interface ItemAprovacao {
   serie?: { id: string; title: string; isPublished: boolean } | null;
   canal?: { id: string; name: string | null } | null;
   submittedAt: string;
+  // Fase 5 Bloco 3, Task 7: obra que a curadoria tirou do ar e o artista
+  // reenviou — o Master não pode republicar às cegas. Vem do último caso
+  // `decisao:'remover'` da série (routes/adminPortal.js:262); `motivo` é o
+  // `motivoDecisao` do caso e pode ser null. Só existe em item de série.
+  removidaPelaCuradoria?: { decisaoEm: string; motivo: string | null } | null;
 }
 
 const RATING_LABEL: Record<string, string> = { kids: 'Kids', teen: 'Teen', young: 'Young' };
@@ -183,6 +188,11 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
                   </div>
 
                   <h3 className="text-lg font-black text-[var(--text-color)]">{it.title}</h3>
+                  {it.removidaPelaCuradoria && (
+                    <p className="text-xs text-rose-400 font-bold mt-1">
+                      Removida pela curadoria em {new Date(it.removidaPelaCuradoria.decisaoEm).toLocaleDateString('pt-BR')}{it.removidaPelaCuradoria.motivo ? ` — ${it.removidaPelaCuradoria.motivo}` : ''}
+                    </p>
+                  )}
                   {it.tipo === 'episode' && it.serie && (
                     <p className="text-xs text-zinc-500 font-bold">Série: {it.serie.title} {it.serie.isPublished ? '(publicada)' : '(não publicada)'}</p>
                   )}

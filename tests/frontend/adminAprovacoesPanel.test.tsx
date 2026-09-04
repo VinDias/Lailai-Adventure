@@ -229,6 +229,38 @@ describe('AprovacoesPanel — Aprovar episódio', () => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Fase 5 Bloco 3, Task 7: obra que a curadoria tirou do ar e o artista
+// reenviou. GET /admin/aprovacoes anexa `removidaPelaCuradoria` por série
+// (routes/adminPortal.js:262) para o Master não aprovar às cegas.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('AprovacoesPanel — obra removida pela curadoria (Fase 5 Bloco 3)', () => {
+  it('item com removidaPelaCuradoria mostra o aviso com data e motivo; sem ele, nada', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({
+      itens: [
+        { ...itemSerieComGenero, id: 's-rem', title: 'Reenviada 2', removidaPelaCuradoria: { decisaoEm: '2026-09-05T10:00:00.000Z', motivo: 'Cópia de terceiro.' } },
+        { ...itemSerieComGenero, id: 's-ok', title: 'Limpa 1', removidaPelaCuradoria: null },
+      ],
+      naoClassificadas: 0,
+    } as any);
+    render(<AprovacoesPanel />);
+    const aviso = await screen.findByText(/Removida pela curadoria em/);
+    expect(aviso).toHaveTextContent('Cópia de terceiro.');
+    expect(screen.getAllByText(/Removida pela curadoria/)).toHaveLength(1);
+  });
+
+  it('removidaPelaCuradoria sem motivo (motivoDecisao null) mostra só a data, sem travessão solto', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({
+      itens: [{ ...itemSerieComGenero, id: 's-rem2', title: 'Reenviada Sem Motivo', removidaPelaCuradoria: { decisaoEm: '2026-09-05T10:00:00.000Z', motivo: null } }],
+      naoClassificadas: 0,
+    } as any);
+    render(<AprovacoesPanel />);
+    const aviso = await screen.findByText(/Removida pela curadoria em/);
+    expect(aviso.textContent).not.toMatch(/—\s*$/);
+  });
+});
+
 describe('AprovacoesPanel — Devolver', () => {
   it('exige texto: sem digitar nada, confirmar não chama a API', async () => {
     vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemSerie] } as any);

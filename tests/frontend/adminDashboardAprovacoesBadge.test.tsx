@@ -20,6 +20,10 @@ vi.mock('../../services/api', () => ({
     getAdminAprovacoes: vi.fn(),
     createSeries: vi.fn(),
     updateSeries: vi.fn(),
+    // Fase 5 Bloco 3, Task 7: o AdminDashboard passou a importar o
+    // CuradoriaPanel — só o MOCK foi acrescentado aqui (nenhuma assertiva
+    // existente mudou); sem ele a subview ADMIN_CURADORIA quebraria ao montar.
+    getAdminCuradoria: vi.fn(),
   },
 }));
 
@@ -43,6 +47,7 @@ beforeEach(() => {
   vi.mocked(api.getAdminContent).mockResolvedValue({ series: [] } as any);
   vi.mocked(api.getAdminStats).mockResolvedValue({} as any);
   vi.mocked(api.listChannels).mockResolvedValue([] as any);
+  vi.mocked(api.getAdminCuradoria).mockResolvedValue({ casos: [], total: 0, graves: 0 } as any);
 });
 
 describe('AdminDashboard — badge da Fila de Aprovação', () => {
@@ -211,5 +216,44 @@ describe('AdminDashboard — chip "Sem classificação" na lista de séries (Dí
     render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_CONTENT} setSubView={noop} />);
     await waitFor(() => screen.getByText('Serie Draft Sem Rating'));
     expect(screen.queryByText(/sem classifica/i)).not.toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fase 5 Bloco 3, Task 7 — aba e badge "Curadoria". O contador vem de
+// `curadoria.abertos` da MESMA resposta de GET /admin/aprovacoes
+// (routes/adminPortal.js:202-220), pelo refetchAprovacoesBadges existente:
+// sem rota nova e sem polling.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('AdminDashboard — badge "Curadoria" (Fase 5 Bloco 3, Task 7)', () => {
+  it('badge "Curadoria" vem de r.curadoria.abertos da MESMA resposta; sem o campo -> 0', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [], naoClassificadas: 0, curadoria: { abertos: 3, graves: 1 } } as any);
+    render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_DASHBOARD} setSubView={noop} />);
+    const link = await screen.findByText('Curadoria');
+    await waitFor(() => expect(link.closest('button')).toHaveTextContent('3'));
+  });
+
+  it('resposta SEM o campo curadoria (backend degradado) — badge não aparece', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [] } as any);
+    render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_DASHBOARD} setSubView={noop} />);
+    const link = await screen.findByText('Curadoria');
+    await waitFor(() => expect(api.getAdminAprovacoes).toHaveBeenCalled());
+    expect(link.closest('button')?.textContent?.trim()).toBe('Curadoria');
+  });
+
+  it('clicar em "Curadoria" navega para ADMIN_CURADORIA', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [] } as any);
+    const setSubView = vi.fn();
+    render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_DASHBOARD} setSubView={setSubView} />);
+    fireEvent.click(await screen.findByText('Curadoria'));
+    expect(setSubView).toHaveBeenCalledWith(ViewMode.ADMIN_CURADORIA);
+  });
+
+  it('subview ADMIN_CURADORIA renderiza o CuradoriaPanel (que busca a própria fila)', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [], curadoria: { abertos: 0, graves: 0 } } as any);
+    render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_CURADORIA} setSubView={noop} />);
+    expect(await screen.findByRole('heading', { name: 'Curadoria' })).toBeInTheDocument();
+    await waitFor(() => expect(api.getAdminCuradoria).toHaveBeenCalledWith('abertos'));
   });
 });
