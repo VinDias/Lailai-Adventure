@@ -52,6 +52,19 @@ async function sinalizar(serieId, { quantas, motivo = 'spam_ou_enganoso', idadeD
   return Sinalizacao.insertMany(docs);
 }
 
+/**
+ * Plano VENCEDOR de um explain, em JSON — tolerante às duas formas (query
+ * simples traz `queryPlanner` na raiz; aggregate embrulha em
+ * `stages[0].$cursor`). Usado pelos pinos de índice: COLLSCAN numa query que
+ * roda a cada abertura da fila é regressão de custo, não de comportamento —
+ * nenhum teste funcional pegaria.
+ */
+function planoVencedor(explain) {
+  const qp = explain.queryPlanner
+    || (explain.stages && explain.stages[0] && explain.stages[0].$cursor && explain.stages[0].$cursor.queryPlanner);
+  return JSON.stringify(qp.winningPlan);
+}
+
 async function views(serie, ep, { quantas, prefixo }) {
   for (let i = 0; i < quantas; i++) {
     await engagementLogger.logEvent({ type: 'view', seriesId: serie._id, episodeId: ep._id, ip: `${prefixo}.${Math.floor(i / 250)}.${i % 250}`, ua: 'x' });
@@ -352,6 +365,33 @@ describe('consolidação: avaliação sob concorrência e custo da reavaliação
     expect(await AdminLog.countDocuments({ action: 'CURADORIA_CASO_ESCALONADO', targetId: String(serie._id) })).toBe(0);
   });
 
+  it('rodada 2 (c): a reivindicação EXPIRA — processo derrubado no meio de uma ação não prende o caso', async () => {
+    const { serie } = await criarObra({ title: 'Reivindicacao Expira 5' });
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    const t0 = new Date();
+    expect(await svc.reivindicarCaso(caso._id, { agora: t0 })).toBe(true);
+    expect(await svc.reivindicarCaso(caso._id, { agora: new Date(t0.getTime() + 60 * 1000) })).toBe(false);
+    // 6 minutos depois (> RECLAMACAO_VALIDADE_MS) o caso destrava sozinho,
+    // sem job de saneamento e sem intervenção no banco.
+    expect(await svc.reivindicarCaso(caso._id, { agora: new Date(t0.getTime() + 6 * 60 * 1000) })).toBe(true);
+  });
+
+  it('rodada 2 (d): caso REIVINDICADO continua barrando um caso IRMÃO da mesma obra (o índice único parcial segue valendo)', async () => {
+    const { serie } = await criarObra({ title: 'Sem Irmao 7' });
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    expect(await svc.reivindicarCaso(caso._id)).toBe(true);
+    // Reivindicar NÃO pode mexer em `emAberto`: era isso que liberava o
+    // índice único {seriesId, emAberto:true} e deixava esta avaliação abrir
+    // um 2º caso para a mesma obra (com 2º aviso ao artista).
+    await sinalizar(serie._id, { quantas: 5, motivo: 'direitos_autorais', idadeDias: 10 });
+    const mesmo = await svc.avaliarObra(serie._id, { agora: AGORA });
+    expect(String(mesmo._id)).toBe(String(caso._id));
+    expect(await CasoCuradoria.countDocuments({ seriesId: serie._id })).toBe(1);
+    expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(1);
+  });
+
   it('item 4: reavaliarPendentes só consulta as obras que já podem disparar (curto-circuito no banco)', async () => {
     const pequenas = [];
     for (let i = 0; i < 3; i++) {
@@ -489,7 +529,7 @@ describe('fecharCaso + TEXTOS', () => {
 
 // Consolidação (item 8): a varredura de BOOT de iniciarReavaliacaoPeriodica.
 // Roda por ÚLTIMO no arquivo e restaura NODE_ENV/require.cache no afterAll —
-// mesmo padrão do teste do limiter em curadoriaSinalizar.test.js:340-366:
+// mesmo padrão do teste do limiter em curadoriaSinalizar.test.js:337-396:
 // este repo carrega tudo por require() (CJS) e vi.resetModules() gerencia o
 // registro do próprio vitest (ESM), não o require.cache do Node; sem o delete
 // explícito o require abaixo devolveria a instância já cacheada em
@@ -527,12 +567,6 @@ describe('iniciarReavaliacaoPeriodica — varredura de boot (fora de NODE_ENV=te
 // seriesId implica $exists:true, mas isso é comportamento do planner e
 // precisa ser verificado, não presumido).
 describe('índice de EngagementEvent — parcial em seriesId (consolidação, item 10)', () => {
-  function planoVencedor(explain) {
-    const qp = explain.queryPlanner
-      || (explain.stages && explain.stages[0] && explain.stages[0].$cursor && explain.stages[0].$cursor.queryPlanner);
-    return JSON.stringify(qp.winningPlan);
-  }
-
   it('é PARCIAL (evento de anúncio, sem seriesId, fica fora) e as TRÊS queries consumidoras continuam em IXSCAN', async () => {
     const EngagementEvent = require('../../models/EngagementEvent');
     await EngagementEvent.init();
@@ -558,5 +592,24 @@ describe('índice de EngagementEvent — parcial em seriesId (consolidação, it
       expect(plano).toMatch(/"indexName":"seriesId_1_userId_1_type_1_flagged_1"/);
       expect(plano).not.toMatch(/COLLSCAN/);
     }
+  });
+});
+
+// Rodada 2 (f): o aggregate de candidatas do reavaliarPendentes rodava em
+// COLLSCAN — nenhum dos índices de Sinalizacao serve a um $match sem
+// seriesId. Roda a cada abertura da fila do admin, no boot e uma vez por dia.
+describe('índice do aggregate de candidatas (rodada 2, item 4)', () => {
+  it('o $match {revisadaEm:null, valida:true} + $group por seriesId roda em IXSCAN', async () => {
+    await Sinalizacao.init();
+    const explain = await Sinalizacao.aggregate([
+      { $match: { valida: true, revisadaEm: null } },
+      { $group: { _id: '$seriesId', total: { $sum: 1 }, graves: { $sum: { $cond: ['$grave', 1, 0] } } } },
+      { $match: { $or: [{ total: { $gte: L.PISO_PEQUENA } }, { graves: { $gte: L.GRAVE } }] } },
+      { $project: { _id: 1 } },
+    ]).explain();
+    const plano = planoVencedor(explain);
+    expect(plano).toMatch(/IXSCAN/);
+    expect(plano).not.toMatch(/COLLSCAN/);
+    expect(plano).toMatch(/"indexName":"revisadaEm_1_valida_1_seriesId_1_grave_1"/);
   });
 });

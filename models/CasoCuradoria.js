@@ -42,6 +42,15 @@ const CasoCuradoriaSchema = new mongoose.Schema({
   decididoPor: { type: String, default: null },
   decisaoEm: { type: Date, default: null },
   observacao: { type: String, maxlength: 2000, default: null },
+  // MUTEX das 4 ações do curador (services/curadoriaService.reivindicarCaso):
+  // marca que alguém está decidindo este caso AGORA. Campo próprio, e não
+  // `emAberto`, porque `emAberto` é a chave do índice único parcial que
+  // garante "1 caso aberto por obra" — zerá-lo durante a janela da ação
+  // liberava o índice e deixava `avaliarObra` criar um caso IRMÃO para a
+  // mesma obra (achado da rodada 2 do fix round). Expira sozinho
+  // (RECLAMACAO_VALIDADE_MS): processo derrubado no meio de uma ação não
+  // prende o caso.
+  reivindicadoEm: { type: Date, default: null },
 }, { timestamps: true });
 
 CasoCuradoriaSchema.index(

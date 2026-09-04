@@ -28,6 +28,14 @@ SinalizacaoSchema.index({ userId: 1, seriesId: 1 }, { unique: true });
 // Contagens por obra (S, S_grave, semConsumo) e o updateMany de revisadaEm
 // ao fechar um caso — sem isto cada avaliação varreria a coleção inteira.
 SinalizacaoSchema.index({ seriesId: 1, revisadaEm: 1, valida: 1 });
+// Varredura de CANDIDATAS do reavaliarPendentes: o aggregate
+// `$match {revisadaEm:null, valida:true}` + `$group by seriesId` somando
+// `grave` não tem seriesId no filtro, então o índice acima (prefixado por
+// seriesId) não serve — o explain provou COLLSCAN, numa query que roda a cada
+// abertura da fila do admin, no boot e uma vez por dia. Esta ordem de chaves
+// cobre o $match (as duas igualdades no prefixo) E o $group (seriesId e grave
+// vêm do próprio índice, sem FETCH).
+SinalizacaoSchema.index({ revisadaEm: 1, valida: 1, seriesId: 1, grave: 1 });
 
 // `grave` é DERIVADO do motivo (spec rev.3, decisão "Modelo Sinalizacao") —
 // nunca aceito do caller, para não abrir brecha de o leitor (ou um bug na

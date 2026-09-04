@@ -20,6 +20,11 @@ const L = require('../utils/curadoriaLimiares');
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const REAVALIACAO_INTERVALO_MS = 24 * 60 * 60 * 1000;
+// Validade da reivindicação de um caso (mutex das ações do curador). Uma
+// ação inteira é sub-segundo; 5 minutos é folga larga para um
+// applySeriesUpdate lento e curto o bastante para o curador simplesmente
+// recarregar a fila se o processo caiu no meio.
+const RECLAMACAO_VALIDADE_MS = 5 * 60 * 1000;
 
 const ROTULO_MOTIVO = {
   conteudo_inadequado_faixa: 'conteúdo que não condiz com a classificação etária',
@@ -183,11 +188,13 @@ async function avaliarObra(seriesId, { agora = new Date() } = {}) {
       { _id: casoAberto._id, emAberto: true },
       { $set: { resumoMotivos, 'gatilho.S': S, ...(escalona ? { prioridade: 'grave' } : {}) } },
     );
-    if (r.matchedCount === 1) {
-      casoAberto.resumoMotivos = resumoMotivos;
-      casoAberto.gatilho.S = S;
-      if (escalona) casoAberto.prioridade = 'grave';
-    }
+    // Fechado na janela: não há caso aberto para devolver — devolver o
+    // documento obsoleto faria `reavaliarPendentes` contar como "aberto" um
+    // caso que já foi decidido (rodada 2, B-07).
+    if (r.matchedCount === 0) return null;
+    casoAberto.resumoMotivos = resumoMotivos;
+    casoAberto.gatilho.S = S;
+    if (escalona) casoAberto.prioridade = 'grave';
     if (escalona && r.modifiedCount === 1) await logSistema('CURADORIA_CASO_ESCALONADO', seriesId, { casoId: String(casoAberto._id), S, S_grave });
     return casoAberto;
   }
@@ -314,35 +321,50 @@ function pararReavaliacaoPeriodica() {
 }
 
 /**
- * RESERVA o caso para este curador sem decidi-lo (`emAberto:false` com o
- * status intacto). Existe porque `remover` e `reclassificar` ALTERAM A OBRA
- * antes de fechar: sem reivindicar primeiro, dois curadores simultâneos
- * despublicavam/reclassificavam a obra e SÓ DEPOIS descobriam que perderam a
- * corrida — a obra saía do ar sem AdminLog e o artista recebia "obra mantida
- * sem alterações" (viola a regra 1 do Vin: só o curador que decide muda a
- * obra). Devolve false para quem perdeu (a rota responde 409 sem tocar em
- * nada). Enquanto reivindicado o caso não aparece na fila (`emAberto:true`)
- * nem no histórico (`status:'fechado'`) — ver o filtro de GET /curadoria.
+ * MUTEX das 4 ações do curador. Reserva o caso em `reivindicadoEm` — um campo
+ * PRÓPRIO, nunca `emAberto`: `emAberto` é a chave do índice único parcial que
+ * garante "1 caso aberto por obra", e zerá-lo durante a ação liberava o índice
+ * para `avaliarObra` abrir um caso IRMÃO da mesma obra (rodada 2 do fix
+ * round). Com `emAberto` intacto, o índice continua protegendo e o
+ * `findOneAndUpdate` de `fecharCaso` continua sendo o árbitro final.
+ *
+ * Existe porque `remover` e `reclassificar` ALTERAM A OBRA antes de fechar:
+ * sem reivindicar primeiro, quem perdesse a corrida no fechamento já teria
+ * despublicado/reclassificado a obra — 409 na resposta, obra fora do ar, zero
+ * AdminLog e o artista recebendo "obra mantida sem alterações" do vencedor
+ * (viola a regra 1 do Vin). `aprovar` e `solicitar-correcao` reivindicam pelo
+ * mesmo motivo do outro lado: senão vencem uma ação que já mexeu na obra.
+ *
+ * A reivindicação EXPIRA em RECLAMACAO_VALIDADE_MS: processo derrubado no
+ * meio de uma ação (deploy, OOM) libera o caso sozinho, sem job de
+ * saneamento e sem intervenção no banco.
  */
-async function reivindicarCaso(casoId) {
+async function reivindicarCaso(casoId, { agora = new Date() } = {}) {
   const CasoCuradoria = require('../models/CasoCuradoria');
-  const r = await CasoCuradoria.updateOne({ _id: casoId, emAberto: true }, { $set: { emAberto: false } });
+  const expirada = new Date(agora.getTime() - RECLAMACAO_VALIDADE_MS);
+  const r = await CasoCuradoria.updateOne(
+    {
+      _id: casoId,
+      emAberto: true,
+      $or: [{ reivindicadoEm: null }, { reivindicadoEm: { $lt: expirada } }],
+    },
+    { $set: { reivindicadoEm: agora } },
+  );
   return r.modifiedCount === 1;
 }
 
 /**
- * Desfaz a reivindicação quando a alteração da obra falhou — sem isto o caso
- * ficaria invisível para sempre (fora da fila e fora do histórico).
- * `status: {$ne:'fechado'}` protege contra devolver um caso que já foi
- * decidido nesse meio-tempo. O erro do próprio update é ENGOLIDO (log) para
- * não mascarar o erro original que a rota está propagando; o caso pode ter
- * ganhado um irmão aberto (índice único parcial em {seriesId, emAberto:true})
- * enquanto estava reivindicado, e nesse caso o E11000 aqui é esperado.
+ * Libera o mutex quando a ação falhou no meio. Só toca `reivindicadoEm` —
+ * `emAberto` fica como está, então NÃO existe E11000 possível aqui (a versão
+ * anterior devolvia `emAberto:true` e podia colidir com um caso irmão criado
+ * na janela). Erro de banco é logado e não propaga: quem chama está
+ * propagando o erro ORIGINAL, e a expiração de RECLAMACAO_VALIDADE_MS cobre
+ * a liberação de qualquer forma.
  */
 async function devolverReivindicacao(casoId) {
   const CasoCuradoria = require('../models/CasoCuradoria');
   try {
-    await CasoCuradoria.updateOne({ _id: casoId, emAberto: false, status: { $ne: 'fechado' } }, { $set: { emAberto: true } });
+    await CasoCuradoria.updateOne({ _id: casoId }, { $set: { reivindicadoEm: null } });
   } catch (err) {
     logger.error('[Curadoria] devolver reivindicação falhou', err && err.message);
   }
@@ -365,15 +387,17 @@ async function devolverReivindicacao(casoId) {
  * ciclo novo, nunca um caso preso. `tratarErro` das rotas admin já mapeia
  * `err.status` para a resposta HTTP.
  *
- * `jaReivindicado` = o chamador já segurou o caso com `reivindicarCaso`
- * (rotas que alteram a obra): aí o documento a fechar é o que está
- * `emAberto:false` e ainda não decidido.
+ * O filtro é `emAberto:true` para TODOS os caminhos (rodada 2): o mutex das
+ * rotas mora em `reivindicadoEm`, não mais em `emAberto`, então o caso
+ * reivindicado continua aberto até ser realmente decidido aqui. O mesmo
+ * `$set` LIBERA o mutex (`reivindicadoEm:null`) — caso fechado não fica
+ * reivindicado.
  */
-async function fecharCaso(caso, { decisao, adminId, observacao = null, motivoDecisao = null, abuso = false, agora = new Date(), jaReivindicado = false }) {
+async function fecharCaso(caso, { decisao, adminId, observacao = null, motivoDecisao = null, abuso = false, agora = new Date() }) {
   const Sinalizacao = require('../models/Sinalizacao');
   const CasoCuradoria = require('../models/CasoCuradoria');
   const decidido = await CasoCuradoria.findOneAndUpdate(
-    { _id: caso._id, emAberto: jaReivindicado ? false : true, status: { $ne: 'fechado' } },
+    { _id: caso._id, emAberto: true },
     {
       $set: {
         emAberto: false, status: 'fechado', decisao,
@@ -382,7 +406,7 @@ async function fecharCaso(caso, { decisao, adminId, observacao = null, motivoDec
         // correção" anterior deixava motivoDecisao preenchido; sem sobrescrever
         // aqui, um "aprovar" logo depois herdaria esse texto e o histórico
         // mostraria um "motivo" numa aprovação que não teve motivo.
-        motivoDecisao, sinalizacoesAbusivas: !!abuso,
+        motivoDecisao, sinalizacoesAbusivas: !!abuso, reivindicadoEm: null,
       },
     },
     { new: true },
