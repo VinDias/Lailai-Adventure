@@ -64,4 +64,8 @@ describe('curadoriaLimiares.tipoGatilho / ehGrave / vocabulário', () => {
     expect(L.IDADE_MINIMA_CONTA_GRAVE_DIAS).toBe(7);
     expect(L.DESCRICAO_MAX).toBe(500);
   });
+
+  it('TETO_PEQUENA vem do 1º patamar — fonte única, não um literal duplicado (fix round)', () => {
+    expect(L.TETO_PEQUENA).toBe(L.PATAMARES[0].limiar);
+  });
 });

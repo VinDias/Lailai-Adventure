@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { MOTIVOS } = require('../utils/curadoriaLimiares');
+const { MOTIVOS, TEXTO_ADMIN_MAX } = require('../utils/curadoriaLimiares');
 
 const STATUS = ['aberto', 'aguardando_artista', 'fechado'];
 const STATUS_ABERTOS = ['aberto', 'aguardando_artista'];
@@ -15,7 +15,7 @@ const DECISOES = ['aprovar', 'reclassificar', 'solicitar_correcao', 'remover'];
  * (true em aberto/aguardando_artista, false em fechado) porque
  * partialFilterExpression com $in/$ne exige MongoDB >= 6 e a versão da VPS
  * não está confirmada — igualdade booleana funciona em qualquer versão
- * (molde: models/ReadingProgress.js:38-45 usa $exists pela mesma razão).
+ * (molde de índice único parcial: models/ReadingProgress.js:38-45).
  */
 const CasoCuradoriaSchema = new mongoose.Schema({
   seriesId: { type: mongoose.Schema.Types.ObjectId, ref: 'Series', required: true },
@@ -37,7 +37,7 @@ const CasoCuradoriaSchema = new mongoose.Schema({
   decisao: { type: String, enum: [...DECISOES, null], default: null },
   // Texto do curador que acompanha a decisão (motivo do "remover", pedido
   // do "solicitar correção") — vai ao artista via MensagemPortal.
-  motivoDecisao: { type: String, maxlength: 1500, default: null },
+  motivoDecisao: { type: String, maxlength: TEXTO_ADMIN_MAX, default: null },
   sinalizacoesAbusivas: { type: Boolean, default: false },
   decididoPor: { type: String, default: null },
   decisaoEm: { type: Date, default: null },
@@ -56,11 +56,26 @@ CasoCuradoriaSchema.index({ seriesId: 1, decisao: 1, decisaoEm: -1 });
 CasoCuradoriaSchema.statics.STATUS_ABERTOS = STATUS_ABERTOS;
 CasoCuradoriaSchema.statics.DECISOES = DECISOES;
 
+// emAberto é DERIVADO do status (nunca aceito do caller): o índice único
+// parcial que garante "1 caso aberto por obra" confia neste campo, e um
+// valor divergente do status abriria uma brecha na garantia do banco.
+CasoCuradoriaSchema.pre('validate', function (next) {
+  this.emAberto = this.status !== 'fechado';
+  next();
+});
+
 // Sanidade: um caso não pode nascer com resumoMotivos fora do vocabulário.
+// `invalidate()` (não `new mongoose.Error.ValidationError(new Error(msg))`)
+// porque o construtor de ValidationError espera o DOCUMENTO, não um Error —
+// passar um Error produzia "Validation failed" com `errors` vazio, perdendo
+// a mensagem que dizia qual motivo era o desconhecido.
 CasoCuradoriaSchema.pre('validate', function (next) {
   const chaves = Object.keys(this.resumoMotivos || {});
   const invalida = chaves.find(k => !MOTIVOS.includes(k));
-  if (invalida) return next(new mongoose.Error.ValidationError(new Error(`resumoMotivos: motivo desconhecido "${invalida}"`)));
+  if (invalida) {
+    this.invalidate('resumoMotivos', `motivo desconhecido "${invalida}"`);
+    return next();
+  }
   next();
 });
 

@@ -1,9 +1,9 @@
 /**
- * Fase 5 Bloco 3 — constantes da curadoria semiautomática (spec rev.2,
+ * Fase 5 Bloco 3 — constantes da curadoria semiautomática (spec rev.3,
  * decisão "Faixas dos gatilhos"). O Vin deu os patamares 100/200/300/500 e
  * "20 + 30%" para obras pequenas SEM mapear volumes; as faixas de V abaixo
- * são decisão nossa (ledger P1) e ficam aqui, num único objeto, para ajuste
- * por deploy sem tocar em lógica.
+ * são decisão nossa (spec, seção "Comunicar ao Vin", item 1) e ficam aqui,
+ * num único objeto, para ajuste por deploy sem tocar em lógica.
  *
  * PROPRIEDADE OBRIGATÓRIA: limiarPara é não-decrescente em V. A rev.1 da
  * spec tinha "20 E 30%" até V<1.000 e 100 fixo a partir de 1.000 — o limiar
@@ -12,12 +12,11 @@
  */
 const PISO_PEQUENA = 20;          // regra 3 do Vin: "mínimo de 20"
 const PERCENTUAL_PEQUENA = 30;    // regra 3: "30% das visualizações únicas" (inteiro — sem float)
-const TETO_PEQUENA = 100;         // a partir daqui vale o 1º patamar normal do Vin
 
 // Patamares do Vin (100/200/300/500) por faixa de V. `ateV` é EXCLUSIVO.
-// O 1º patamar (100) é também o teto da fórmula "pequena" — a escada é
-// contínua por construção: 30% de V cruza 100 em V=334 e fica em 100 até
-// 9.999.
+// O 1º patamar é também o teto da fórmula "pequena" (TETO_PEQUENA abaixo) —
+// a escada é contínua por construção: 30% de V cruza 100 em V=334 e fica em
+// 100 até 9.999.
 const PATAMARES = [
   { ateV: 10000, limiar: 100 },
   { ateV: 50000, limiar: 200 },
@@ -25,9 +24,14 @@ const PATAMARES = [
   { ateV: Infinity, limiar: 500 },
 ];
 
+// Fonte ÚNICA do teto da fórmula "pequena": o 1º patamar, nunca um literal
+// duplicado — evita a escada e o teto divergirem se o Vin pedir outro valor
+// (fix round: achado do revisor independente do commit b1e1a13).
+const TETO_PEQUENA = PATAMARES[0].limiar;
+
 const GRAVE = 5;                  // regra 4: 5 sinalizações graves em qualquer V
 
-// Antibrigada (spec rev.2): cadastro não exige verificação de e-mail e o
+// Antibrigada (spec rev.3): cadastro não exige verificação de e-mail e o
 // accountLimiter dá 10 contas/15min por IP — contas recém-criadas não
 // contam até "amadurecer". Aplicado NA AVALIAÇÃO (não na escrita).
 const IDADE_MINIMA_CONTA_DIAS = 3;
