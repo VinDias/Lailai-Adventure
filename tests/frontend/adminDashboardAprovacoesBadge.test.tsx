@@ -250,6 +250,28 @@ describe('AdminDashboard — badge "Curadoria" (Fase 5 Bloco 3, Task 7)', () => 
     expect(setSubView).toHaveBeenCalledWith(ViewMode.ADMIN_CURADORIA);
   });
 
+  // Fix round, item 10: `graves` vinha na mesma resposta e era descartado —
+  // um caso de direitos autorais (prioridade máxima, regra 4 do Vin) ficava
+  // visualmente igual a um normal na sidebar.
+  it('com casos graves o badge ganha destaque e o detalhe em texto (tooltip/leitor de tela)', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [], naoClassificadas: 0, curadoria: { abertos: 4, graves: 2 } } as any);
+    render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_DASHBOARD} setSubView={noop} />);
+    const link = await screen.findByText('Curadoria');
+    const botao = link.closest('button') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent('4'));
+    expect(botao).toHaveAttribute('title', expect.stringContaining('2 grave'));
+    expect(botao.querySelector('span[class*="ring"]')).not.toBeNull();
+  });
+
+  it('sem graves o badge não recebe o destaque', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [], naoClassificadas: 0, curadoria: { abertos: 4, graves: 0 } } as any);
+    render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_DASHBOARD} setSubView={noop} />);
+    const link = await screen.findByText('Curadoria');
+    const botao = link.closest('button') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent('4'));
+    expect(botao.querySelector('span[class*="ring"]')).toBeNull();
+  });
+
   it('subview ADMIN_CURADORIA renderiza o CuradoriaPanel (que busca a própria fila)', async () => {
     vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [], curadoria: { abertos: 0, graves: 0 } } as any);
     render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_CURADORIA} setSubView={noop} />);

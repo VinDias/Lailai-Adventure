@@ -36,10 +36,23 @@ const SinalizarButton: React.FC<SinalizarButtonProps> = ({ user, seriesId }) => 
   const [enviada, setEnviada] = useState(false);
   // Lock síncrono contra duplo clique — mesma técnica de SuperReaderButton.
   const lockRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useCamadaVoltar(aberto, () => setAberto(false));
 
   useEffect(() => {
+    // TODO estado é POR OBRA e o componente NÃO desmonta ao trocar de obra:
+    // do modal da obra A dá para abrir o canal, empilhar o CanalPublico e
+    // clicar em outra obra — só a prop `seriesId` muda. Sem este reset o
+    // botão herdava "SINALIZADA" de uma obra que o leitor nunca sinalizou (o
+    // `.catch` abaixo não zera nada), o "enviada" da obra A aparecia na B e,
+    // pior, a descrição digitada sobre A viajava no payload de B.
+    setJaSinalizada(false);
+    setEnviada(false);
+    setAberto(false);
+    setErro(null);
+    setDescricao('');
+    setMotivo(MOTIVOS[0]);
     if (!user) return;
     let cancelado = false;
     api.getMinhaSinalizacao(seriesId)
@@ -47,6 +60,14 @@ const SinalizarButton: React.FC<SinalizarButtonProps> = ({ user, seriesId }) => 
       .catch(() => { /* 404/erro: sem estado */ });
     return () => { cancelado = true; };
   }, [user, seriesId]);
+
+  // O envio bem-sucedido troca ENVIAR por nada e desabilita o botão
+  // principal: sem isto o foco cai no <body> e o leitor de tela não anuncia
+  // coisa alguma. O container é o alvo estável (tabIndex -1) e contém o
+  // parágrafo com role="status".
+  useEffect(() => {
+    if (enviada) containerRef.current?.focus();
+  }, [enviada]);
 
   const handleEnviar = async () => {
     if (lockRef.current) return;
@@ -72,7 +93,7 @@ const SinalizarButton: React.FC<SinalizarButtonProps> = ({ user, seriesId }) => 
   };
 
   return (
-    <div data-testid="sinalizar-button">
+    <div data-testid="sinalizar-button" ref={containerRef} tabIndex={-1} className="outline-none">
       <button
         type="button"
         onClick={() => setAberto(a => !a)}
@@ -83,7 +104,7 @@ const SinalizarButton: React.FC<SinalizarButtonProps> = ({ user, seriesId }) => 
         {jaSinalizada ? t('sinalizar.done') : t('sinalizar.cta')}
       </button>
 
-      {enviada && <p className="mt-3 max-w-md text-sm text-emerald-400">{t('sinalizar.thanks')}</p>}
+      {enviada && <p role="status" className="mt-3 max-w-md text-sm text-emerald-400">{t('sinalizar.thanks')}</p>}
 
       {aberto && user && !jaSinalizada && (
         <div className="mt-4 max-w-md bg-white/5 border border-white/10 rounded-3xl p-6">

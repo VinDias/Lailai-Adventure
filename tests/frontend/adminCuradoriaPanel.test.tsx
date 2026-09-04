@@ -193,16 +193,64 @@ describe('CuradoriaPanel — 409 e recarga da fila', () => {
     await waitFor(() => expect(onChange).toHaveBeenCalled());
   });
 
-  it('409 com o modal aberto: fecha o modal (o caso não é mais acionável) e recarrega', async () => {
-    vi.mocked(api.curadoriaRemover).mockRejectedValueOnce(erroDaApi('Caso já fechado.', 409));
+  // Fix round, item 7: o painel tratava TODO 409 como "o caso acabou" e
+  // limpava o textarea — o curador perdia até 1500 caracteres de
+  // justificativa. Com o mutex do backend existem dois 409 e o de DISPUTA é
+  // transitório (o outro curador pode falhar e devolver o caso à fila).
+  // Quem manda é a fila recarregada, não o código HTTP.
+  it('409 de disputa com o caso ainda na fila: modal CONTINUA aberto, com o texto digitado e o erro dentro dele', async () => {
+    vi.mocked(api.curadoriaRemover).mockRejectedValueOnce(erroDaApi('Este caso está sendo decidido por outro curador. Recarregue a fila.', 409));
+    render(<CuradoriaPanel />);
+    const card = (await screen.findByText('Obra Fila 7')).closest('[data-testid="caso-card"]') as HTMLElement;
+    fireEvent.click(within(card).getByRole('button', { name: /^Remover$/ }));
+    fireEvent.change(screen.getByPlaceholderText(/Motivo/), { target: { value: 'Cópia confirmada, com evidências.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Confirmar remoção/ }));
+
+    await waitFor(() => expect(api.getAdminCuradoria).toHaveBeenCalledTimes(2));
+    // Modal de pé, texto intacto, erro visível DENTRO dele (o erro do card
+    // fica atrás do overlay).
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect((screen.getByPlaceholderText(/Motivo/) as HTMLTextAreaElement).value).toBe('Cópia confirmada, com evidências.');
+    expect(within(screen.getByRole('dialog')).getByRole('alert')).toHaveTextContent(/outro curador/);
+    expect(screen.getByRole('button', { name: /Confirmar remoção/ })).toBeEnabled();
+  });
+
+  // Fix round, item 6: a sonda provou o modal órfão — card sumia, modal
+  // continuava aberto com "Confirmar remoção" ativo e nenhuma mensagem
+  // visível (a mensagem ia para o topo da página, ATRÁS do overlay), e um 2º
+  // clique disparava a ação num casoId morto. Caminho real: série apagada
+  // limpa o caso → 404.
+  it('erro com o caso FORA da fila recarregada (série apagada → 404): modal fecha e a mensagem sobrevive', async () => {
+    vi.mocked(api.curadoriaRemover).mockRejectedValueOnce(erroDaApi('Caso não encontrado.', 404));
+    vi.mocked(api.getAdminCuradoria)
+      .mockResolvedValueOnce({ casos: [caso()], total: 1, graves: 0 } as any)
+      .mockResolvedValueOnce({ casos: [], total: 0, graves: 0 } as any);
     render(<CuradoriaPanel />);
     const card = (await screen.findByText('Obra Fila 7')).closest('[data-testid="caso-card"]') as HTMLElement;
     fireEvent.click(within(card).getByRole('button', { name: /^Remover$/ }));
     fireEvent.change(screen.getByPlaceholderText(/Motivo/), { target: { value: 'Cópia confirmada.' } });
     fireEvent.click(screen.getByRole('button', { name: /Confirmar remoção/ }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: /Confirmar remoção/ })).not.toBeInTheDocument());
-    expect(api.getAdminCuradoria).toHaveBeenCalledTimes(2);
-    expect(await screen.findByText('Caso já fechado.')).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /Confirmar remoção/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Caso não encontrado.')).toBeInTheDocument();
+    expect(api.curadoriaRemover).toHaveBeenCalledTimes(1);
+  });
+
+  it('durante a ação o botão de confirmar fica desabilitado (sem 2º disparo no mesmo caso)', async () => {
+    let resolver: (v: any) => void = () => {};
+    vi.mocked(api.curadoriaRemover).mockImplementation(() => new Promise<any>(r => { resolver = r; }));
+    render(<CuradoriaPanel />);
+    const card = (await screen.findByText('Obra Fila 7')).closest('[data-testid="caso-card"]') as HTMLElement;
+    fireEvent.click(within(card).getByRole('button', { name: /^Remover$/ }));
+    fireEvent.change(screen.getByPlaceholderText(/Motivo/), { target: { value: 'Cópia.' } });
+    const confirmar = screen.getByRole('button', { name: /Confirmar remoção/ });
+    fireEvent.click(confirmar);
+
+    await waitFor(() => expect(confirmar).toBeDisabled());
+    fireEvent.click(confirmar);
+    expect(api.curadoriaRemover).toHaveBeenCalledTimes(1);
+    resolver({ caso: {} });
   });
 
   it('409 e o caso SAIU da fila no refetch: a mensagem sobrevive fora do card', async () => {
@@ -225,5 +273,100 @@ describe('CuradoriaPanel — 409 e recarga da fila', () => {
     fireEvent.click(within(card).getByRole('button', { name: /Reclassificar/ }));
     await waitFor(() => expect(api.getAdminCuradoria).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('Erro ao aplicar a decisão.')).toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fix round, item 8: `contagem`, `descricoes` e `thread` eram acessados sem
+// guarda enquanto `casos`/`resumoMotivos` tinham. Não existe ErrorBoundary no
+// repositório: um item sem esses campos derrubava a árvore INTEIRA do admin.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('CuradoriaPanel — item incompleto não derruba o admin', () => {
+  it('caso sem contagem, sem descricoes e sem thread renderiza normalmente (zeros, listas vazias)', async () => {
+    const cru: any = {
+      casoId: 'x1', status: 'aberto', prioridade: 'normal', abertoEm: '2026-09-04T12:00:00.000Z',
+      obra: { id: 's9', title: 'Obra Crua', cover_image: null, content_type: 'hiqua', content_rating: null, tags: [], isPublished: true },
+      canal: null, canalId: null, gatilho: { tipo: 'normal', S: 0, V: 0, limiar: 0 },
+      avisoArtista: 'enviado', decisao: null, motivoDecisao: null, observacao: null, decididoPor: null, decisaoEm: null, sinalizacoesAbusivas: false,
+    };
+    vi.mocked(api.getAdminCuradoria).mockResolvedValue({ casos: [cru], total: 1, graves: 0 } as any);
+    render(<CuradoriaPanel />);
+    expect(await screen.findByText('Obra Crua')).toBeInTheDocument();
+    expect(screen.getByText(/0 sem consumo/)).toBeInTheDocument();
+    expect(screen.queryByText(/Descrições dos leitores/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Conversa com o artista/)).not.toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fix round, item 9: as duas ações do modal escrevem ao artista e uma tira a
+// obra do ar — precisa ser um diálogo de verdade. A tabulação alcançava
+// "Aprovar" por baixo do overlay.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('CuradoriaPanel — acessibilidade do modal', () => {
+  const abrirRemover = async () => {
+    render(<CuradoriaPanel />);
+    const card = (await screen.findByText('Obra Fila 7')).closest('[data-testid="caso-card"]') as HTMLElement;
+    fireEvent.click(within(card).getByRole('button', { name: /^Remover$/ }));
+    return screen.getByRole('dialog');
+  };
+
+  it('é role="dialog" aria-modal, rotulado pelo título, com foco inicial no textarea e X rotulado', async () => {
+    const dialogo = await abrirRemover();
+    expect(dialogo).toHaveAttribute('aria-modal', 'true');
+    const titulo = document.getElementById(dialogo.getAttribute('aria-labelledby') as string);
+    expect(titulo).toHaveTextContent(/Remover \(tirar do ar\)/);
+    expect(document.activeElement).toBe(screen.getByPlaceholderText(/Motivo/));
+    expect(within(dialogo).getByRole('button', { name: 'Fechar' })).toBeInTheDocument();
+  });
+
+  it('Esc fecha o modal sem executar nada', async () => {
+    await abrirRemover();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(api.curadoriaRemover).not.toHaveBeenCalled();
+  });
+
+  it('a lista de casos fica inerte enquanto o modal está aberto (nada de tabular até "Aprovar" por baixo)', async () => {
+    await abrirRemover();
+    const lista = screen.getByText('Obra Fila 7').closest('[data-testid="caso-card"]')!.parentElement as HTMLElement;
+    expect(lista).toHaveAttribute('inert');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fix round, item 11: dois campos que o backend manda e o card ignorava.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('CuradoriaPanel — gatilho e autoria da decisão', () => {
+  it('mostra DE ONDE veio o limiar (gatilho.tipo) junto da contagem', async () => {
+    render(<CuradoriaPanel />);
+    const card = (await screen.findByText('Obra Fila 7')).closest('[data-testid="caso-card"]') as HTMLElement;
+    expect(within(card).getByText(/Gatilho: obra pequena/)).toBeInTheDocument();
+  });
+
+  it('histórico mostra quem decidiu (decididoPor)', async () => {
+    render(<CuradoriaPanel />);
+    await screen.findByText('Obra Fila 7');
+    vi.mocked(api.getAdminCuradoria).mockResolvedValueOnce({ casos: [casoFechado()], total: 1, graves: 0 } as any);
+    fireEvent.click(screen.getByRole('button', { name: /Histórico/ }));
+    expect(await screen.findByText(/decidido por admin-1/)).toBeInTheDocument();
+  });
+
+  it('botão "Mensagens do canal" leva à aba Canais (thread do artista)', async () => {
+    const onAbrirCanais = vi.fn();
+    render(<CuradoriaPanel onAbrirCanais={onAbrirCanais} />);
+    const card = (await screen.findByText('Obra Fila 7')).closest('[data-testid="caso-card"]') as HTMLElement;
+    fireEvent.click(within(card).getByRole('button', { name: /Mensagens do canal/ }));
+    expect(onAbrirCanais).toHaveBeenCalled();
+  });
+
+  it('obra sem canal não oferece o botão de mensagens', async () => {
+    vi.mocked(api.getAdminCuradoria).mockResolvedValue({ casos: [caso({ canal: null, canalId: null })], total: 1, graves: 0 } as any);
+    render(<CuradoriaPanel onAbrirCanais={vi.fn()} />);
+    await screen.findByText('Obra Fila 7');
+    expect(screen.queryByRole('button', { name: /Mensagens do canal/ })).not.toBeInTheDocument();
   });
 });

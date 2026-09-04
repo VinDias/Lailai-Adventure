@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ShieldAlert, Check, Tag, MessageSquare, EyeOff, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ShieldAlert, Check, Tag, MessageSquare, EyeOff, X, Mail } from 'lucide-react';
 import { api } from '../../services/api';
 import ImageWithFallback from '../ImageWithFallback';
 
@@ -40,11 +40,38 @@ const ROTULO_MOTIVO: Record<string, string> = {
 };
 const ROTULO_RATING: Record<string, string> = { kids: 'Kids', teen: 'Teen', young: 'Young' };
 const ROTULO_DECISAO: Record<string, string> = { aprovar: 'Mantida', reclassificar: 'Reclassificada', solicitar_correcao: 'Correção solicitada', remover: 'Removida (despublicada)' };
+// `gatilho.tipo` explica DE ONDE veio o limiar — sem isto o curador lê
+// "23 / 20" sem saber que o 20 é o piso da regra de obra pequena.
+const ROTULO_GATILHO: Record<string, string> = { pequena: 'obra pequena (piso + 30% das visualizações)', normal: 'volume padrão', grave: 'caso grave' };
 const AVISO_TEXTAREA = 'Não cole trechos das sinalizações: o artista não pode identificar quem sinalizou.';
 
-interface CuradoriaPanelProps { onChange?: () => void }
+const CONTAGEM_ZERO: Contagem = { S: 0, S_grave: 0, V: 0, limiar: 0, semConsumo: 0, contasRecentes: 0, ipsDistintos: 0 };
 
-const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
+/**
+ * O item da fila e o do histórico têm shapes diferentes (o histórico não traz
+ * contagem viva, descrições nem thread) e não existe ErrorBoundary no
+ * repositório: um campo ausente derrubaria a árvore INTEIRA do admin, não só
+ * este painel. Tudo que o render acessa por dentro é normalizado aqui.
+ */
+function normalizar(bruto: any): ItemCaso {
+  return {
+    ...bruto,
+    contagem: { ...CONTAGEM_ZERO, ...(bruto?.contagem ?? {}) },
+    resumoMotivos: bruto?.resumoMotivos ?? {},
+    descricoes: Array.isArray(bruto?.descricoes) ? bruto.descricoes : [],
+    thread: Array.isArray(bruto?.thread) ? bruto.thread : [],
+  } as ItemCaso;
+}
+
+interface CuradoriaPanelProps {
+  onChange?: () => void;
+  // Leva à aba Canais (mensagens do artista). Dívida registrada: o
+  // CanaisPanel não aceita canal alvo, então o curador ainda escolhe o canal
+  // pelo nome — que o card mostra.
+  onAbrirCanais?: () => void;
+}
+
+const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange, onAbrirCanais }) => {
   const [aba, setAba] = useState<'abertos' | 'fechado'>('abertos');
   const [casos, setCasos] = useState<ItemCaso[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,12 +85,13 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
   const [ratingPorCaso, setRatingPorCaso] = useState<Record<string, string>>({});
   const [modal, setModal] = useState<{ tipo: 'correcao' | 'remover'; caso: ItemCaso } | null>(null);
   const [textoModal, setTextoModal] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const load = async (qual: 'abertos' | 'fechado' = aba): Promise<ItemCaso[]> => {
     setLoading(true);
     try {
       const r = await api.getAdminCuradoria(qual);
-      const lista = (r.casos ?? []) as ItemCaso[];
+      const lista = (r.casos ?? []).map(normalizar);
       setCasos(lista);
       return lista;
     } catch {
@@ -83,10 +111,16 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
   /**
    * Executa uma decisão e SEMPRE recarrega a fila depois — inclusive no erro.
    * O backend reivindica o caso antes de alterar a obra e devolve a
-   * reivindicação se a alteração falhar (routes/adminCuradoria.js, fix round
-   * 08639a7): depois de qualquer erro o estado na tela pode não ser mais o do
-   * servidor. No 409 (outro curador fechou o caso primeiro) o modal fecha —
-   * não há mais o que confirmar.
+   * reivindicação se a alteração falhar (routes/adminCuradoria.js): depois de
+   * qualquer erro o estado na tela pode não ser mais o do servidor.
+   *
+   * Quem manda no modal é a fila RECARREGADA, não o código do erro: se o caso
+   * não voltou (fechado por outro curador, série apagada → 404) não há mais o
+   * que confirmar e o modal fecha, com a mensagem sobrevivendo fora do card
+   * que sumiu. Se o caso VOLTOU — inclusive nos 409 de disputa, em que o
+   * outro curador ainda pode falhar e devolver o caso à fila — o modal
+   * continua aberto COM o texto digitado (até 1500 caracteres de
+   * justificativa) e o erro dentro dele. O texto só é descartado no sucesso.
    */
   const executar = async (caso: ItemCaso, fn: () => Promise<any>) => {
     setBusy(caso.casoId);
@@ -99,12 +133,16 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
       onChange?.();
     } catch (e: any) {
       const mensagem = e?.message || 'Erro ao aplicar a decisão.';
-      setErroPorCaso(prev => ({ ...prev, [caso.casoId]: mensagem }));
-      if (e?.status === 409) { setModal(null); setTextoModal(''); }
       const restantes = await load();
-      if (!restantes.some(c => c.casoId === caso.casoId)) {
+      const atual = restantes.find(c => c.casoId === caso.casoId);
+      if (!atual) {
+        setModal(null);
         setErroPorCaso(prev => { const { [caso.casoId]: _x, ...resto } = prev; return resto; });
         setErroGeral(mensagem);
+      } else {
+        setErroPorCaso(prev => ({ ...prev, [caso.casoId]: mensagem }));
+        // O modal segurava o objeto lido antes da ação — troca pelo recém-carregado.
+        setModal(m => (m && m.caso.casoId === caso.casoId ? { ...m, caso: atual } : m));
       }
       onChange?.();
     } finally {
@@ -125,6 +163,18 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
     setTextoModal('');
   };
 
+  // Diálogo modal de verdade (as duas ações daqui escrevem ao artista e uma
+  // delas tira a obra do ar): foco inicial no textarea e Esc fecha. A lista
+  // atrás fica `inert` — sem isso dava para tabular até "Aprovar" por baixo
+  // do overlay e decidir por Enter um caso que não se está vendo.
+  useEffect(() => {
+    if (!modal) return;
+    textareaRef.current?.focus();
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === 'Escape') setModal(null); };
+    document.addEventListener('keydown', aoTeclar);
+    return () => document.removeEventListener('keydown', aoTeclar);
+  }, [modal]);
+
   return (
     <div className="max-w-5xl animate-apple">
       <div className="flex items-center gap-4 mb-8 flex-wrap">
@@ -143,7 +193,7 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
         <p className="text-zinc-500 font-bold">{aba === 'abertos' ? 'Nenhum caso aberto. As sinalizações dos leitores só chegam aqui quando atingem o gatilho da obra.' : 'Nenhum caso fechado ainda.'}</p>
       )}
 
-      <div className="space-y-4">
+      <div className="space-y-4" inert={!!modal}>
         {casos.map(c => {
           const ocupado = busy === c.casoId;
           const grave = c.prioridade === 'grave';
@@ -173,6 +223,7 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
                   Sinalizações válidas: {c.contagem.S} / {c.contagem.limiar} · {c.contagem.V} visualizações únicas
                   {c.contagem.S_grave > 0 ? ` · ${c.contagem.S_grave} graves` : ''}
                 </p>
+                <p className="text-[10px] text-zinc-600 font-bold">Gatilho: {ROTULO_GATILHO[c.gatilho?.tipo] ?? c.gatilho?.tipo ?? '—'}</p>
                 {temContagemViva && (
                   <p className="text-[10px] text-zinc-600 font-bold">{c.contagem.semConsumo} sem consumo · {c.contagem.contasRecentes} contas recentes · {c.contagem.ipsDistintos} IPs distintos</p>
                 )}
@@ -197,8 +248,17 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
                   </details>
                 )}
 
+                {c.canalId && onAbrirCanais && (
+                  <button type="button" onClick={onAbrirCanais} className="mt-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-widest text-zinc-400 hover:text-white">
+                    <Mail size={13} /> Mensagens do canal{c.canal?.name ? ` (${c.canal.name})` : ''}
+                  </button>
+                )}
+
                 {fechado && (
-                  <p className="text-xs text-zinc-400 font-bold mt-3">{ROTULO_DECISAO[c.decisao ?? ''] ?? c.decisao} em {c.decisaoEm ? new Date(c.decisaoEm).toLocaleDateString('pt-BR') : '—'}{c.motivoDecisao ? ` — ${c.motivoDecisao}` : ''}{c.sinalizacoesAbusivas ? ' · sinalizações marcadas como abuso' : ''}</p>
+                  // `decididoPor` é o id do admin que decidiu (AdminLog usa o
+                  // mesmo): com mais de um curador é a única forma de saber
+                  // de quem foi a decisão.
+                  <p className="text-xs text-zinc-400 font-bold mt-3">{ROTULO_DECISAO[c.decisao ?? ''] ?? c.decisao} em {c.decisaoEm ? new Date(c.decisaoEm).toLocaleDateString('pt-BR') : '—'}{c.motivoDecisao ? ` — ${c.motivoDecisao}` : ''}{c.decididoPor ? ` · decidido por ${c.decididoPor}` : ''}{c.sinalizacoesAbusivas ? ' · sinalizações marcadas como abuso' : ''}</p>
                 )}
 
                 {/* Com o modal aberto o erro aparece DENTRO dele (o overlay
@@ -235,14 +295,15 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
 
       {modal && (
         <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
-          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg">
+          <div role="dialog" aria-modal="true" aria-labelledby="curadoria-modal-titulo" className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-2xl font-black tracking-tighter">{modal.tipo === 'correcao' ? 'Solicitar correção' : 'Remover (tirar do ar)'} — {modal.caso.obra?.title ?? 'Obra'}</h3>
-              <button onClick={() => setModal(null)} className="text-zinc-500 hover:text-white"><X size={24} /></button>
+              <h3 id="curadoria-modal-titulo" className="text-2xl font-black tracking-tighter">{modal.tipo === 'correcao' ? 'Solicitar correção' : 'Remover (tirar do ar)'} — {modal.caso.obra?.title ?? 'Obra'}</h3>
+              <button type="button" aria-label="Fechar" onClick={() => setModal(null)} className="text-zinc-500 hover:text-white"><X size={24} /></button>
             </div>
             <p className="text-xs text-amber-500 font-bold mb-4">{AVISO_TEXTAREA}</p>
             {modal.tipo === 'remover' && <p className="text-xs text-zinc-400 mb-4">A obra sai do ar, mas não é apagada: episódios e favoritos ficam; o artista pode corrigir e reenviar para aprovação.</p>}
             <textarea
+              ref={textareaRef}
               value={textoModal}
               onChange={e => setTextoModal(e.target.value)}
               maxLength={1500}
@@ -250,8 +311,18 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange }) => {
               rows={5}
               className="w-full bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 resize-none mb-6"
             />
-            {erroPorCaso[modal.caso.casoId] && <p className="text-rose-500 text-xs font-bold mb-4">{erroPorCaso[modal.caso.casoId]}</p>}
-            <button onClick={confirmarModal} disabled={!textoModal.trim() || busy === modal.caso.casoId} className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed">
+            {/* `erroGeral` como fallback: ele é renderizado no topo da página,
+                ATRÁS do overlay — sem esta cópia o curador ficaria sem
+                nenhuma mensagem visível. */}
+            {(erroPorCaso[modal.caso.casoId] ?? erroGeral) && <p role="alert" className="text-rose-500 text-xs font-bold mb-4">{erroPorCaso[modal.caso.casoId] ?? erroGeral}</p>}
+            <button
+              type="button"
+              onClick={confirmarModal}
+              // Some da fila = não é mais acionável: sem esta guarda um 2º
+              // clique disparava a ação num casoId morto.
+              disabled={!textoModal.trim() || busy === modal.caso.casoId || !casos.some(c => c.casoId === modal.caso.casoId)}
+              className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               {modal.tipo === 'correcao' ? 'Enviar pedido' : 'Confirmar remoção'}
             </button>
           </div>
