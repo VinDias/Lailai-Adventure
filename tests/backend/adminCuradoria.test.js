@@ -618,6 +618,42 @@ describe('consolidação: concorrência e robustez das ações', () => {
     expect(avisos[1].texto).toMatch(/mantida sem alterações/);
   });
 
+  it('revisão final (item 2): aviso de FECHAMENTO que falha é PERSISTIDO no caso e devolvido na resposta', async () => {
+    const { serie } = await criarObra({ title: 'Aviso Falhou 7' });
+    const caso = await abrirCasoGrave(serie);
+    expect((await CasoCuradoria.findById(caso._id).lean()).avisoArtista).toBe('enviado'); // da ABERTURA
+    const spy = vi.spyOn(MensagemPortal, 'create').mockRejectedValueOnce(new Error('boom'));
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'Cópia.' });
+    spy.mockRestore();
+    // A decisão VALEU (a obra saiu do ar) — mas o curador precisa saber que o
+    // artista não foi avisado, e o painel não pode seguir mostrando o
+    // 'enviado' da abertura (regra 7 do Vin).
+    expect(r.status).toBe(200);
+    expect(r.body.avisoArtista).toBe('falhou');
+    expect(r.body.caso.avisoArtista).toBe('falhou');
+    expect(await CasoCuradoria.findById(caso._id).lean()).toMatchObject({ status: 'fechado', decisao: 'remover', avisoArtista: 'falhou' });
+    expect((await Series.findById(serie._id).lean()).isPublished).toBe(false);
+  });
+
+  it('revisão final (item 3): falha DEPOIS da decisão gravada NÃO vira 500 — 200 com o caso fechado e a falha logada', async () => {
+    const { serie } = await criarObra({ title: 'Log Depois 2' });
+    const caso = await abrirCasoGrave(serie);
+    const logger = require('../../utils/logger');
+    const spyLog = vi.spyOn(logger, 'error');
+    const spy = vi.spyOn(AdminLog, 'create').mockRejectedValueOnce(new Error('mongo off'));
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'Cópia.' });
+    const mensagens = spyLog.mock.calls.map(c => String(c[0])).join('\n');
+    spy.mockRestore(); spyLog.mockRestore();
+    // 500 aqui mandaria o curador repetir uma ação que agora responde 409
+    // "caso já fechado" para sempre — decisão aplicada e sem registro.
+    expect(r.status).toBe(200);
+    expect(await CasoCuradoria.findById(caso._id).lean()).toMatchObject({ status: 'fechado', decisao: 'remover' });
+    expect((await Series.findById(serie._id).lean()).isPublished).toBe(false);
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_REMOVER', targetId: String(serie._id) })).toBe(0);
+    expect(mensagens).toMatch(/DECISÃO GRAVADA, efeitos posteriores falharam/);
+    expect(mensagens).not.toMatch(/continua aberto/);
+  });
+
   it('rodada 3 (d): falha ANTES de alterar a obra loga que a obra NÃO foi tocada (log forense honesto)', async () => {
     const { serie } = await criarObra({ title: 'Log Honesto 5' });
     const caso = await abrirCasoGrave(serie);

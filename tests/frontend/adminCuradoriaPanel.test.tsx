@@ -97,6 +97,26 @@ describe('CuradoriaPanel', () => {
     expect(api.getAdminCuradoria).toHaveBeenCalledTimes(2);
   });
 
+  it('decisão aplicada com avisoArtista != enviado mostra o alerta e recarrega a fila (regra 7 do Vin)', async () => {
+    // A decisão VALEU (200) — o que falhou foi a mensagem ao artista. Não é
+    // erro vermelho: é o curador precisando avisar pela aba Canais.
+    vi.mocked(api.curadoriaAprovar).mockResolvedValue({ caso: {}, avisoArtista: 'falhou' } as any);
+    render(<CuradoriaPanel />);
+    const card = (await screen.findByText('Obra Fila 7')).closest('[data-testid="caso-card"]') as HTMLElement;
+    fireEvent.click(within(card).getByRole('button', { name: /^Aprovar$/ }));
+    expect(await screen.findByText(/aviso ao artista não saiu/i)).toBeInTheDocument();
+    expect(api.getAdminCuradoria).toHaveBeenCalledTimes(2);
+  });
+
+  it('decisão com avisoArtista enviado NÃO mostra o alerta', async () => {
+    vi.mocked(api.curadoriaAprovar).mockResolvedValue({ caso: {}, avisoArtista: 'enviado' } as any);
+    render(<CuradoriaPanel />);
+    const card = (await screen.findByText('Obra Fila 7')).closest('[data-testid="caso-card"]') as HTMLElement;
+    fireEvent.click(within(card).getByRole('button', { name: /^Aprovar$/ }));
+    await waitFor(() => expect(api.getAdminCuradoria).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/aviso ao artista não saiu/i)).not.toBeInTheDocument();
+  });
+
   it('Reclassificar exige escolher o rating e envia {content_rating}', async () => {
     vi.mocked(api.curadoriaReclassificar).mockResolvedValue({ caso: {} } as any);
     render(<CuradoriaPanel />);

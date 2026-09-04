@@ -81,6 +81,9 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange, onAbrirCanais
   // decidiu antes). Sem isto a mensagem morreria junto com o card e o Master
   // só veria a fila mudar sozinha.
   const [erroGeral, setErroGeral] = useState<string | null>(null);
+  // Decisão aplicada COM o aviso ao artista não entregue (regra 7 do Vin):
+  // banner âmbar, não vermelho — não houve erro na decisão.
+  const [avisoNaoSaiu, setAvisoNaoSaiu] = useState(false);
   const [abusoPorCaso, setAbusoPorCaso] = useState<Record<string, boolean>>({});
   const [ratingPorCaso, setRatingPorCaso] = useState<Record<string, string>>({});
   const [modal, setModal] = useState<{ tipo: 'correcao' | 'remover'; caso: ItemCaso } | null>(null);
@@ -104,6 +107,7 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange, onAbrirCanais
 
   useEffect(() => {
     setErroGeral(null);
+    setAvisoNaoSaiu(false);
     load(aba);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aba]);
@@ -125,10 +129,17 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange, onAbrirCanais
   const executar = async (caso: ItemCaso, fn: () => Promise<any>) => {
     setBusy(caso.casoId);
     setErroGeral(null);
+    setAvisoNaoSaiu(false);
     setErroPorCaso(prev => { const { [caso.casoId]: _x, ...resto } = prev; return resto; });
     try {
-      await fn();
+      const resposta = await fn();
       setModal(null); setTextoModal('');
+      // As três ações que fecham devolvem o resultado do aviso de FECHAMENTO.
+      // NÃO é erro (a decisão valeu e está gravada) — mas o artista ficou sem
+      // a mensagem e só o curador pode consertar isso, pela aba Canais.
+      // `solicitar-correcao` não entra aqui: lá o aviso é a ação (500 se
+      // não sai), então a resposta não traz o campo.
+      setAvisoNaoSaiu(!!resposta?.avisoArtista && resposta.avisoArtista !== 'enviado');
       await load();
       onChange?.();
     } catch (e: any) {
@@ -187,6 +198,7 @@ const CuradoriaPanel: React.FC<CuradoriaPanelProps> = ({ onChange, onAbrirCanais
       </div>
 
       {erroGeral && <p className="text-rose-500 text-xs font-bold mb-4">{erroGeral}</p>}
+      {avisoNaoSaiu && <p role="status" className="text-amber-500 text-xs font-bold mb-4">A decisão foi aplicada, mas o aviso ao artista não saiu — avise pela aba Canais.</p>}
 
       {loading && <p className="text-zinc-500 font-bold">Carregando...</p>}
       {!loading && casos.length === 0 && (

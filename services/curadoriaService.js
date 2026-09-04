@@ -184,8 +184,13 @@ async function avaliarObra(seriesId, { agora = new Date() } = {}) {
     // awaits atrás — um curador fechando o caso nessa janela via
     // resumoMotivos/gatilho.S/prioridade do ciclo NOVO gravados por cima da
     // decisão dele, e um AdminLog de escalonamento de um caso já decidido.
+    // `reivindicadoEm: null` (revisão final, item 4): enquanto um curador
+    // segura o mutex e está no meio de um remover/reclassificar, uma
+    // sinalização concorrente não pode promover a prioridade nem gravar um
+    // AdminLog de escalonamento de um caso que JÁ está sendo decidido. A
+    // escalada fica para a próxima sinalização/reavaliação.
     const r = await CasoCuradoria.updateOne(
-      { _id: casoAberto._id, emAberto: true },
+      { _id: casoAberto._id, emAberto: true, reivindicadoEm: null },
       { $set: { resumoMotivos, 'gatilho.S': S, ...(escalona ? { prioridade: 'grave' } : {}) } },
     );
     // Fechado na janela: não há caso aberto para devolver — devolver o
@@ -281,18 +286,26 @@ async function reavaliarPendentes({ agora = new Date() } = {}) {
   ]);
   const candidatas = grupos.map(g => g._id);
   if (!candidatas.length) return 0;
-  const comCaso = new Set((await CasoCuradoria.distinct('seriesId', { seriesId: { $in: candidatas }, emAberto: true })).map(String));
-  let abertos = 0;
+  // Só as obras cujo caso JÁ é grave saem da lista. Excluir toda obra com
+  // caso aberto (como antes) fechava a maturação pela metade: a regra 4 do
+  // Vin vale para ESCALONAR, não só para abrir — 5 titulares de direitos que
+  // sinalizam numa obra que já tem caso normal só viravam prioridade máxima
+  // se alguém sinalizasse de novo depois do 7º dia. O caso já grave não tem
+  // para onde subir, e o ramo "caso já aberto" do avaliarObra é idempotente
+  // e barato (duas contagens indexadas, sem V e sem aviso).
+  const jaGraves = new Set((await CasoCuradoria.distinct('seriesId', { seriesId: { $in: candidatas }, emAberto: true, prioridade: 'grave' })).map(String));
+  // casos ABERTOS ou ESCALONADOS nesta passada
+  let atendidas = 0;
   for (const seriesId of candidatas) {
-    if (comCaso.has(String(seriesId))) continue;
+    if (jaGraves.has(String(seriesId))) continue;
     try {
       const caso = await avaliarObra(seriesId, { agora });
-      if (caso) abertos += 1;
+      if (caso) atendidas += 1;
     } catch (err) {
       logger.error(`[Curadoria] reavaliação falhou (${seriesId})`, err && err.message);
     }
   }
-  return abertos;
+  return atendidas;
 }
 
 // Mesmas guardas de iniciarVarreduraPeriodica (recommendationService.js:914-921):

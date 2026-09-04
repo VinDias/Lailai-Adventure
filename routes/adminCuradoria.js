@@ -192,6 +192,34 @@ async function logAdmin(req, action, caso, details) {
   await AdminLog.create({ adminId: req.user.id, action, targetId: String(caso.seriesId), details: { casoId: String(caso._id), ...details } });
 }
 
+/**
+ * Tudo que vem DEPOIS de `fecharCaso`: aviso ao artista, persistência do
+ * resultado do aviso e AdminLog. Duas regras nascem aqui (revisão final):
+ *
+ * 1. O resultado do aviso de FECHAMENTO é GRAVADO no caso. Antes ele só
+ *    existia em `AdminLog.details` — que nenhuma rota lê — e o caso continuava
+ *    exibindo o `avisoArtista` da ABERTURA: aviso de fechamento falhado
+ *    (canal apagado, dono excluído) dava tela verde para o curador, silêncio
+ *    para o artista e "enviado" no painel (regra 7 do Vin).
+ * 2. NADA aqui pode virar 500. Quando `fecharCaso` retorna, a decisão está
+ *    gravada, a obra já foi alterada e o ciclo de sinalizações já foi
+ *    encerrado — devolver erro faria o curador repetir uma ação que agora
+ *    responde 409 "caso já fechado" para sempre, deixando a decisão aplicada
+ *    e SEM AdminLog de quem decidiu. Falha aqui é logada e a resposta é 200.
+ */
+async function finalizarDecisao(req, { caso, action, montarTexto, details }) {
+  let aviso = { status: 'falhou', mensagemId: null };
+  try {
+    const series = await Series.findById(caso.seriesId).select('title channelId').lean();
+    aviso = await avisar(series, series ? montarTexto(series) : '', req.user.id);
+    await CasoCuradoria.updateOne({ _id: caso._id }, { $set: { avisoArtista: aviso.status, mensagemAvisoId: aviso.mensagemId } });
+    await logAdmin(req, action, caso, { ...details, avisoArtista: aviso.status });
+  } catch (err) {
+    logger.error(`[AdminCuradoria] ${action}: DECISÃO GRAVADA, efeitos posteriores falharam (caso ${caso._id}, obra ${caso.seriesId})`, err && err.message);
+  }
+  return aviso;
+}
+
 function tratarErro(err, res, rota) {
   if (responderCastError(err, res, NAO_ENCONTRADO)) return;
   if (err && err.status) return res.status(err.status).json({ error: err.message });
@@ -212,15 +240,20 @@ router.post('/curadoria/:casoId/aprovar', async (req, res) => {
     // sem alterações" com a obra fora do ar (rodada 2).
     const token = await reivindicar(caso, res);
     if (!token) return;
+    let decisaoGravada = false;
     try {
       const abuso = req.body.abuso === true;
       const fechado = await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: req.user.id, observacao: obs.observacao, abuso, token });
-      const series = await Series.findById(caso.seriesId).select('title channelId').lean();
-      const aviso = await avisar(series, series ? svc.TEXTOS.aprovar(series.title) : '', req.user.id);
-      await logAdmin(req, 'CURADORIA_APROVAR', caso, { abuso, avisoArtista: aviso.status });
-      res.json({ caso: fechado });
+      decisaoGravada = true;
+      const aviso = await finalizarDecisao(req, {
+        caso, action: 'CURADORIA_APROVAR', details: { abuso },
+        montarTexto: (series) => svc.TEXTOS.aprovar(series.title),
+      });
+      fechado.avisoArtista = aviso.status;
+      fechado.mensagemAvisoId = aviso.mensagemId;
+      res.json({ caso: fechado, avisoArtista: aviso.status });
     } catch (err) {
-      await svc.devolverReivindicacao(caso._id, token);
+      if (!decisaoGravada) await svc.devolverReivindicacao(caso._id, token);
       throw err;
     }
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/aprovar'); }
@@ -242,6 +275,7 @@ router.post('/curadoria/:casoId/reclassificar', async (req, res) => {
     const token = await reivindicar(caso, res);
     if (!token) return;
     let obraAlterada = false;
+    let decisaoGravada = false;
     try {
       if (!await aindaEhMeu(caso._id, token)) {
         return res.status(409).json({ error: EM_DISPUTA });
@@ -250,19 +284,27 @@ router.post('/curadoria/:casoId/reclassificar', async (req, res) => {
       await applySeriesUpdate(caso.seriesId, { content_rating });
       obraAlterada = true;
       const fechado = await svc.fecharCaso(caso, { decisao: 'reclassificar', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: content_rating, token });
-      const series = await Series.findById(caso.seriesId).select('title channelId').lean();
-      const aviso = await avisar(series, series ? svc.TEXTOS.reclassificar(series.title, svc.ROTULO_RATING[content_rating]) : '', req.user.id);
-      await logAdmin(req, 'CURADORIA_RECLASSIFICAR', caso, { content_rating, avisoArtista: aviso.status });
-      res.json({ caso: fechado });
+      decisaoGravada = true;
+      const aviso = await finalizarDecisao(req, {
+        caso, action: 'CURADORIA_RECLASSIFICAR', details: { content_rating },
+        montarTexto: (series) => svc.TEXTOS.reclassificar(series.title, svc.ROTULO_RATING[content_rating]),
+      });
+      fechado.avisoArtista = aviso.status;
+      fechado.mensagemAvisoId = aviso.mensagemId;
+      res.json({ caso: fechado, avisoArtista: aviso.status });
     } catch (err) {
-      await svc.devolverReivindicacao(caso._id, token);
-      // A mensagem distingue os dois mundos: falha ANTES do applySeriesUpdate
-      // (série apagada, gênero faltando) não tocou em nada; falha depois
-      // deixou a obra reclassificada com o caso ainda aberto — repetir a ação
-      // é idempotente (applySeriesUpdate com o mesmo valor é no-op).
-      logger.error(obraAlterada
-        ? `[AdminCuradoria] reclassificar falhou APÓS alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`
-        : `[AdminCuradoria] reclassificar falhou sem alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`, err && err.message);
+      if (!decisaoGravada) await svc.devolverReivindicacao(caso._id, token);
+      // A mensagem distingue os três mundos: falha ANTES do applySeriesUpdate
+      // (série apagada, gênero faltando) não tocou em nada; falha depois dele
+      // deixou a obra reclassificada com o caso ainda aberto (repetir é
+      // idempotente); falha depois do fechamento NÃO deixa o caso aberto —
+      // dizer o contrário mandava a apuração procurar na fila um caso que já
+      // está no histórico.
+      logger.error(decisaoGravada
+        ? `[AdminCuradoria] reclassificar falhou DEPOIS de gravar a decisão — caso ${caso._id} JÁ está fechado (obra ${caso.seriesId})`
+        : obraAlterada
+          ? `[AdminCuradoria] reclassificar falhou APÓS alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`
+          : `[AdminCuradoria] reclassificar falhou sem alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`, err && err.message);
       throw err;
     }
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/reclassificar'); }
@@ -339,6 +381,7 @@ router.post('/curadoria/:casoId/remover', async (req, res) => {
     const token = await reivindicar(caso, res);
     if (!token) return;
     let obraAlterada = false;
+    let decisaoGravada = false;
     try {
       if (!await aindaEhMeu(caso._id, token)) {
         return res.status(409).json({ error: EM_DISPUTA });
@@ -354,22 +397,29 @@ router.post('/curadoria/:casoId/remover', async (req, res) => {
       await applySeriesUpdate(caso.seriesId, { isPublished: false, submittedAt: null });
       obraAlterada = true;
       const fechado = await svc.fecharCaso(caso, { decisao: 'remover', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: t.texto, token });
-      const series = await Series.findById(caso.seriesId).select('title channelId').lean();
-      const aviso = await avisar(series, series ? svc.TEXTOS.remover(series.title, t.texto) : '', req.user.id);
-      await logAdmin(req, 'CURADORIA_REMOVER', caso, { motivo: t.texto, avisoArtista: aviso.status });
-      res.json({ caso: fechado });
+      decisaoGravada = true;
+      const aviso = await finalizarDecisao(req, {
+        caso, action: 'CURADORIA_REMOVER', details: { motivo: t.texto },
+        montarTexto: (series) => svc.TEXTOS.remover(series.title, t.texto),
+      });
+      fechado.avisoArtista = aviso.status;
+      fechado.mensagemAvisoId = aviso.mensagemId;
+      res.json({ caso: fechado, avisoArtista: aviso.status });
     } catch (err) {
-      await svc.devolverReivindicacao(caso._id, token);
+      if (!decisaoGravada) await svc.devolverReivindicacao(caso._id, token);
       // LIMITAÇÃO DECLARADA: se a falha veio DEPOIS do applySeriesUpdate, a
       // obra já está fora do ar com o caso ainda aberto na fila. Inverter a
       // ordem não resolve (aí a obra ficaria no ar com o caso fechado, que é
       // pior: some da fila). O caso volta destravado e repetir a ação é
       // idempotente — este log é o que liga uma coisa à outra na apuração, e
       // por isso ele só afirma "APÓS alterar a obra" quando a obra foi mesmo
-      // alterada (400/404 do applySeriesUpdate não tocam em nada).
-      logger.error(obraAlterada
-        ? `[AdminCuradoria] remover falhou APÓS alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`
-        : `[AdminCuradoria] remover falhou sem alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`, err && err.message);
+      // alterada (400/404 do applySeriesUpdate não tocam em nada) e só diz
+      // "continua aberto" quando o caso realmente não foi fechado.
+      logger.error(decisaoGravada
+        ? `[AdminCuradoria] remover falhou DEPOIS de gravar a decisão — caso ${caso._id} JÁ está fechado (obra ${caso.seriesId})`
+        : obraAlterada
+          ? `[AdminCuradoria] remover falhou APÓS alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`
+          : `[AdminCuradoria] remover falhou sem alterar a obra ${caso.seriesId} — caso ${caso._id} continua aberto`, err && err.message);
       throw err;
     }
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/remover'); }

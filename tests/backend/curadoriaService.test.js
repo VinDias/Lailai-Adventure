@@ -190,17 +190,38 @@ describe('avaliarObra — gatilhos', () => {
     expect(abertos).toBeGreaterThanOrEqual(1);
     const caso = await CasoCuradoria.findOne({ seriesId: serie._id, emAberto: true }).lean();
     expect(caso.prioridade).toBe('grave');
-    // segunda rodada: obra com caso aberto NÃO é reavaliada de novo. Pino
-    // REAL do filtro `comCaso` (não só o efeito, que avaliarObra devolveria
-    // igual mesmo sem o filtro, por ser idempotente): o spy prova que a
-    // série nem é CONSULTADA de novo.
+    // segunda rodada: obra cujo caso JÁ É GRAVE não é reavaliada — não há
+    // para onde subir. Pino REAL do filtro `jaGraves` (não só o efeito, que
+    // avaliarObra devolveria igual por ser idempotente): o spy prova que a
+    // série nem é CONSULTADA de novo. Obra com caso NORMAL aberto, ao
+    // contrário, CONTINUA sendo reavaliada de propósito — é assim que o
+    // escalonamento por maturação acontece (revisão final, item 1).
     const spy = vi.spyOn(Series, 'findById');
-    const abertos2 = await svc.reavaliarPendentes({ agora: new Date(AGORA.getTime() + 7 * 24 * 60 * 60 * 1000) });
+    await svc.reavaliarPendentes({ agora: new Date(AGORA.getTime() + 7 * 24 * 60 * 60 * 1000) });
     expect(spy.mock.calls.map(c => String(c[0]))).not.toContain(String(serie._id));
     spy.mockRestore();
-    expect(abertos2).toBe(0);
     expect(await CasoCuradoria.countDocuments({ seriesId: serie._id })).toBe(1);
     expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(1);
+  });
+
+  it('revisão final (item 1): caso NORMAL aberto ESCALONA para grave na maturação, com AdminLog e sem 2º aviso ao artista', async () => {
+    const { serie, ep } = await criarObra({ title: 'Escalona na Maturacao 4' });
+    await views(serie, ep, { quantas: 20, prefixo: '48.0' });
+    await sinalizar(serie._id, { quantas: 20 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    expect(caso.prioridade).toBe('normal');
+    // 5 titulares de direitos abrem conta e sinalizam: com 2 dias de conta
+    // ainda não contam em S_grave (corte de 7 dias).
+    await sinalizar(serie._id, { quantas: 5, motivo: 'direitos_autorais', idadeDias: 2 });
+    expect((await CasoCuradoria.findById(caso._id).lean()).prioridade).toBe('normal');
+    // D+6: as contas completam 7 dias. Sem sinalização nova, quem tem de
+    // perceber é a reavaliação — regra 4 do Vin vale para ESCALONAR, não só
+    // para abrir.
+    await svc.reavaliarPendentes({ agora: new Date(AGORA.getTime() + 6 * 24 * 60 * 60 * 1000) });
+    expect((await CasoCuradoria.findById(caso._id).lean()).prioridade).toBe('grave');
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_CASO_ESCALONADO', targetId: String(serie._id) })).toBe(1);
+    expect(await CasoCuradoria.countDocuments({ seriesId: serie._id })).toBe(1);
+    expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(1); // só o aviso de abertura
   });
 
   it('maturação de obra pequena: 20 válidas de contas D-1 -> 0 casos; reavaliarPendentes em D+3 -> 1 caso', async () => {
@@ -389,9 +410,13 @@ describe('consolidação: avaliação sob concorrência e custo da reavaliação
     // um 2º caso para a mesma obra (com 2º aviso ao artista).
     await sinalizar(serie._id, { quantas: 5, motivo: 'direitos_autorais', idadeDias: 10 });
     const mesmo = await svc.avaliarObra(serie._id, { agora: AGORA });
-    expect(String(mesmo._id)).toBe(String(caso._id));
+    // Caso SOB DECISÃO não é escalonado por uma sinalização concorrente
+    // (revisão final, item 4): a escalada fica para a próxima avaliação.
+    expect(mesmo).toBeNull();
+    // O que importa aqui: nenhum caso IRMÃO e nenhum 2º aviso ao artista.
     expect(await CasoCuradoria.countDocuments({ seriesId: serie._id })).toBe(1);
     expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(1);
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_CASO_ESCALONADO', targetId: String(serie._id) })).toBe(0);
   });
 
   it('rodada 3 (b): devolver a reivindicação de TERCEIRO não derruba o mutex do dono atual', async () => {

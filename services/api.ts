@@ -1129,12 +1129,16 @@ class ApiService {
     return this.request<{ casos: any[]; total: number; graves: number }>(`/admin/curadoria?status=${status}`);
   }
 
+  // As três ações que FECHAM o caso devolvem `avisoArtista`: o resultado do
+  // aviso de fechamento, gravado no caso pelo backend. `!== 'enviado'` não é
+  // erro — a decisão valeu — mas o curador precisa saber que o artista ficou
+  // sem a mensagem (regra 7 do Vin) e avisá-lo pela aba Canais.
   async curadoriaAprovar(casoId: string, data: { observacao?: string; abuso?: boolean } = {}) {
-    return this.request<{ caso: any }>(`/admin/curadoria/${casoId}/aprovar`, { method: 'POST', body: JSON.stringify(data) });
+    return this.request<{ caso: any; avisoArtista: string }>(`/admin/curadoria/${casoId}/aprovar`, { method: 'POST', body: JSON.stringify(data) });
   }
 
   async curadoriaReclassificar(casoId: string, data: { content_rating: 'kids' | 'teen' | 'young'; observacao?: string }) {
-    return this.request<{ caso: any }>(`/admin/curadoria/${casoId}/reclassificar`, { method: 'POST', body: JSON.stringify(data) });
+    return this.request<{ caso: any; avisoArtista: string }>(`/admin/curadoria/${casoId}/reclassificar`, { method: 'POST', body: JSON.stringify(data) });
   }
 
   async curadoriaSolicitarCorrecao(casoId: string, data: { texto: string }) {
@@ -1142,7 +1146,7 @@ class ApiService {
   }
 
   async curadoriaRemover(casoId: string, data: { motivo: string; observacao?: string }) {
-    return this.request<{ caso: any }>(`/admin/curadoria/${casoId}/remover`, { method: 'POST', body: JSON.stringify(data) });
+    return this.request<{ caso: any; avisoArtista: string }>(`/admin/curadoria/${casoId}/remover`, { method: 'POST', body: JSON.stringify(data) });
   }
 }
 
