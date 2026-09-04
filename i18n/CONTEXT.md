@@ -10,8 +10,10 @@ Dicionários de tradução da interface do usuário (frontend). Consumidos pelo 
 
 ### `translations.ts`
 - Objeto `TRANSLATIONS` com os 4 idiomas suportados: `pt` (base/fallback), `en`, `es`, `zh`
-- Chaves em dot-notation por área: `nav.*`, `auth.*`, `feed.*`, `reader.*`, `player.*`, `account.*`, `favorites.*`, `onboarding.*`, `ads.*`, `search.*`, `common.*`
+- Chaves em dot-notation por área: `nav.*`, `auth.*`, `feed.*`, `reader.*`, `player.*`, `account.*`, `favorites.*`, `onboarding.*`, `ads.*`, `search.*`, `common.*`, `portal.*`, `parental.*`, `tags.*`
 - O tipo das chaves é derivado do dicionário `pt` — adicionar uma string nova exige adicioná-la primeiro no `pt` (TypeScript acusa idiomas incompletos)
+- **`parental.*` (Fase 5, Bloco 2)** — a seção "Classificação etária e Preferências de conteúdo" da Conta (`components/ParentalSettings.tsx`). Nomenclatura **EXATA** da letra do cliente: `parental.title` = `'Classificação etária e Preferências de conteúdo'` (`translations.ts:256`), `parental.ageSectionTitle` = `'Classificação etária'`, `parental.contentSectionTitle` = `'Preferências de conteúdo'`, PIN aparece como `'PIN de proteção'`. **NUNCA** "controle de classificação" nem "controle parental" em texto visível — o PDF de 31/08 proíbe explicitamente o primeiro (confunde com Kids/Teen/Young) e o segundo quebra o enquadramento anti-censura do cliente
+- **`tags.<slug>` (Fase 5, Bloco 2)** — os 19 rótulos do vocabulário fechado, um por slug de `utils/tagsVocabulario.json` (`tags.romance`, `tags.dark-fantasy`, `tags.lgbtqia+`, …), nos 4 idiomas. Usados pelos toggles das Preferências de conteúdo e pelos chips do form do portal. O `ParentalSettings` tenta `tags.<slug>` primeiro e cai no `rotuloPt` que vem do `GET /api/parental` se a chave não existir. `tests/frontend/i18n.test.tsx` pina JSON ↔ dicionário (todo slug do vocabulário tem chave nos 4 idiomas) — sem esse teste, `t('tags.' + slug)` desliga a checagem de `TranslationKey` do TypeScript
 
 ### `localizeContent.ts`
 - `localizeSeries(series, lang)` / `localizeEpisode(episode, lang)` — devolvem `genre`/`description` traduzidos do campo `translations` do documento (preenchido pelo backend via `services/translationService.js`), com fallback para o PT original

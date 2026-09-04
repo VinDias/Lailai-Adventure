@@ -17,6 +17,7 @@ Middlewares Express para processamento de requisições — autenticação, auto
 | `verifyMediaToken.js` | Valida tokens de acesso para mídia hospedada no CDN — previne acesso não autorizado a arquivos de vídeo e imagem |
 | `uploadConfig.js` | Configuração do Multer para upload de arquivos — define limites de tamanho, tipos MIME aceitos e diretório de armazenamento temporário |
 | `premium.middleware.ts` | Versão TypeScript do middleware de verificação premium — usada em contextos que exigem tipagem |
+| `accountLimiter.js` (Fase 5, Bloco 2) | Rate limit de rotas sensíveis de conta — 10 requests por 15 min por IP (`accountLimiter.js:8-15`). **Extraído de `server.js`**, onde era um `const` local, para `routes/parental.js` poder usá-lo sem require circular do próprio `server.js`. Aplicado em cadastro, esqueci-a-senha, redefinir senha e (Bloco 2) `POST /api/parental/pin/recuperar` + `/recuperar/confirmar`. Em `NODE_ENV=test` vira um passthrough `(req,res,next)=>next()`. **Balde compartilhado por IP** com as rotas de senha — decisão registrada: uma casa atrás do mesmo NAT divide a cota (aceito; o rate limit do PIN em si é o persistido por `userId` em `services/parentalPinService.js`, não este) |
 
 ---
 

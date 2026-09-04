@@ -113,12 +113,14 @@ Os campos novos (`Series.content_rating_sugerida`, `Series.submittedAt`, `Episod
 ### Revogar um ilustrador
 Painel admin → **Canais** → **Desativar canal**. O canal some do catálogo público (`GET /api/channels/:id` passa a responder 404), o ex-dono perde o acesso a todo o portal (403) e a exclusão de conta dele deixa de ser bloqueada. As obras publicadas **continuam no ar** — desativar canal nunca apaga conteúdo.
 
-- **Não existe rota de reativar canal.** Reativar hoje exige `isActive: true` direto no MongoDB (`db.channels.updateOne({_id: ...}, {$set: {isActive: true}})`). Dívida registrada — desative com essa consciência.
+- **Reativar tem botão desde a Fase 5, Bloco 2** (higiene do Bloco 1 — antes só dava para mexer no Mongo na mão): o painel **Canais** lista também os inativos e o canal desativado mostra **"Reativar canal"** no lugar de "Desativar canal" (`POST /api/channels/:id/reativar`, admin). Reativar **não** desarquiva as mensagens da thread — a thread arquivada é do ex-dono, e continua acessível pela aba Mensagens do canal.
 - Transferir a titularidade para outra pessoa é a alternativa a desativar, quando a obra deve continuar tendo um dono ativo.
 
 ### O que o Master precisa fazer para uma obra ir ao ar
 Painel admin → **Aprovações** (badge na sidebar = itens pendentes). Nada enviado pelo ilustrador entra no catálogo sozinho.
 - **Gênero é obrigatório para aprovar uma série** — a obra do portal nasce sem gênero (o formulário do ilustrador não tem esse campo, por decisão de contrato) e o botão Aprovar fica desabilitado até o Master preencher. Tags são opcionais — 0 a 8 do vocabulário fechado (Fase 5, Bloco 2) — e podem ser preenchidas na mesma tela.
+- **Classificação etária também é obrigatória para aprovar uma série** (Fase 5, Bloco 2). Aprovar sem ela responde `400 "Classificação etária é obrigatória para aprovar"`, e o botão Aprovar fica desabilitado até o Master escolher Kids/Teen/Young. A **classificação sugerida pelo ilustrador aparece como dica, mas NUNCA é copiada automaticamente** — o seletor abre sem valor pré-selecionado; a decisão é sempre um ato do Master. Essa exigência vale só na Fila de Aprovação: o `PUT` do admin em **Gerenciar Séries** continua publicando sem classificação (fail-safe abaixo cobre).
+- **Obra sem classificação só aparece para o perfil `young`** (fail-safe). É por isso que existe o badge **"N não classificadas"** no cabeçalho de Gerenciar Séries e o chip **"Sem classificação"** em cada série publicada sem `content_rating` — é a lista de trabalho do Master para o acervo antigo, que foi publicado antes de o campo existir.
 - **Aprove a série antes do capítulo.** Aprovar um capítulo de série ainda não publicada responde 400 com essa orientação.
 - **Devolver** limpa o marcador de envio (a obra volta a ser editável pelo ilustrador) e cria automaticamente a mensagem do editor na thread dele, já apontando qual obra/capítulo. Devolver uma série **não** devolve os capítulos dela em cascata.
 - Aprovar e devolver ficam registrados no `AdminLog` (`APROVAR_SERIE_PORTAL`, `APROVAR_EPISODIO_PORTAL`, `DEVOLVER_SERIE_PORTAL`, `DEVOLVER_EPISODIO_PORTAL`).
@@ -140,6 +142,16 @@ A partir deste deploy as rotas públicas passam a filtrar por publicado (busca, 
 ## Controle Parental + Tags (Fase 5, Bloco 2)
 
 Classificação etária oficial (`Series.content_rating`) e filtro pessoal por tags do vocabulário fechado (19 slugs, `utils/tagsVocabulario.json`). Reaproveita a infraestrutura existente — **nenhuma variável de ambiente nova**.
+
+### O que o leitor vê (Conta → "Classificação etária e Preferências de conteúdo")
+Duas coisas **independentes**, e a nomenclatura é obrigatória (letra do cliente, PDF de 31/08 — nunca chamar o filtro do usuário de "controle de classificação", que confundiria com Kids/Teen/Young):
+- **Classificação etária** — Kids / Teen / Young, definida oficialmente pela Lorflux por obra. O perfil `kids` vê só obras Kids; `teen` vê Kids e Teen; `young` (o default de toda conta) vê tudo, inclusive as ainda não classificadas.
+- **Preferências de conteúdo** — 19 toggles "ocultar", um por tag do vocabulário. Bloquear uma tag **elimina aquelas obras da experiência DESTE usuário** — a obra segue publicada, disponível e recomendável para todos os outros. Não é censura e não é visível para ninguém: o artista **nunca** vê nem altera as preferências de quem quer que seja, e as tags da obra continuam **nunca exibidas na obra** (o rótulo visível segue sendo o Gênero).
+- **PIN de proteção** (opcional, 4–6 dígitos). Com PIN definido, **qualquer** mudança nessas preferências exige o PIN — inclusive as tags que o próprio adulto bloqueou, e inclusive **excluir a conta** (senão a criança apagaria e recriaria a conta sem restrição). 5 erros bloqueiam por 15 min, com o dobro a cada novo lote de 5 (teto de 24h); o bloqueio é **persistido na conta**, então reiniciar o servidor não zera. Esqueceu: "Esqueci meu PIN" manda um link por e-mail (senha também é exigida em conta local) que **remove** o PIN — as preferências continuam intactas.
+
+O filtro é aplicado **no servidor**, em todas as superfícies: catálogo, busca (séries e capítulos), agenda, recomendação (inclusive o fallback), favoritos, continuar lendo, canal público, detalhe da obra, lista de capítulos, leitor, URL assinada de vídeo, **push de capítulo novo** e os writes de engajamento (favoritar/votar/apoiar respondem 404 numa obra invisível). Favorito antigo de obra que passou a ser bloqueada **continua no banco** — some da lista e volta sozinho ao desbloquear a tag.
+
+**Limitações conscientes, a comunicar ao cliente:** o parental é da **conta**, não do aparelho — sair da conta (modo visitante) ou criar uma segunda conta contorna o filtro por definição. Mitigação por dispositivo é escopo futuro. Admin e o **dono do canal** enxergam a própria obra mesmo com a tag dela bloqueada (senão o painel e o portal quebrariam), mas nas **listas** o filtro vale para todos, inclusive para o dono.
 
 ### Passo manual pós-deploy: migrar as tags livres do acervo para o vocabulário fechado
 
