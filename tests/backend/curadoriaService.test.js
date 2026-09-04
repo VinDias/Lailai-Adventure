@@ -85,22 +85,28 @@ describe('contarConsumidoresUnicos', () => {
 });
 
 describe('contarSinalizacoes (escopo do ciclo + idade mínima)', () => {
-  it('S só conta válidas, pendentes, de contas com >= 3 dias; S_grave exige 7; semConsumo/contasRecentes/ipsDistintos', async () => {
+  it('S só conta válidas, pendentes, de contas com >= 3 dias; S_grave exige 7; semConsumo/contasRecentes/ipsDistintos; fronteira EXATA do corte conta (<=)', async () => {
     const { serie } = await criarObra();
     await sinalizar(serie._id, { quantas: 7, idadeDias: 30 });                    // contam
     await sinalizar(serie._id, { quantas: 3, idadeDias: 1 });                     // recentes
     await sinalizar(serie._id, { quantas: 2, idadeDias: 30, valida: false, invalidaMotivo: 'sem_consumo' });
     await sinalizar(serie._id, { quantas: 2, motivo: 'direitos_autorais', idadeDias: 5 });  // contam em S, NÃO em S_grave
     await sinalizar(serie._id, { quantas: 1, motivo: 'conteudo_proibido', idadeDias: 9 });  // conta em S e S_grave
+    // fronteira exata (prova a comparação <=, não <): idadeDias igual ao
+    // corte em dias inteiros cai exatamente em corteNormal/corteGrave.
+    await sinalizar(serie._id, { quantas: 1, idadeDias: 3 });                     // exatamente no corte normal — CONTA
+    await sinalizar(serie._id, { quantas: 1, motivo: 'conteudo_proibido', idadeDias: 7 }); // exatamente no corte grave — conta em S e S_grave
     await Sinalizacao.create({ seriesId: serie._id, userId: oid(), motivo: 'outro', descricao: 'ciclo anterior', grave: false, valida: true, contaCriadaEm: dias(60), revisadaEm: dias(2) });
 
     const c = await svc.contarSinalizacoes(serie._id, { agora: AGORA });
-    expect(c.S).toBe(10);          // 7 + 2 graves(5d) + 1 grave(9d)
-    expect(c.S_grave).toBe(1);
+    expect(c.S).toBe(12);          // 7 + 2 graves(5d) + 1 grave(9d) + 1 no corte normal + 1 grave no corte grave
+    expect(c.S_grave).toBe(2);     // grave(9d) + grave no corte exato (7d)
     expect(c.semConsumo).toBe(2);
     expect(c.contasRecentes).toBe(3);
-    expect(c.ipsDistintos).toBe(13);  // válidas pendentes: 7+3+2+1, cada uma com ip próprio
-    expect(c.resumoMotivos).toEqual({ spam_ou_enganoso: 10, direitos_autorais: 2, conteudo_proibido: 1 });
+    expect(c.ipsDistintos).toBe(15);  // válidas pendentes: 7+3+2+1+1+1, cada uma com ip próprio
+    // resumoMotivos só das que contam em S (contas maduras) — ver comentário
+    // em contarSinalizacoes (fix round T2, item 6)
+    expect(c.resumoMotivos).toEqual({ spam_ou_enganoso: 8, direitos_autorais: 2, conteudo_proibido: 2 });
   });
 });
 
@@ -171,8 +177,15 @@ describe('avaliarObra — gatilhos', () => {
     expect(abertos).toBeGreaterThanOrEqual(1);
     const caso = await CasoCuradoria.findOne({ seriesId: serie._id, emAberto: true }).lean();
     expect(caso.prioridade).toBe('grave');
-    // segunda rodada: obra com caso aberto NÃO é reavaliada de novo (1 caso, 1 aviso)
-    await svc.reavaliarPendentes({ agora: new Date(AGORA.getTime() + 7 * 24 * 60 * 60 * 1000) });
+    // segunda rodada: obra com caso aberto NÃO é reavaliada de novo. Pino
+    // REAL do filtro `comCaso` (não só o efeito, que avaliarObra devolveria
+    // igual mesmo sem o filtro, por ser idempotente): o spy prova que a
+    // série nem é CONSULTADA de novo.
+    const spy = vi.spyOn(Series, 'findById');
+    const abertos2 = await svc.reavaliarPendentes({ agora: new Date(AGORA.getTime() + 7 * 24 * 60 * 60 * 1000) });
+    expect(spy.mock.calls.map(c => String(c[0]))).not.toContain(String(serie._id));
+    spy.mockRestore();
+    expect(abertos2).toBe(0);
     expect(await CasoCuradoria.countDocuments({ seriesId: serie._id })).toBe(1);
     expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(1);
   });
@@ -199,6 +212,45 @@ describe('avaliarObra — gatilhos', () => {
     expect(mesmo.resumoMotivos.direitos_autorais).toBe(5);
     expect(await CasoCuradoria.countDocuments({ seriesId: serie._id })).toBe(1);
     expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(1);
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_CASO_ESCALONADO', targetId: String(serie._id) })).toBe(1);
+
+    // relê do BANCO (não só o doc em memória devolvido por save()) e confere
+    // o grep anti-identidade também no log de escalonamento.
+    const relido = await CasoCuradoria.findById(caso._id).lean();
+    expect(relido.gatilho.S).toBe(25);
+    expect(relido.resumoMotivos).toEqual({ spam_ou_enganoso: 20, direitos_autorais: 5 });
+    expect(relido.prioridade).toBe('grave');
+    const logEsc = await AdminLog.findOne({ action: 'CURADORIA_CASO_ESCALONADO', targetId: String(serie._id) }).lean();
+    expect(JSON.stringify(logEsc.details)).not.toMatch(/userId|descricao/);
+  });
+
+  it('caso normal recebendo mais sinalizações normais NÃO escalona: prioridade continua normal, 0 logs ESCALONADO, gatilho.S atualizado', async () => {
+    const { serie, ep } = await criarObra();
+    await views(serie, ep, { quantas: 20, prefixo: '45.0' });
+    await sinalizar(serie._id, { quantas: 20 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    expect(caso.prioridade).toBe('normal');
+    await sinalizar(serie._id, { quantas: 5 }); // mais spam_ou_enganoso — não grave
+    const mesmo = await svc.avaliarObra(serie._id, { agora: AGORA });
+    expect(mesmo.prioridade).toBe('normal');
+    const relido = await CasoCuradoria.findById(caso._id).lean();
+    expect(relido.gatilho.S).toBe(25);
+    expect(relido.prioridade).toBe('normal');
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_CASO_ESCALONADO', targetId: String(serie._id) })).toBe(0);
+  });
+
+  it('caso já grave (escalonado) recebendo mais graves continua com 1 único log ESCALONADO (nenhum 2º)', async () => {
+    const { serie, ep } = await criarObra();
+    await views(serie, ep, { quantas: 20, prefixo: '46.0' });
+    await sinalizar(serie._id, { quantas: 20 });
+    await svc.avaliarObra(serie._id, { agora: AGORA }); // abre normal
+    await sinalizar(serie._id, { quantas: 5, motivo: 'direitos_autorais', idadeDias: 10 });
+    const grave = await svc.avaliarObra(serie._id, { agora: AGORA }); // escalona -> 1º (e único) log
+    expect(grave.prioridade).toBe('grave');
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_CASO_ESCALONADO', targetId: String(serie._id) })).toBe(1);
+    await sinalizar(serie._id, { quantas: 3, motivo: 'direitos_autorais', idadeDias: 10 });
+    const mesmo = await svc.avaliarObra(serie._id, { agora: AGORA });
+    expect(mesmo.prioridade).toBe('grave');
     expect(await AdminLog.countDocuments({ action: 'CURADORIA_CASO_ESCALONADO', targetId: String(serie._id) })).toBe(1);
   });
 
@@ -299,5 +351,32 @@ describe('fecharCaso + TEXTOS', () => {
     const spy = vi.spyOn(require('../../utils/primeiroAdmin'), 'primeiroAdmin').mockResolvedValueOnce(null);
     expect(await svc.enviarAvisoArtista(s2.toObject(), 'x')).toEqual({ status: 'falhou', mensagemId: null });
     spy.mockRestore();
+  });
+
+  it('enviarAvisoArtista com autorUserId explícito usa o admin passado (não chama primeiroAdmin)', async () => {
+    const { serie } = await criarObra();
+    const r = await svc.enviarAvisoArtista(serie.toObject(), 'x', { autorUserId: auth.getId('admin') });
+    expect(r.status).toBe('enviado');
+    const msg = await MensagemPortal.findById(r.mensagemId).lean();
+    expect(String(msg.autorUserId)).toBe(String(auth.getId('admin')));
+    expect(msg.autorTipo).toBe('editor');
+  });
+
+  it('enviarAvisoArtista corta texto que excede o maxlength:2000 de MensagemPortal.texto', async () => {
+    const { serie } = await criarObra();
+    const textoGigante = 'x'.repeat(2500);
+    const r = await svc.enviarAvisoArtista(serie.toObject(), textoGigante);
+    const msg = await MensagemPortal.findById(r.mensagemId).lean();
+    expect(msg.texto.length).toBe(2000);
+    expect(msg.texto.endsWith('…')).toBe(true);
+  });
+
+  it('fecharCaso com decisao=remover grava motivoDecisao e observacao; sinalizacoesAbusivas false sem abuso', async () => {
+    const { serie } = await criarObra();
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    await svc.fecharCaso(caso, { decisao: 'remover', adminId: auth.getId('admin'), observacao: 'interna', motivoDecisao: 'Cópia.', agora: AGORA });
+    const relido = await CasoCuradoria.findById(caso._id).lean();
+    expect(relido).toMatchObject({ decisao: 'remover', motivoDecisao: 'Cópia.', observacao: 'interna', sinalizacoesAbusivas: false, emAberto: false });
   });
 });

@@ -73,9 +73,17 @@ async function contarSinalizacoes(seriesId, { agora = new Date() } = {}) {
       if (s.invalidaMotivo === 'sem_consumo') semConsumo += 1;
       continue;
     }
-    resumoMotivos[s.motivo] = (resumoMotivos[s.motivo] || 0) + 1;
     if (s.ipHash) ips.add(s.ipHash);
-    if (s.contaCriadaEm <= corteNormal) S += 1; else contasRecentes += 1;
+    if (s.contaCriadaEm <= corteNormal) {
+      S += 1;
+      // resumoMotivos só entra no aviso ao artista com categorias de contas
+      // que já contam em S (maduras) — senão uma brigada de contas novas
+      // (< 3 dias, ainda sem valer no gatilho) conseguiria injetar uma
+      // categoria no aviso automático mesmo sem ter aberto o caso.
+      resumoMotivos[s.motivo] = (resumoMotivos[s.motivo] || 0) + 1;
+    } else {
+      contasRecentes += 1;
+    }
     if (s.grave && s.contaCriadaEm <= corteGrave) S_grave += 1;
   }
   return { S, S_grave, semConsumo, contasRecentes, ipsDistintos: ips.size, resumoMotivos };
@@ -104,10 +112,20 @@ async function enviarAvisoArtista(series, texto, { autorUserId = null } = {}) {
     }
     autor = admin._id;
   }
+  // Guarda de tamanho: o template de abertura (~190 chars) somado a um
+  // motivoDecisao do curador de até 1500 (TEXTO_ADMIN_MAX) e um título sem
+  // limite de tamanho pode passar do maxlength:2000 de MensagemPortal.texto
+  // (models/MensagemPortal.js:19) — sem isto o create lançaria
+  // ValidationError e o caso ficaria com avisoArtista:'falhou' por um motivo
+  // evitável (achado do fix round da T2).
+  const TEXTO_MENSAGEM_MAX = 2000;
+  const textoFinal = texto.length > TEXTO_MENSAGEM_MAX
+    ? `${texto.slice(0, TEXTO_MENSAGEM_MAX - 1)}…`
+    : texto;
   const msg = await MensagemPortal.create({
     canalId: series.channelId, ownerUserId: canal.ownerId,
     autorTipo: 'editor', autorUserId: autor,
-    refTipo: 'series', refId: series._id, texto,
+    refTipo: 'series', refId: series._id, texto: textoFinal,
   });
   return { status: 'enviado', mensagemId: msg._id };
 }
