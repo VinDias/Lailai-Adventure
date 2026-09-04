@@ -210,6 +210,9 @@ class ApiService {
         const error: any = new Error(body.error || `Erro ${status}`);
         error.status = status;
         if (body.tentativasRestantes !== undefined) error.tentativasRestantes = body.tentativasRestantes;
+        // Fase 5 Bloco 3: código de negócio (ex.: 'propria_obra') — a UI
+        // escolhe a mensagem i18n por ele, não pelo texto PT do servidor.
+        if (body.code) error.code = body.code;
         return error;
       };
 
@@ -1093,6 +1096,17 @@ class ApiService {
 
   async confirmarRecuperacaoPin(token: string) {
     return this.request<{ message: string }>('/parental/pin/recuperar/confirmar', { method: 'POST', body: JSON.stringify({ token }) });
+  }
+
+  // ─── Fase 5 Bloco 3: sinalização de conteúdo (leitor) ─────────────────────
+  // Shapes reais de routes/sinalizacao.js. Nunca devolvem contagens (regra 8
+  // do Vin) — só o estado do PRÓPRIO usuário.
+  async getMinhaSinalizacao(seriesId: string) {
+    return this.request<{ jaSinalizada: boolean; motivo: string | null }>(`/content/series/${seriesId}/sinalizacao`);
+  }
+
+  async sinalizarSerie(seriesId: string, data: { motivo: string; descricao?: string }) {
+    return this.request<{ jaSinalizada: boolean }>(`/content/series/${seriesId}/sinalizar`, { method: 'POST', body: JSON.stringify(data) });
   }
 }
 
