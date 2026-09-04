@@ -3221,6 +3221,7 @@ Seção "Deploy" ao fim da spec:
 3. No primeiro boot, o `autoIndex` do Mongoose constrói os índices novos: `Sinalizacao` (2), `CasoCuradoria` (3) e **`EngagementEvent {seriesId, userId, type, flagged}` sobre a coleção mais volumosa do app** — em background, mas pode levar alguns minutos em acervo grande; o app sobe normalmente enquanto isso. Conferir em `pm2 logs` que não há erro de índice.
 4. Smoke: logado como leitor, abrir uma obra e sinalizar (201); `GET /api/admin/aprovacoes` com token admin traz `curadoria: { abertos, graves }`; aba "Curadoria" no admin abre vazia sem erro.
 5. Nenhum backfill: os models são novos e o acervo não precisa de migração.
+6. `ipsDistintos` da fila depende de `req.ip` ser o IP do leitor: `server.js` usa `trust proxy 1` (confia só no hop do Nginx). Se houver Cloudflare na frente e o Nginx NÃO tiver `set_real_ip_from` + `real_ip_header CF-Connecting-IP`, `req.ip` vira o IP do edge e `ipsDistintos` colapsa (é a MESMA dependência do dedupe de royalties já em produção — `routes/content.js:461`). Não afeta S nem V; só a leitura do curador. Conferir a config do Nginx.
 ```
 
 - [ ] **Step 3: Conferir cada `file:linha` citada abrindo o arquivo; corrigir divergências**
