@@ -253,6 +253,16 @@ describe('GET /api/admin/aprovacoes', () => {
       .map(i => String(i.id));
     expect(idsRelevantes).toEqual([String(maisAntigo._id), String(maisNovo._id)]);
   });
+
+  it('Fase 5 Bloco 3: resposta traz curadoria {abertos, graves} (0/0 sem casos) e removidaPelaCuradoria null em série nunca removida', async () => {
+    const dono = await criarDono('Curadoria Badge');
+    await serieSubmetida(dono, { title: 'Nunca Removida 5' });
+    const r = await request(app).get('/api/admin/aprovacoes').set('Authorization', ADMIN_HEADER());
+    expect(r.status).toBe(200);
+    expect(r.body.curadoria).toEqual({ abertos: expect.any(Number), graves: expect.any(Number) });
+    const item = r.body.itens.find(i => i.title === 'Nunca Removida 5');
+    expect(item.removidaPelaCuradoria).toBeNull();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -259,6 +259,7 @@ app.use("/api/admin/royalties", require("./routes/royalties"));
 // filhos diretos de /admin (/admin/mensagens/:canalId hoje, /admin/aprovacoes
 // na Task 7) — routes/adminPortal.js define as rotas relativas a partir daqui.
 app.use("/api/admin", require("./routes/adminPortal"));
+app.use("/api/admin", require("./routes/adminCuradoria")); // Fase 5 Bloco 3: Fila de Revisao
 app.use("/api/me", require("./routes/progress"));
 app.use("/api/settings", require("./routes/settings"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
