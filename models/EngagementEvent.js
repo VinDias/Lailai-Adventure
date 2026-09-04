@@ -32,5 +32,10 @@ const EngagementEventSchema = new mongoose.Schema({
 EngagementEventSchema.index({ episodeId: 1, type: 1, createdAt: -1 });
 EngagementEventSchema.index({ ipHash: 1, createdAt: -1 });
 EngagementEventSchema.index({ type: 1, flagged: 1, createdAt: -1 });
+// Fase 5 Bloco 3 (curadoria): consumidores únicos por OBRA (vida toda) e
+// "consumo real" do sinalizador ({seriesId, userId}). Só ÍNDICE — nenhum
+// documento é tocado (append-only + cadeia de hash intactos). Também serve
+// às queries por seriesId de services/recommendationService.js.
+EngagementEventSchema.index({ seriesId: 1, userId: 1, type: 1, flagged: 1 });
 
 module.exports = mongoose.model('EngagementEvent', EngagementEventSchema);

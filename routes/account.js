@@ -30,6 +30,7 @@ const PushSubscription = require('../models/PushSubscription');
 const SuperReaderContribution = require('../models/SuperReaderContribution');
 const MensagemPortal = require('../models/MensagemPortal');
 const { avaliarTentativaPin, paraUpdateParental } = require('../services/parentalPinService');
+const { primeiroAdmin: buscarPrimeiroAdmin } = require('../utils/primeiroAdmin');
 
 /**
  * LGPD — Direitos do titular dos dados (Art. 18).
@@ -272,7 +273,7 @@ router.delete('/me', verifyToken, async (req, res) => {
     const canaisInativos = await Channel.find({ ownerId: userId, isActive: false }).select('_id').lean();
     let primeiroAdmin = null;
     if (canaisInativos.length > 0) {
-      primeiroAdmin = await User.findOne({ role: { $in: ['admin', 'superadmin'] } }).sort({ createdAt: 1 });
+      primeiroAdmin = await buscarPrimeiroAdmin();
       if (!primeiroAdmin) {
         logger.error(`[Account] DELETE /me: exclusão abortada — nenhum admin disponível para receber canais de ${maskEmail(user.email)}.`);
         return res.status(500).json({ error: 'Erro ao excluir conta: nenhum administrador disponível para receber seus canais.' });
