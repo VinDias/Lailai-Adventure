@@ -23,6 +23,11 @@ const Vote = require('../models/Vote');
 const SeriesVote = require('../models/SeriesVote');
 const Favorite = require('../models/Favorite');
 const Channel = require('../models/Channel');
+const Series = require('../models/Series');
+// Fase 5 Bloco 3 (LGPD): sinalizações são dado do LEITOR — export e exclusão
+// abaixo. O CASO (CasoCuradoria) é da OBRA, não do leitor nem do artista —
+// nunca entra em nenhum export (spec "LGPD").
+const Sinalizacao = require('../models/Sinalizacao');
 const RefreshToken = require('../models/RefreshToken');
 const PasswordResetToken = require('../models/PasswordResetToken');
 const ReadingProgress = require('../models/ReadingProgress');
@@ -90,7 +95,7 @@ router.get('/me/export', verifyToken, async (req, res) => {
     const parentalPin = await User.findById(req.user.id).select('parental.pinHash').lean();
     const temPin = !!(parentalPin && parentalPin.parental && parentalPin.parental.pinHash);
 
-    const [votes, seriesVotes, favorites, channels, readingProgress, pushSubscriptions, superReaderContributions, portalMessages] = await Promise.all([
+    const [votes, seriesVotes, favorites, channels, readingProgress, pushSubscriptions, superReaderContributions, portalMessages, sinalizacoes] = await Promise.all([
       Vote.find({ userId: req.user.id }).lean(),
       SeriesVote.find({ userId: req.user.id }).lean(),
       Favorite.find({ userId: req.user.id }).lean(),
@@ -108,7 +113,18 @@ router.get('/me/export', verifyToken, async (req, res) => {
       MensagemPortal.find({ $or: [{ autorUserId: req.user.id }, { ownerUserId: req.user.id }] })
         .sort({ createdAt: 1 })
         .lean(),
+      // Fase 5 Bloco 3 (LGPD): sinalizações do TITULAR — só as dele, nunca o
+      // caso (o caso é da obra, não do leitor). SEM populate: populate de
+      // série apagada devolve seriesId:null e perde o id — o export precisa
+      // manter o seriesId mesmo quando a série já foi apagada (título vira
+      // null via o Map montado abaixo, padrão superReaderContributions acima
+      // não serve aqui por isso).
+      Sinalizacao.find({ userId: req.user.id }).select('seriesId motivo descricao createdAt').lean(),
     ]);
+
+    const titulosSinalizadas = sinalizacoes.length
+      ? new Map((await Series.find({ _id: { $in: sinalizacoes.map(s => s.seriesId) } }).select('title').lean()).map(s => [String(s._id), s.title]))
+      : new Map();
 
     const payload = {
       exportedAt: new Date().toISOString(),
@@ -184,6 +200,19 @@ router.get('/me/export', verifyToken, async (req, res) => {
         refId: m.refId,
         arquivadaEm: m.arquivadaEm,
         createdAt: m.createdAt,
+      })),
+      // Fase 5 Bloco 3 (LGPD): sinalizações feitas pelo titular como LEITOR —
+      // nunca o que a obra dele recebeu como ARTISTA (o caso é da obra, não
+      // dado pessoal de quem denunciou nem de quem é denunciado). Allowlist
+      // campo a campo: sem `valida`/`invalidaMotivo`/`ipHash`/
+      // `contaCriadaEm`/`revisadaEm`/`_id` — são metadado interno da
+      // avaliação de curadoria, não dado que o titular precisa ver de volta.
+      sinalizacoes: sinalizacoes.map(s => ({
+        seriesId: String(s.seriesId),
+        titulo: titulosSinalizadas.get(String(s.seriesId)) ?? null,
+        motivo: s.motivo,
+        descricao: s.descricao ?? null,
+        createdAt: s.createdAt,
       })),
     };
 
@@ -327,6 +356,9 @@ router.delete('/me', verifyToken, async (req, res) => {
       // editor, não dele) — preservam o histórico do canal para o admin/
       // próximo dono, mesmo órfãs de interlocutor.
       MensagemPortal.deleteMany({ autorUserId: userId }),
+      // Fase 5 Bloco 3 (LGPD): sinalizações são dado do leitor — apagadas com
+      // a conta (descrição junto). S da obra recalcula na próxima avaliação.
+      Sinalizacao.deleteMany({ userId }),
     ]);
 
     await User.findByIdAndDelete(userId);

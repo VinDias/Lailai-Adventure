@@ -270,7 +270,12 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
       Episode.deleteMany({ seriesId: req.params.id }),
       Favorite.deleteMany({ seriesId: req.params.id }),
       SeriesVote.deleteMany({ seriesId: req.params.id }),
-      episodeIds.length ? Vote.deleteMany({ episodeId: { $in: episodeIds } }) : Promise.resolve()
+      episodeIds.length ? Vote.deleteMany({ episodeId: { $in: episodeIds } }) : Promise.resolve(),
+      // Fase 5 Bloco 3: sinalizações e casos da obra — sem isto, caso órfão
+      // fica eterno na fila (obra null) e a sinalização vaza no export do
+      // leitor apontando para série inexistente (o mesmo bug dos votos acima).
+      require('../models/Sinalizacao').deleteMany({ seriesId: req.params.id }),
+      require('../models/CasoCuradoria').deleteMany({ seriesId: req.params.id }),
     ]);
     await Series.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Série e episódios removidos.' });
