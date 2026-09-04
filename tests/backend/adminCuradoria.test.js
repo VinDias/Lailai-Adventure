@@ -2,17 +2,35 @@
  * Fase 5 Bloco 3, Task 4 — Fila de Revisão do admin e as 4 decisões. Regra
  * 8: o admin vê NÚMEROS, nunca identidades (nenhum userId/e-mail de leitor na
  * resposta); regra 1: "remover" = despublicar, nunca DELETE.
+ *
+ * Fix round T4 (revisão do commit 53470d5): itens 1-10 do revisor —
+ * submittedAt no remover, robustez de solicitar-correcao/observacao, lock
+ * otimista no fechamento (services/curadoriaService.js, testado aqui do lado
+ * HTTP — o unitário mora em curadoriaService.test.js) e pinos de teste que a
+ * suíte original não cobria (ciclo de descrições, relógio real, grep
+ * anti-identidade, cobertura de AdminLog/404/401/mistura de prioridades).
  */
 const request = require('supertest');
+const bcrypt = require('bcrypt');
 const mongoose = require('mongoose');
 const db = require('../helpers/db');
 const auth = require('../helpers/auth');
 
 let app, Series, Episode, Channel, User, Favorite, Sinalizacao, CasoCuradoria, MensagemPortal, AdminLog, svc, L;
-const AGORA = new Date('2026-09-12T09:00:00.000Z');
-const dias = (n) => new Date(AGORA.getTime() - n * 24 * 60 * 60 * 1000);
+const DIA_MS = 24 * 60 * 60 * 1000;
 const oid = () => new mongoose.Types.ObjectId();
 const ADMIN = () => `Bearer ${auth.getToken('admin')}`;
+// Fix round T4 (item 9): grep por CHAVE JSON entre aspas, case-insensitive —
+// a versão anterior (`/userId|@lorflux\.test|ipHash|contaCriadaEm/`) sem
+// aspas corria o risco de casar substring solta; `decididoPor` (id do ADMIN,
+// que É esperado na resposta) não contém nenhuma das chaves proibidas, então
+// não casa em nenhuma das duas versões — mas a versão com aspas é a correta
+// para não depender disso por sorte.
+const REGEX_IDENTIDADE = /"(userId|ownerId|autorUserId|ownerUserId|ipHash|contaCriadaEm)"|@lorflux\.test/i;
+// Fix round T4 (item 10b): AdminLog.details das 4 ações só guarda agregados
+// (casoId, content_rating, motivo/texto DO CURADOR, avisoArtista) — nunca
+// userId de leitor, a descrição de uma sinalização ou um e-mail de teste.
+const REGEX_DETAILS_VAZAMENTO = /userId|descricao|@lorflux/i;
 
 beforeAll(async () => {
   await db.connect();
@@ -39,21 +57,39 @@ async function criarObra({ comCanal = true, title = 'Obra da Fila 4' } = {}) {
   await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap 1', status: 'published', panels: [{ image_url: 'https://cdn.exemplo/p.jpg', order: 0 }] });
   return { serie, canal, dono };
 }
+/** Dono com senha logável (molde curadoriaSinalizar.test.js:31-38) — só para o teste do item 10f (PUT /portal). */
+async function criarObraComDonoLogavel(overrides = {}) {
+  n += 1;
+  const senha = 'Senha@123';
+  const dono = await User.create({ email: `dono-fila-login-${n}-${Date.now()}@lorflux.test`, passwordHash: await bcrypt.hash(senha, 10), nome: `Dono Logavel ${n}`, role: 'user' });
+  const canal = await Channel.create({ ownerId: dono._id, name: `Canal Login ${n} ${Date.now()}` });
+  const serie = await Series.create({ title: 'Obra Portal 403', genre: 'Aventura', content_type: 'hiqua', isPublished: true, content_rating: 'young', channelId: canal._id, ...overrides });
+  await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap 1', status: 'published', panels: [{ image_url: 'https://cdn.exemplo/p.jpg', order: 0 }] });
+  const login = await request(app).post('/api/auth/login').send({ email: dono.email, password: senha });
+  return { serie, canal, dono, donoToken: `Bearer ${login.body.accessToken}` };
+}
 async function sinalizar(serieId, { quantas, motivo = 'spam_ou_enganoso', idadeDias = 30, valida = true, invalidaMotivo = null, descricao = null }) {
   return Sinalizacao.insertMany(Array.from({ length: quantas }, (_, i) => ({
     seriesId: serieId, userId: oid(), motivo, grave: L.ehGrave(motivo), valida, invalidaMotivo, descricao,
-    contaCriadaEm: dias(idadeDias), ipHash: `ip-${n}-${i}`,
+    // Fix round T4 (item 8): contaCriadaEm relativo ao RELÓGIO REAL. GET
+    // /admin/curadoria chama contarSinalizacoes SEM `agora` injetado (é a
+    // contagem AO VIVO da fila — routes/adminCuradoria.js) — fixtures presas
+    // a uma data ficcional (ex. 2026-09-12) furavam a idade mínima assim que
+    // o relógio real do teste passasse dessa data, zerando S/S_grave/
+    // ipsDistintos na resposta HTTP sem que nenhum teste percebesse (nenhum
+    // conferia itemGrave.contagem antes deste fix round).
+    contaCriadaEm: new Date(Date.now() - idadeDias * DIA_MS), ipHash: `ip-${n}-${i}`,
   })));
 }
-/** Abre um caso grave (5 graves maduras; V=0 basta). */
+/** Abre um caso grave (5 graves maduras; V=0 basta). `agora` real — a rota lê ao vivo. */
 async function abrirCasoGrave(serie) {
   await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 9, descricao: 'descrição do leitor' });
-  return svc.avaliarObra(serie._id, { agora: AGORA });
+  return svc.avaliarObra(serie._id, { agora: new Date() });
 }
 async function abrirCasoNormal(serie) {
   // V=0 -> limiar 20; 20 válidas maduras abrem caso 'pequena'
   await sinalizar(serie._id, { quantas: 20 });
-  return svc.avaliarObra(serie._id, { agora: AGORA });
+  return svc.avaliarObra(serie._id, { agora: new Date() });
 }
 
 describe('GET /api/admin/curadoria', () => {
@@ -89,7 +125,37 @@ describe('GET /api/admin/curadoria', () => {
     expect(itemGrave.descricoes).toHaveLength(5);
     expect(itemGrave.descricoes[0]).toEqual(expect.objectContaining({ motivo: 'conteudo_proibido', descricao: 'descrição do leitor' }));
     expect(Object.keys(itemGrave.descricoes[0]).sort()).toEqual(['createdAt', 'descricao', 'motivo']);
-    expect(JSON.stringify(r.body)).not.toMatch(/userId|@lorflux\.test|ipHash|contaCriadaEm/);
+    // Fix round T4 (item 8): contagem ao vivo do item GRAVE nunca tinha sido
+    // assertada — com o relógio real, S_grave=5 confirma que a idade mínima
+    // de 7 dias (contas de 9 dias) está sendo aplicada corretamente na rota.
+    expect(itemGrave.contagem).toMatchObject({ S: 5, S_grave: 5, V: 0, limiar: 5, semConsumo: 0, contasRecentes: 0, ipsDistintos: 5 });
+    expect(JSON.stringify(r.body)).not.toMatch(REGEX_IDENTIDADE);
+  });
+
+  it('ordena dois casos graves entre si por S_grave desc (fix round T4, item 8)', async () => {
+    const { serie: grave5 } = await criarObra({ title: 'Grave Cinco 41' });
+    await abrirCasoGrave(grave5); // S_grave = 5
+    const { serie: grave6 } = await criarObra({ title: 'Grave Seis 42' });
+    await sinalizar(grave6._id, { quantas: 6, motivo: 'conteudo_proibido', idadeDias: 9 });
+    await svc.avaliarObra(grave6._id, { agora: new Date() });
+
+    const r = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
+    const ids = r.body.casos.map(c => c.obra && c.obra.id);
+    expect(ids.indexOf(String(grave6._id))).toBeLessThan(ids.indexOf(String(grave5._id)));
+  });
+
+  it('descrições são só do CICLO atual (revisadaEm:null) — fix round T4, item 7 (pino perdido, provado por mutação)', async () => {
+    const { serie } = await criarObra({ title: 'Ciclo Duplo 5' });
+    const caso1 = await abrirCasoGrave(serie); // ciclo 1: 5 descrições 'descrição do leitor'
+    await request(app).post(`/api/admin/curadoria/${caso1._id}/aprovar`).set('Authorization', ADMIN()).send({});
+    // ciclo 2: outras 5 graves maduras com descrição diferente
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 9, descricao: 'ciclo novo' });
+    await svc.avaliarObra(serie._id, { agora: new Date() });
+
+    const r = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
+    const item = r.body.casos.find(c => c.obra && c.obra.id === String(serie._id));
+    expect(item.descricoes).toHaveLength(5);
+    expect(item.descricoes.every(d => d.descricao === 'ciclo novo')).toBe(true);
   });
 
   it('roda reavaliarPendentes antes de listar: contas que amadureceram abrem caso ao abrir a fila', async () => {
@@ -98,6 +164,14 @@ describe('GET /api/admin/curadoria', () => {
     // nada avaliou ainda (insertMany direto) -> a fila precisa abrir o caso
     const r = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
     expect(r.body.casos.some(c => c.obra && c.obra.id === String(serie._id))).toBe(true);
+  });
+
+  it('erro em reavaliarPendentes não derruba a fila: GET responde 200 mesmo assim (fix round T4, item 6)', async () => {
+    const spy = vi.spyOn(Sinalizacao, 'distinct').mockRejectedValueOnce(new Error('mongo off'));
+    const r = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
+    spy.mockRestore();
+    expect(r.status).toBe(200);
+    expect(Array.isArray(r.body.casos)).toBe(true);
   });
 
   it('?status=fechado lista histórico com decisao/motivoDecisao/decididoPor; obra apagada -> obra null sem 500', async () => {
@@ -119,6 +193,24 @@ describe('GET /api/admin/curadoria', () => {
     const item = r.body.casos.find(c => c.obra && c.obra.id === String(serie._id));
     expect(item.thread).toEqual([]);
   });
+
+  it('total/graves refletem mistura real: 2 graves + 1 normal -> graves 2 entre os itens desta fixture (fix round T4, item 10e)', async () => {
+    const { serie: g1 } = await criarObra({ title: 'Grave Mix 51' });
+    await abrirCasoGrave(g1);
+    const { serie: g2 } = await criarObra({ title: 'Grave Mix 52' });
+    await abrirCasoGrave(g2);
+    const { serie: nrm } = await criarObra({ title: 'Normal Mix 53' });
+    await abrirCasoNormal(nrm);
+
+    const r = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
+    const idsRelevantes = new Set([String(g1._id), String(g2._id), String(nrm._id)]);
+    const relevantes = r.body.casos.filter(c => c.obra && idsRelevantes.has(c.obra.id));
+    expect(relevantes).toHaveLength(3);
+    expect(relevantes.filter(c => c.prioridade === 'grave')).toHaveLength(2);
+    // `graves` do payload é sempre a contagem do array `casos` inteiro (que
+    // pode incluir casos de outros testes) — mas precisa bater exatamente.
+    expect(r.body.graves).toBe(r.body.casos.filter(c => c.prioridade === 'grave').length);
+  });
 });
 
 describe('ações do curador', () => {
@@ -130,7 +222,13 @@ describe('ações do curador', () => {
     }
   });
 
-  it('aprovar: fecha, revisadaEm em todas, aviso curto sem dígitos fora do título, AdminLog do admin; 2ª ação -> 409', async () => {
+  it('401 sem token nas 4 ações (fix round T4, item 10d)', async () => {
+    for (const acao of ['aprovar', 'reclassificar', 'solicitar-correcao', 'remover']) {
+      expect((await request(app).post(`/api/admin/curadoria/${oid()}/${acao}`).send({})).status).toBe(401);
+    }
+  });
+
+  it('aprovar: fecha, revisadaEm em todas, aviso curto sem dígitos fora do título, AdminLog do admin sem identidades; 2ª ação -> 409', async () => {
     const { serie } = await criarObra({ title: 'Aprovada 77' });
     const caso = await abrirCasoGrave(serie);
     const r = await request(app).post(`/api/admin/curadoria/${caso._id}/aprovar`).set('Authorization', ADMIN()).send({ observacao: 'ok' });
@@ -142,8 +240,40 @@ describe('ações do curador', () => {
     expect(avisos[1].texto).toMatch(/mantida sem alterações/);
     expect(/\d/.test(avisos[1].texto.split(serie.title).join(''))).toBe(false);
     expect(String(avisos[1].autorUserId)).toBe(auth.getId('admin'));
-    expect(await AdminLog.countDocuments({ action: 'CURADORIA_APROVAR', adminId: auth.getId('admin'), targetId: String(serie._id) })).toBe(1);
+    const log = await AdminLog.findOne({ action: 'CURADORIA_APROVAR', adminId: auth.getId('admin'), targetId: String(serie._id) }).lean();
+    expect(log).toBeTruthy();
+    expect(JSON.stringify(log.details)).not.toMatch(REGEX_DETAILS_VAZAMENTO);
     expect((await request(app).post(`/api/admin/curadoria/${caso._id}/aprovar`).set('Authorization', ADMIN()).send({})).status).toBe(409);
+  });
+
+  it('aprovar: observacao não-string 400; >2000 chars 400; exatamente 2000 chars 200 (fix round T4, item 3)', async () => {
+    const { serie: s1 } = await criarObra();
+    const c1 = await abrirCasoGrave(s1);
+    const r1 = await request(app).post(`/api/admin/curadoria/${c1._id}/aprovar`).set('Authorization', ADMIN()).send({ observacao: { a: 1 } });
+    expect(r1.status).toBe(400);
+    expect((await CasoCuradoria.findById(c1._id).lean()).status).toBe('aberto');
+
+    const { serie: s2 } = await criarObra();
+    const c2 = await abrirCasoGrave(s2);
+    expect((await request(app).post(`/api/admin/curadoria/${c2._id}/aprovar`).set('Authorization', ADMIN()).send({ observacao: 'a'.repeat(2001) })).status).toBe(400);
+
+    const { serie: s3 } = await criarObra();
+    const c3 = await abrirCasoGrave(s3);
+    const r3 = await request(app).post(`/api/admin/curadoria/${c3._id}/aprovar`).set('Authorization', ADMIN()).send({ observacao: 'a'.repeat(2000) });
+    expect(r3.status).toBe(200);
+    expect(r3.body.caso.observacao.length).toBe(2000);
+  });
+
+  it('lock otimista: 2 aprovar concorrentes no mesmo caso -> [200,409]; 2 MensagemPortal (abertura+1 fechamento); 1 AdminLog CURADORIA_APROVAR (fix round T4, item 4)', async () => {
+    const { serie } = await criarObra({ title: 'Concorrencia Aprovar 9' });
+    const caso = await abrirCasoGrave(serie);
+    const [r1, r2] = await Promise.all([
+      request(app).post(`/api/admin/curadoria/${caso._id}/aprovar`).set('Authorization', ADMIN()).send({}),
+      request(app).post(`/api/admin/curadoria/${caso._id}/aprovar`).set('Authorization', ADMIN()).send({}),
+    ]);
+    expect([r1.status, r2.status].sort()).toEqual([200, 409]);
+    expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(2);
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_APROVAR', targetId: String(serie._id) })).toBe(1);
   });
 
   it('aprovar com abuso:true -> só as válidas viram abuso; sem_consumo preservada', async () => {
@@ -156,7 +286,7 @@ describe('ações do curador', () => {
     expect((await CasoCuradoria.findById(caso._id).lean()).sinalizacoesAbusivas).toBe(true);
   });
 
-  it('reclassificar: rating fora do enum 400; válido grava content_rating, fecha, aviso com rótulo Teen', async () => {
+  it('reclassificar: rating fora do enum 400; válido grava content_rating, fecha, aviso com rótulo Teen; AdminLog sem identidades', async () => {
     const { serie } = await criarObra();
     const caso = await abrirCasoGrave(serie);
     expect((await request(app).post(`/api/admin/curadoria/${caso._id}/reclassificar`).set('Authorization', ADMIN()).send({ content_rating: '12+' })).status).toBe(400);
@@ -167,9 +297,29 @@ describe('ações do curador', () => {
     const aviso = await MensagemPortal.findOne({ refId: serie._id, texto: /classificação etária/ }).lean();
     expect(aviso.texto).toContain('Teen');
     expect(/\d/.test(aviso.texto.split(serie.title).join(''))).toBe(false);
+    const log = await AdminLog.findOne({ action: 'CURADORIA_RECLASSIFICAR', targetId: String(serie._id) }).lean();
+    expect(log.adminId).toBe(auth.getId('admin'));
+    expect(JSON.stringify(log.details)).not.toMatch(REGEX_DETAILS_VAZAMENTO);
   });
 
-  it('solicitar correção: texto obrigatório (400), caso -> aguardando_artista (continua aberto), obra CONTINUA publicada, mensagem com refId e texto do editor; depois aceita as 4 ações', async () => {
+  it('reclassificar: observacao não-string -> 400, caso continua aberto (fix round T4, item 3)', async () => {
+    const { serie } = await criarObra();
+    const caso = await abrirCasoGrave(serie);
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/reclassificar`).set('Authorization', ADMIN()).send({ content_rating: 'teen', observacao: 123 });
+    expect(r.status).toBe(400);
+    expect((await CasoCuradoria.findById(caso._id).lean()).status).toBe('aberto');
+  });
+
+  it('reclassificar em obra apagada -> 404, caso continua aberto sem 500 (fix round T4, item 10c)', async () => {
+    const { serie } = await criarObra();
+    const caso = await abrirCasoGrave(serie);
+    await Series.deleteOne({ _id: serie._id });
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/reclassificar`).set('Authorization', ADMIN()).send({ content_rating: 'teen' });
+    expect(r.status).toBe(404);
+    expect((await CasoCuradoria.findById(caso._id).lean()).status).toBe('aberto');
+  });
+
+  it('solicitar correção: texto obrigatório (400), caso -> aguardando_artista (continua aberto), obra CONTINUA publicada, mensagem com refId e texto do editor, AdminLog sem identidades; depois aceita as 4 ações', async () => {
     const { serie } = await criarObra();
     const caso = await abrirCasoGrave(serie);
     expect((await request(app).post(`/api/admin/curadoria/${caso._id}/solicitar-correcao`).set('Authorization', ADMIN()).send({})).status).toBe(400);
@@ -180,6 +330,9 @@ describe('ações do curador', () => {
     expect((await Series.findById(serie._id).lean()).isPublished).toBe(true);
     const msg = await MensagemPortal.findOne({ refId: serie._id, texto: /Troque a capa/ }).lean();
     expect(msg.texto).toMatch(/editor/);
+    const log = await AdminLog.findOne({ action: 'CURADORIA_SOLICITAR_CORRECAO', targetId: String(serie._id) }).lean();
+    expect(log.adminId).toBe(auth.getId('admin'));
+    expect(JSON.stringify(log.details)).not.toMatch(REGEX_DETAILS_VAZAMENTO);
     // escalonamento/ações continuam válidas em aguardando_artista
     const r2 = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'Sem resposta.' });
     expect(r2.status).toBe(200);
@@ -193,7 +346,36 @@ describe('ações do curador', () => {
     expect((await CasoCuradoria.findById(caso._id).lean()).status).toBe('aberto');
   });
 
-  it('remover: motivo obrigatório; despublica (NÃO apaga: episódios/favoritos intactos), fecha, aviso com motivo, AdminLog; obra já despublicada -> fecha mesmo assim', async () => {
+  it('solicitar correção: falha ao enviar a mensagem (MensagemPortal.create rejeita) -> 500, caso continua aberto (fix round T4, item 2)', async () => {
+    const { serie } = await criarObra();
+    const caso = await abrirCasoGrave(serie);
+    const spy = vi.spyOn(MensagemPortal, 'create').mockRejectedValueOnce(new Error('boom'));
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/solicitar-correcao`).set('Authorization', ADMIN()).send({ texto: 'Ajuste algo.' });
+    spy.mockRestore();
+    expect(r.status).toBe(500);
+    expect((await CasoCuradoria.findById(caso._id).lean()).status).toBe('aberto');
+  });
+
+  it('fecharCaso grava motivoDecisao SEMPRE (fix round T4, item 5): solicitar correção deixa motivoDecisao, aprovar depois limpa para null', async () => {
+    const { serie } = await criarObra();
+    const caso = await abrirCasoGrave(serie);
+    await request(app).post(`/api/admin/curadoria/${caso._id}/solicitar-correcao`).set('Authorization', ADMIN()).send({ texto: 'Ajuste a capa.' });
+    expect((await CasoCuradoria.findById(caso._id).lean()).motivoDecisao).toBe('Ajuste a capa.');
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/aprovar`).set('Authorization', ADMIN()).send({});
+    expect(r.status).toBe(200);
+    expect(r.body.caso.motivoDecisao).toBeNull();
+    expect((await CasoCuradoria.findById(caso._id).lean()).motivoDecisao).toBeNull();
+  });
+
+  it('PUT /portal/series/:id do dono continua 403 após solicitar correção (obra publicada não é editável ao vivo) (fix round T4, item 10f)', async () => {
+    const { serie, donoToken } = await criarObraComDonoLogavel();
+    const caso = await abrirCasoGrave(serie);
+    await request(app).post(`/api/admin/curadoria/${caso._id}/solicitar-correcao`).set('Authorization', ADMIN()).send({ texto: 'Ajuste algo.' });
+    const r = await request(app).put(`/api/portal/series/${serie._id}`).set('Authorization', donoToken).send({ title: 'Tentando editar' });
+    expect(r.status).toBe(403);
+  });
+
+  it('remover: motivo obrigatório; despublica (NÃO apaga: episódios/favoritos intactos), fecha, aviso com motivo, AdminLog sem identidades; obra já despublicada -> fecha mesmo assim', async () => {
     const { serie } = await criarObra();
     await Favorite.create({ userId: auth.getId('premium'), seriesId: serie._id });
     const caso = await abrirCasoGrave(serie);
@@ -205,12 +387,46 @@ describe('ações do curador', () => {
     expect(await Episode.countDocuments({ seriesId: serie._id })).toBe(1);
     expect(await Favorite.countDocuments({ seriesId: serie._id })).toBe(1);
     expect((await MensagemPortal.findOne({ refId: serie._id, texto: /retirada do ar/ }).lean()).texto).toContain('Conteúdo proibido confirmado.');
-    expect(await AdminLog.countDocuments({ action: 'CURADORIA_REMOVER', targetId: String(serie._id) })).toBe(1);
+    const log = await AdminLog.findOne({ action: 'CURADORIA_REMOVER', targetId: String(serie._id) }).lean();
+    expect(log).toBeTruthy();
+    expect(JSON.stringify(log.details)).not.toMatch(REGEX_DETAILS_VAZAMENTO);
 
     const { serie: s2 } = await criarObra();
     const c2 = await abrirCasoGrave(s2);
     await Series.updateOne({ _id: s2._id }, { $set: { isPublished: false } });
     expect((await request(app).post(`/api/admin/curadoria/${c2._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'x' })).status).toBe(200);
+  });
+
+  it('remover limpa submittedAt (mesmo que a série publicada ainda o tivesse preenchido) e a obra NÃO entra na Fila de Aprovação até reenvio (fix round T4, item 1)', async () => {
+    const { serie } = await criarObra({ title: 'Submetida Publicada 6' });
+    // simula uma obra publicada que ainda carrega submittedAt (fluxo herdado do B1)
+    await Series.updateOne({ _id: serie._id }, { $set: { submittedAt: new Date('2026-08-01T00:00:00Z') } });
+    const caso = await abrirCasoGrave(serie);
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'Cópia confirmada.' });
+    expect(r.status).toBe(200);
+    const s = await Series.findById(serie._id).lean();
+    expect(s.isPublished).toBe(false);
+    expect(s.submittedAt).toBeNull();
+    const fila = await request(app).get('/api/admin/aprovacoes').set('Authorization', ADMIN());
+    expect(fila.body.itens.some(i => i.tipo === 'series' && i.id === String(serie._id))).toBe(false);
+  });
+
+  it('remover: observacao não-string -> 400, nada muda (fix round T4, item 3)', async () => {
+    const { serie } = await criarObra();
+    const caso = await abrirCasoGrave(serie);
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'x', observacao: ['a'] });
+    expect(r.status).toBe(400);
+    expect((await CasoCuradoria.findById(caso._id).lean()).status).toBe('aberto');
+    expect((await Series.findById(serie._id).lean()).isPublished).toBe(true);
+  });
+
+  it('remover em obra apagada -> 404, caso continua aberto sem 500 (fix round T4, item 10c)', async () => {
+    const { serie } = await criarObra();
+    const caso = await abrirCasoGrave(serie);
+    await Series.deleteOne({ _id: serie._id });
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'x' });
+    expect(r.status).toBe(404);
+    expect((await CasoCuradoria.findById(caso._id).lean()).status).toBe('aberto');
   });
 });
 

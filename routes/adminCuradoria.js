@@ -46,8 +46,14 @@ router.get('/curadoria', async (req, res) => {
     const historico = req.query.status === 'fechado';
     if (!historico) {
       // Gatilho de maturação (spec rev.3): o Master abrir a fila reconta as
-      // contas que completaram a idade mínima.
-      await svc.reavaliarPendentes();
+      // contas que completaram a idade mínima. Fix round T4 (item 6): um
+      // erro aqui (ex. Sinalizacao.distinct fora do ar) não pode derrubar a
+      // fila inteira — a listagem em si não depende do resultado.
+      try {
+        await svc.reavaliarPendentes();
+      } catch (err) {
+        logger.error('[AdminCuradoria] reavaliarPendentes falhou ao abrir a fila', err && err.message);
+      }
     }
     const casos = await CasoCuradoria.find({ emAberto: !historico })
       .sort(historico ? { decisaoEm: -1 } : { abertoEm: 1 })
@@ -127,6 +133,20 @@ function textoAdmin(valor, campo) {
   return { texto: t };
 }
 
+// `observacao` é OPCIONAL e interna (nunca vai ao artista — fecharCaso grava
+// em CasoCuradoria.observacao). Fix round T4 (item 3): antes o valor era
+// coagido com String(...).slice(0, 2000) — um objeto/array virava
+// "[object Object]" salvo silenciosamente, igual ao bug já corrigido para
+// `descricao` em routes/sinalizacao.js (fix round T3, item 6). Aqui o campo é
+// 400 explícito, não truncamento silencioso.
+function observacaoDe(req) {
+  const v = req.body.observacao;
+  if (v === undefined || v === null) return { observacao: null };
+  if (typeof v !== 'string') return { error: 'observacao deve ser texto.' };
+  if (v.length > 2000) return { error: 'observacao deve ter no máximo 2000 caracteres.' };
+  return { observacao: v };
+}
+
 async function avisar(series, texto, adminId) {
   if (!series) return { status: 'sem_canal', mensagemId: null };
   try {
@@ -151,11 +171,12 @@ function tratarErro(err, res, rota) {
 
 router.post('/curadoria/:casoId/aprovar', async (req, res) => {
   try {
+    const obs = observacaoDe(req);
+    if (obs.error) return res.status(400).json({ error: obs.error });
     const caso = await carregarCasoAberto(req, res);
     if (!caso) return;
     const abuso = req.body.abuso === true;
-    const observacao = req.body.observacao ? String(req.body.observacao).slice(0, 2000) : null;
-    await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: req.user.id, observacao, abuso });
+    await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: req.user.id, observacao: obs.observacao, abuso });
     const series = await Series.findById(caso.seriesId).select('title channelId').lean();
     const aviso = await avisar(series, series ? svc.TEXTOS.aprovar(series.title) : '', req.user.id);
     await logAdmin(req, 'CURADORIA_APROVAR', caso, { abuso, avisoArtista: aviso.status });
@@ -169,12 +190,13 @@ router.post('/curadoria/:casoId/reclassificar', async (req, res) => {
     if (!RATINGS.includes(content_rating)) {
       return res.status(400).json({ error: 'content_rating deve ser kids, teen ou young.' });
     }
+    const obs = observacaoDe(req);
+    if (obs.error) return res.status(400).json({ error: obs.error });
     const caso = await carregarCasoAberto(req, res);
     if (!caso) return;
     const { applySeriesUpdate } = require('../services/seriesPublishService');
     await applySeriesUpdate(caso.seriesId, { content_rating });
-    const observacao = req.body.observacao ? String(req.body.observacao).slice(0, 2000) : null;
-    await svc.fecharCaso(caso, { decisao: 'reclassificar', adminId: req.user.id, observacao, motivoDecisao: content_rating });
+    await svc.fecharCaso(caso, { decisao: 'reclassificar', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: content_rating });
     const series = await Series.findById(caso.seriesId).select('title channelId').lean();
     const aviso = await avisar(series, series ? svc.TEXTOS.reclassificar(series.title, svc.ROTULO_RATING[content_rating]) : '', req.user.id);
     await logAdmin(req, 'CURADORIA_RECLASSIFICAR', caso, { content_rating, avisoArtista: aviso.status });
@@ -189,8 +211,14 @@ router.post('/curadoria/:casoId/solicitar-correcao', async (req, res) => {
     const caso = await carregarCasoAberto(req, res);
     if (!caso) return;
     const series = await Series.findById(caso.seriesId).select('title channelId').lean();
-    // Sem canal não há artista para pedir a correção — nada muda no caso.
     const aviso = await avisar(series, series ? svc.TEXTOS.solicitarCorrecao(series.title, t.texto) : '', req.user.id);
+    // Fix round T4 (item 2): 'sem_canal' é entrada inválida do curador (não
+    // há artista para pedir a correção — nada muda no caso, use outra ação).
+    // 'falhou' é uma falha NOSSA (MensagemPortal.create caiu) — 500, não 400;
+    // antes as duas caíam no mesmo `!== 'enviado'` e escondiam a diferença.
+    if (aviso.status === 'falhou') {
+      return res.status(500).json({ error: 'Não foi possível enviar a mensagem ao artista.' });
+    }
     if (aviso.status !== 'enviado') {
       return res.status(400).json({ error: 'Obra sem canal: não há artista para avisar. Use aprovar, reclassificar ou remover.' });
     }
@@ -206,15 +234,20 @@ router.post('/curadoria/:casoId/remover', async (req, res) => {
   try {
     const t = textoAdmin(req.body.motivo, 'motivo');
     if (t.error) return res.status(400).json({ error: t.error });
+    const obs = observacaoDe(req);
+    if (obs.error) return res.status(400).json({ error: obs.error });
     const caso = await carregarCasoAberto(req, res);
     if (!caso) return;
     // DESPUBLICAR, nunca DELETE (regra 1): episódios, favoritos e votos de
     // terceiros ficam; o artista pode corrigir e reenviar. Obra já
     // despublicada por fora -> no-op do update, o caso fecha normalmente.
+    // Fix round T4 (item 1): submittedAt:null junto — uma obra publicada
+    // pelo PUT genérico do admin pode ainda ter submittedAt preenchido; sem
+    // limpar aqui ela cairia direto em GET /aprovacoes (filtro
+    // submittedAt!=null && !isPublished) antes do artista sequer reenviar.
     const { applySeriesUpdate } = require('../services/seriesPublishService');
-    await applySeriesUpdate(caso.seriesId, { isPublished: false });
-    const observacao = req.body.observacao ? String(req.body.observacao).slice(0, 2000) : null;
-    await svc.fecharCaso(caso, { decisao: 'remover', adminId: req.user.id, observacao, motivoDecisao: t.texto });
+    await applySeriesUpdate(caso.seriesId, { isPublished: false, submittedAt: null });
+    await svc.fecharCaso(caso, { decisao: 'remover', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: t.texto });
     const series = await Series.findById(caso.seriesId).select('title channelId').lean();
     const aviso = await avisar(series, series ? svc.TEXTOS.remover(series.title, t.texto) : '', req.user.id);
     await logAdmin(req, 'CURADORIA_REMOVER', caso, { motivo: t.texto, avisoArtista: aviso.status });

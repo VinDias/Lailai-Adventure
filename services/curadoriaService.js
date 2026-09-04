@@ -268,9 +268,23 @@ function pararReavaliacaoPeriodica() {
  * Fecha o ciclo: TODAS as pendentes da obra ganham revisadaEm (S zera);
  * `abuso` marca só as que eram válidas (as 'sem_consumo' mantêm o motivo).
  * `motivoDecisao` é o texto que VAI ao artista; `observacao` é interna.
+ *
+ * Fix round T4 (item 4): LOCK OTIMISTA antes de tocar qualquer coisa. Dois
+ * curadores agindo no mesmo caso ao mesmo tempo (ex. 2 abas abertas) sem
+ * isto gravariam 2 avisos ao artista e 2 AdminLogs — o `updateOne` com o
+ * filtro `emAberto:true` é ATÔMICO no MongoDB (documento único): só quem
+ * "ganha" a corrida encontra `modifiedCount:1` e segue; o perdedor lança 409
+ * ANTES de mexer em Sinalizacao (senão as sinalizações já revisadas pelo
+ * vencedor seriam regravadas com um `agora` diferente). `tratarErro` das
+ * rotas admin já mapeia `err.status` para a resposta HTTP.
  */
 async function fecharCaso(caso, { decisao, adminId, observacao = null, motivoDecisao = null, abuso = false, agora = new Date() }) {
   const Sinalizacao = require('../models/Sinalizacao');
+  const CasoCuradoria = require('../models/CasoCuradoria');
+  const claim = await CasoCuradoria.updateOne({ _id: caso._id, emAberto: true }, { $set: { emAberto: false } });
+  if (claim.modifiedCount === 0) {
+    throw Object.assign(new Error('Caso já fechado.'), { status: 409 });
+  }
   if (abuso) {
     await Sinalizacao.updateMany({ seriesId: caso.seriesId, revisadaEm: null, valida: true }, { $set: { valida: false, invalidaMotivo: 'abuso' } });
   }
@@ -281,7 +295,11 @@ async function fecharCaso(caso, { decisao, adminId, observacao = null, motivoDec
   caso.decididoPor = String(adminId);
   caso.decisaoEm = agora;
   caso.observacao = observacao;
-  if (motivoDecisao !== null) caso.motivoDecisao = motivoDecisao;
+  // Fix round T4 (item 5): grava SEMPRE, inclusive null — um "solicitar
+  // correção" anterior deixava motivoDecisao preenchido; sem sobrescrever
+  // aqui, um fechamento por "aprovar" logo depois herdaria esse texto e o
+  // histórico mostraria um "motivo" numa aprovação que não teve motivo.
+  caso.motivoDecisao = motivoDecisao;
   caso.sinalizacoesAbusivas = !!abuso;
   await caso.save();
   return caso;

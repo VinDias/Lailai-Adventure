@@ -379,4 +379,21 @@ describe('fecharCaso + TEXTOS', () => {
     const relido = await CasoCuradoria.findById(caso._id).lean();
     expect(relido).toMatchObject({ decisao: 'remover', motivoDecisao: 'Cópia.', observacao: 'interna', sinalizacoesAbusivas: false, emAberto: false });
   });
+
+  it('fix round T4 (item 4): lock otimista — fecharCaso 2x no mesmo caso: a 2ª rejeita 409 e NÃO regrava revisadaEm', async () => {
+    const { serie } = await criarObra();
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: auth.getId('admin'), agora: AGORA });
+    const revisadaEmDoFechamento = (await Sinalizacao.findOne({ seriesId: serie._id }).lean()).revisadaEm;
+    expect(revisadaEmDoFechamento).toEqual(AGORA);
+
+    const maisTarde = new Date(AGORA.getTime() + 60 * 60 * 1000);
+    await expect(svc.fecharCaso(caso, { decisao: 'aprovar', adminId: auth.getId('admin'), agora: maisTarde }))
+      .rejects.toMatchObject({ status: 409 });
+    // Nenhuma sinalização foi regravada com o `agora` da 2ª chamada — o claim
+    // falhou ANTES do updateMany de revisadaEm.
+    expect(await Sinalizacao.countDocuments({ seriesId: serie._id, revisadaEm: maisTarde })).toBe(0);
+    expect(await Sinalizacao.countDocuments({ seriesId: serie._id, revisadaEm: AGORA })).toBe(5);
+  });
 });
