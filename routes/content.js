@@ -13,6 +13,7 @@ const pick = require('../utils/pick');
 const { podeVerRascunho } = require('../utils/ownership');
 const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
 const { addPanels } = require('../services/episodePanelService');
+const { responderCastError } = require('../utils/routeErrors');
 
 // content_rating (Fase 5 Bloco 2, Task 6): só o Master define — admin form
 // (POST/PUT abaixo) e a Fila de Aprovação (routes/adminPortal.js, aprovar
@@ -184,6 +185,11 @@ router.get('/series/:id', optionalAuth, async (req, res) => {
 
     res.json(series);
   } catch (err) {
+    // Fix round (Fase 5 Bloco 2, Task 8): id malformado (CastError no `_id`
+    // do próprio findById) caía no catch genérico e virava 500 — pra
+    // anônimo E logado, a rota é optionalAuth. Mesmo shape de "não
+    // encontrada" que o id válido-mas-inexistente já usa acima.
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
     logger.error('[Content] GET /series/:id', err);
     res.status(500).json({ error: 'Erro ao buscar série.' });
   }
@@ -375,6 +381,12 @@ router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
       .lean();
     res.json(episodes);
   } catch (err) {
+    // Fix round (Fase 5 Bloco 2, Task 8): id malformado (CastError no `_id`
+    // do findById acima) caía no catch genérico e virava 500 — pra anônimo E
+    // logado (optionalAuth). Nota: id válido-mas-inexistente continua `[]`
+    // com 200 (contrato antigo preservado, ver acima) — só o id GENUINAMENTE
+    // malformado vira 404 aqui.
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
     logger.error('[Content] GET /series/:id/episodes', err);
     res.status(500).json({ error: 'Erro ao buscar episódios.' });
   }
@@ -453,6 +465,10 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
 
     res.json(episode);
   } catch (err) {
+    // Fix round (Fase 5 Bloco 2, Task 8): id malformado (CastError no `_id`
+    // do findById acima) caía no catch genérico e virava 500 — pra anônimo E
+    // logado (optionalAuth).
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
     logger.error('[Content] GET /episodes/:id', err);
     res.status(500).json({ error: 'Erro ao buscar episódio.' });
   }
@@ -500,6 +516,12 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
 
     res.status(201).json(episode);
   } catch (err) {
+    // Fix round (Fase 5 Bloco 2, Task 8): episode_number não-numérico (ex.
+    // 'abc') faz o Episode.exists({seriesId, episode_number}) acima lançar
+    // CastError com path 'episode_number' (não '_id') — responderCastError
+    // já distingue: 400 legível aqui, nunca 404 (não há id malformado nesta
+    // rota — não recebe :id).
+    if (responderCastError(err, res, 'Série ou episódio não encontrado.')) return;
     logger.error('[Content] POST /episodes', err);
     res.status(500).json({ error: 'Erro ao criar episódio.' });
   }

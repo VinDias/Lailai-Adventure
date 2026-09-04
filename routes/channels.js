@@ -88,6 +88,16 @@ router.post('/', verifyToken, requireAdmin, async (req, res) => {
     logger.info(`[Channel] Criado: ${name} por userId ${req.user.id}`);
     res.status(201).json(channel);
   } catch (err) {
+    // Fix round (Fase 5 Bloco 2, Task 8): campo tipado recebendo um valor
+    // não-castável (ex.: name como array) faz Channel.create() rodar a
+    // validação completa do documento e lançar ValidationError (com um
+    // CastError ANINHADO em err.errors.<campo>) — diferente do CastError
+    // TOPO DE PILHA que findByIdAndUpdate({runValidators:true}) lança (esse
+    // sim tratado por responderCastError, ver PUT /:id abaixo). Sem isto,
+    // caía no catch genérico e virava 500 em vez de 400.
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
+    }
     logger.error('[Channels] POST /', err);
     res.status(500).json({ error: 'Erro ao criar canal.' });
   }
@@ -139,6 +149,15 @@ router.put('/:id', verifyToken, async (req, res) => {
     res.json(semFollowers);
   } catch (err) {
     if (responderCastError(err, res, 'Canal não encontrado.')) return;
+    // Fix round (Fase 5 Bloco 2, Task 8): `channel.save()` valida o
+    // documento inteiro — name/description/avatar/banner recebendo um valor
+    // não-castável (ex.: array) lança ValidationError (CastError aninhado em
+    // err.errors.<campo>), NUNCA um CastError no topo (esse já foi tratado
+    // acima, para o `:id` da própria rota malformado). Mesmo padrão de
+    // routes/content.js POST /series.
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
+    }
     logger.error('[Channels] PUT /:id', err);
     res.status(500).json({ error: 'Erro ao atualizar canal.' });
   }

@@ -534,6 +534,58 @@ describe('POST /api/content/episodes — episode_number duplicado (admin)', () =
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Fix round da T8 (Fase 5 Bloco 2) — o revisor achou que a divida "CastError
+// -> 500" tinha sido fechada só PARCIALMENTE: estas 3 rotas de content.js
+// (todas optionalAuth, anonimo E logado passam pelo MESMO catch) e o POST
+// /episodes admin (episode_number malformado) ainda davam 500. Fechado com
+// utils/routeErrors.js::responderCastError, mesmo padrao das rotas de canal/
+// portal/adminPortal.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Higiene do Bloco 1 (fix round T8): CastError (id malformado) → 404 em content.js', () => {
+  const ID_MALFORMADO = 'id-nao-e-um-objectid';
+
+  it('GET /api/content/series/:id — anônimo e logado', async () => {
+    const anonimo = await request(app).get(`/api/content/series/${ID_MALFORMADO}`);
+    expect(anonimo.status).toBe(404);
+
+    const logado = await request(app)
+      .get(`/api/content/series/${ID_MALFORMADO}`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(logado.status).toBe(404);
+  });
+
+  it('GET /api/content/series/:id/episodes — anônimo e logado', async () => {
+    const anonimo = await request(app).get(`/api/content/series/${ID_MALFORMADO}/episodes`);
+    expect(anonimo.status).toBe(404);
+
+    const logado = await request(app)
+      .get(`/api/content/series/${ID_MALFORMADO}/episodes`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(logado.status).toBe(404);
+  });
+
+  it('GET /api/content/episodes/:id — anônimo e logado', async () => {
+    const anonimo = await request(app).get(`/api/content/episodes/${ID_MALFORMADO}`);
+    expect(anonimo.status).toBe(404);
+
+    const logado = await request(app)
+      .get(`/api/content/episodes/${ID_MALFORMADO}`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(logado.status).toBe(404);
+  });
+
+  it('POST /api/content/episodes — episode_number malformado (CastError em campo diferente de _id) → 400, não 500', async () => {
+    const res = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId, episode_number: 'abc', title: 'Ep Numero Malformado' });
+    expect(res.status).toBe(400);
+    expect(res.status).not.toBe(500);
+  });
+});
+
 describe('DELETE /api/content/episodes/:id', () => {
   it('admin remove episódio e ele some da listagem', async () => {
     const create = await request(app)

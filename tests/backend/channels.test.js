@@ -46,6 +46,20 @@ describe('POST /api/channels', () => {
     expect(res.status).toBe(201);
     expect(res.body.name).toBe('Canal Criado Pelo Admin');
   });
+
+  // Fix round da T8 — achado do revisor: name como ARRAY faz o Mongoose
+  // lançar ValidationError (não CastError) na criação — Channel.create()
+  // roda validação completa ANTES de salvar (diferente do cast síncrono de
+  // findByIdAndUpdate). Sem tratamento de ValidationError, caía no catch
+  // genérico e virava 500.
+  it('name como ARRAY (ValidationError, não CastError) -> 400, não 500', async () => {
+    const res = await request(app)
+      .post('/api/channels')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ name: ['a', 'b'] });
+    expect(res.status).toBe(400);
+    expect(res.status).not.toBe(500);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -154,6 +168,24 @@ describe('PUT /api/channels/:id', () => {
 
     const inalterado = await Channel.findById(canalDeOutro._id).lean();
     expect(inalterado.description).not.toBe('Tentando editar canal alheio');
+  });
+
+  // Fix round da T8 — achado do revisor: name como ARRAY faz channel.save()
+  // lançar ValidationError (não CastError) — validação completa do documento
+  // roda no save(), diferente do cast síncrono de findByIdAndUpdate (que é
+  // o caminho que produz CastError puro em routes/adminPortal.js). Sem
+  // tratamento de ValidationError aqui, caía no catch genérico e virava 500.
+  it('name como ARRAY (ValidationError, não CastError) -> 400, não 500', async () => {
+    const canal = await criarCanal('user', 'Canal Validation Error');
+    const res = await request(app)
+      .put(`/api/channels/${canal._id}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ name: ['a', 'b'] });
+    expect(res.status).toBe(400);
+    expect(res.status).not.toBe(500);
+
+    const inalterado = await Channel.findById(canal._id).lean();
+    expect(inalterado.name).toBe('Canal Validation Error');
   });
 });
 
