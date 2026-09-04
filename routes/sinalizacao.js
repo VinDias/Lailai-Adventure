@@ -44,7 +44,13 @@ router.post('/series/:id/sinalizar', verifyToken, sinalizacaoLimiter, async (req
     if (!L.MOTIVOS.includes(motivo)) {
       return res.status(400).json({ error: 'motivo inválido.' });
     }
-    const descricao = req.body.descricao === undefined || req.body.descricao === null ? null : String(req.body.descricao).trim() || null;
+    // Fix round T3 (item 6): descricao não-string (objeto/array/número) NÃO
+    // é coagida por String() — isso transformava `{a:1}` em "[object Object]"
+    // e passava a checagem de tamanho como se fosse texto legítimo.
+    if (req.body.descricao !== undefined && req.body.descricao !== null && typeof req.body.descricao !== 'string') {
+      return res.status(400).json({ error: 'descricao deve ser texto.' });
+    }
+    const descricao = req.body.descricao === undefined || req.body.descricao === null ? null : req.body.descricao.trim() || null;
     if (descricao && descricao.length > L.DESCRICAO_MAX) {
       return res.status(400).json({ error: `descricao deve ter no máximo ${L.DESCRICAO_MAX} caracteres.` });
     }
@@ -94,10 +100,25 @@ router.post('/series/:id/sinalizar', verifyToken, sinalizacaoLimiter, async (req
     }
 
     res.status(201).json({ jaSinalizada: false });
-    if (valida) curadoriaService.dispararAvaliacao(series._id);
+    if (valida) {
+      // Fix round T3 (item 7): um throw SÍNCRONO aqui (hoje impossível —
+      // dispararAvaliacao só devolve uma promise) não pode virar res.status
+      // depois do 201 já enviado (headers already sent derrubaria o
+      // processo). A rejeição da PROMISE já é absorvida dentro da própria
+      // função (curadoriaService.js, .catch em logger.error) — este
+      // try/catch protege só a chamada síncrona.
+      try {
+        curadoriaService.dispararAvaliacao(series._id);
+      } catch (err) {
+        logger.error('[Sinalizacao] disparo da avaliação falhou', err && err.message);
+      }
+    }
   } catch (err) {
     if (responderCastError(err, res, NAO_ENCONTRADA)) return;
-    if (err.name === 'ValidationError') return res.status(400).json({ error: err.message });
+    // Fix round T3 (item 8): mensagem FIXA em vez de err.message cru do
+    // Mongoose — hoje inatingível (motivo/descricao já validados acima),
+    // mas defesa contra um erro interno do Mongoose vazar detalhe de schema.
+    if (err.name === 'ValidationError') return res.status(400).json({ error: 'Sinalização inválida.' });
     logger.error('[Sinalizacao] POST /series/:id/sinalizar', err);
     res.status(500).json({ error: 'Erro ao registrar sinalização.' });
   }

@@ -113,10 +113,18 @@ describe('POST /api/content/series/:id/sinalizar', () => {
     await svc.flushForTests();
   });
 
-  it('validação do body: motivo fora do enum (inclusive violencia_excessiva) 400; outro sem descrição 400; descrição > 500 400', async () => {
+  it('validação do body: motivo fora do enum (inclusive violencia_excessiva) 400; outro sem descrição 400; descrição > 500 400; descrição não-string 400', async () => {
     const { serie } = await criarObra();
     const leitor = await criarLeitor();
-    for (const body of [{ motivo: 'violencia_excessiva' }, { motivo: 'x' }, {}, { motivo: 'outro' }, { motivo: 'outro', descricao: '   ' }, { motivo: 'spam_ou_enganoso', descricao: 'a'.repeat(501) }]) {
+    for (const body of [
+      { motivo: 'violencia_excessiva' }, { motivo: 'x' }, {}, { motivo: 'outro' }, { motivo: 'outro', descricao: '   ' },
+      { motivo: 'spam_ou_enganoso', descricao: 'a'.repeat(501) },
+      // Fix round T3 (item 6): descricao não-string coagida por String() virava
+      // "[object Object]" e passava a validação de tamanho — 400 explícito.
+      { motivo: 'spam_ou_enganoso', descricao: { a: 1 } },
+      { motivo: 'spam_ou_enganoso', descricao: ['a'] },
+      { motivo: 'spam_ou_enganoso', descricao: 12 },
+    ]) {
       const r = await request(app).post(`/api/content/series/${serie._id}/sinalizar`).set('Authorization', leitor.token).send(body);
       expect(r.status, JSON.stringify(body)).toBe(400);
     }
@@ -174,7 +182,14 @@ describe('POST /api/content/series/:id/sinalizar', () => {
     await svc.flushForTests();
   });
 
-  it('sinalização VÁLIDA dispara a avaliação; inválida NÃO; falha na avaliação não afeta o 201', async () => {
+  // Fix round T3 (item 5): o teste original chamava-se "falha na avaliação não
+  // afeta o 201" mas o mock (`Promise.reject(...).catch(() => null)`) já
+  // resolve ANTES de chegar ao spy — nunca exercitou uma rejeição de verdade.
+  // A garantia de absorção de erro de dispararAvaliacao já é do
+  // curadoriaService.test.js ("dispararAvaliacao absorve o erro"); aqui só
+  // provamos QUANDO a rota dispara (só sinalização válida) e QUE dispara
+  // depois do 201 já resolvido (fire-and-forget).
+  it('sinalização VÁLIDA dispara a avaliação (fire-and-forget, após o 201); inválida NÃO dispara', async () => {
     const { serie, ep } = await criarObra();
     const spy = vi.spyOn(svc, 'dispararAvaliacao');
     const semConsumo = await criarLeitor();
@@ -183,12 +198,80 @@ describe('POST /api/content/series/:id/sinalizar', () => {
 
     const comConsumo = await criarLeitor();
     await consumir(comConsumo.token, ep);
-    spy.mockImplementationOnce(() => Promise.reject(new Error('boom')).catch(() => null));
+    spy.mockImplementationOnce(() => Promise.resolve(null));
     const r = await request(app).post(`/api/content/series/${serie._id}/sinalizar`).set('Authorization', comConsumo.token).send({ motivo: 'spam_ou_enganoso' });
     expect(r.status).toBe(201);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(String(spy.mock.calls[0][0])).toBe(String(serie._id));
+    // item 3(d) do fix round: os 2 leitores (semConsumo inválida + comConsumo
+    // válida) gravaram, cada um, o próprio documento.
+    expect(await Sinalizacao.countDocuments({ seriesId: serie._id })).toBe(2);
     spy.mockRestore();
+  });
+
+  // Fix round T3 (item 2, MÉDIO): 2 requisições do MESMO leitor em paralelo —
+  // ambas podem passar pelo `findOne` de idempotência antes de qualquer uma
+  // escrever (corrida real, não simulada). O índice único {userId,seriesId}
+  // do banco decide: uma cria (201), a outra esbarra em E11000 e o catch da
+  // rota devolve 200 jaSinalizada — nunca 500, nunca 2 documentos.
+  it('corrida real (Promise.all) do mesmo leitor -> [200,201] ordenados, 1 único documento', async () => {
+    const { serie, ep } = await criarObra();
+    const leitor = await criarLeitor();
+    await consumir(leitor.token, ep);
+    const enviar = () => request(app).post(`/api/content/series/${serie._id}/sinalizar`).set('Authorization', leitor.token).send({ motivo: 'spam_ou_enganoso' });
+    const [a, b] = await Promise.all([enviar(), enviar()]);
+    expect([a.status, b.status].sort((x, y) => x - y)).toEqual([200, 201]);
+    expect(await Sinalizacao.countDocuments({ seriesId: serie._id, userId: leitor.id })).toBe(1);
+    await svc.flushForTests();
+  });
+
+  // Fix round T3 (item 3a): obra criada sem canal (channelId ausente) — o
+  // check de "propria_obra" (que depende de Channel.findById) é pulado; a
+  // sinalização segue normal. avaliarObra tratando "sem canal" já é do
+  // curadoriaService.test.js — aqui só a ROTA do leitor.
+  it('obra sem canal (channelId ausente) -> 201 normal, doc gravado', async () => {
+    const { serie, ep } = await criarObra({ channelId: undefined });
+    expect(serie.channelId).toBeFalsy();
+    const leitor = await criarLeitor();
+    await consumir(leitor.token, ep);
+    const r = await request(app).post(`/api/content/series/${serie._id}/sinalizar`).set('Authorization', leitor.token).send({ motivo: 'spam_ou_enganoso' });
+    expect(r.status).toBe(201);
+    expect(await Sinalizacao.countDocuments({ seriesId: serie._id, userId: leitor.id })).toBe(1);
+    await svc.flushForTests();
+  });
+
+  // Fix round T3 (item 3b): unique é {userId, seriesId} — dois leitores
+  // DIFERENTES na MESMA obra não colidem; cada um grava o próprio documento.
+  it('2 leitores diferentes sinalizando a mesma obra -> 2 documentos', async () => {
+    const { serie, ep } = await criarObra();
+    const leitor1 = await criarLeitor();
+    const leitor2 = await criarLeitor();
+    await consumir(leitor1.token, ep);
+    await consumir(leitor2.token, ep);
+    const r1 = await request(app).post(`/api/content/series/${serie._id}/sinalizar`).set('Authorization', leitor1.token).send({ motivo: 'spam_ou_enganoso' });
+    const r2 = await request(app).post(`/api/content/series/${serie._id}/sinalizar`).set('Authorization', leitor2.token).send({ motivo: 'discurso_de_odio' });
+    expect(r1.status).toBe(201);
+    expect(r2.status).toBe(201);
+    expect(await Sinalizacao.countDocuments({ seriesId: serie._id })).toBe(2);
+    await svc.flushForTests();
+  });
+
+  // Fix round T3 (item 3c): letra da regra 5 (spec, "Modelo Sinalizacao") —
+  // uma conta sinaliza uma obra UMA vez PARA SEMPRE, mesmo depois de o caso
+  // ser revisado (revisadaEm marcado). O `findOne` de idempotência da rota
+  // não filtra por revisadaEm — é {userId, seriesId} puro.
+  it('2ª tentativa do mesmo leitor após revisadaEm (caso já revisado) -> ainda 200 jaSinalizada, 1 doc', async () => {
+    const { serie, ep } = await criarObra();
+    const leitor = await criarLeitor();
+    await consumir(leitor.token, ep);
+    const r1 = await request(app).post(`/api/content/series/${serie._id}/sinalizar`).set('Authorization', leitor.token).send({ motivo: 'spam_ou_enganoso' });
+    expect(r1.status).toBe(201);
+    await svc.flushForTests();
+    await Sinalizacao.updateOne({ userId: leitor.id, seriesId: serie._id }, { $set: { revisadaEm: new Date() } });
+    const r2 = await request(app).post(`/api/content/series/${serie._id}/sinalizar`).set('Authorization', leitor.token).send({ motivo: 'outro', descricao: 'nova tentativa' });
+    expect(r2.status).toBe(200);
+    expect(r2.body).toEqual({ jaSinalizada: true });
+    expect(await Sinalizacao.countDocuments({ seriesId: serie._id, userId: leitor.id })).toBe(1);
   });
 });
 
@@ -208,6 +291,33 @@ describe('GET /api/content/series/:id/sinalizacao', () => {
     const { serie: draft } = await criarObra({ isPublished: false });
     expect((await request(app).get(`/api/content/series/${draft._id}/sinalizacao`).set('Authorization', leitor.token)).status).toBe(404);
   });
+
+  // Fix round T3 (item 1, ALTO): o GET usa o MESMO helper serieSinalizavel
+  // do POST (Series.findById + isPublished + serieVisivelPara) — este bloco
+  // prova cada perna da composição isoladamente, não só via o rascunho do
+  // teste acima. Prova por mutação registrada no relatório do fix round
+  // (remoção temporária de serieVisivelPara em routes/sinalizacao.js fez
+  // este teste cair, depois restaurada).
+  it('obra invisível pelo filtro parental -> 404 sem gravar nada', async () => {
+    const { serie } = await criarObra({ content_rating: 'young', tags: ['terror'] });
+    const leitor = await criarLeitor();
+    await User.updateOne({ _id: leitor.id }, { $set: { 'parental.classificacaoEtaria': 'kids' } });
+    const r = await request(app).get(`/api/content/series/${serie._id}/sinalizacao`).set('Authorization', leitor.token);
+    expect(r.status).toBe(404);
+    expect(await Sinalizacao.countDocuments({ seriesId: serie._id })).toBe(0);
+  });
+
+  it('id inexistente -> 404', async () => {
+    const leitor = await criarLeitor();
+    const r = await request(app).get(`/api/content/series/${new mongoose.Types.ObjectId()}/sinalizacao`).set('Authorization', leitor.token);
+    expect(r.status).toBe(404);
+  });
+
+  it('id malformado -> 404', async () => {
+    const leitor = await criarLeitor();
+    const r = await request(app).get('/api/content/series/abc/sinalizacao').set('Authorization', leitor.token);
+    expect(r.status).toBe(404);
+  });
 });
 
 describe('shape público inalterado', () => {
@@ -221,5 +331,66 @@ describe('shape público inalterado', () => {
     for (const corpo of [JSON.stringify(doc.body), JSON.stringify(lista.body)]) {
       expect(corpo).not.toMatch(/sinalizac|casoId|gatilho|"S"|"V"|prioridade|curadoria/i);
     }
+  });
+});
+
+// Fix round T3 (item 4): middlewares/sinalizacaoLimiter.js é no-op quando
+// NODE_ENV==='test' (padrão do repo, molde accountLimiter.js) — o resto da
+// suíte roda inteira sem NUNCA exercitar o rate-limit de verdade. Este bloco
+// força NODE_ENV='development' e recarrega o módulo para testar o limiter
+// isolado, num app Express PRÓPRIO e minúsculo (via supertest) — caminho
+// escolhido em vez de um `res` fake porque express-rate-limit 7.5.1 usa APIs
+// internas (setHeader/getHeader/end) que um mock manual replicaria de forma
+// frágil; um app real via supertest é o contrato público da lib. O reload
+// usa require.cache diretamente, não vi.resetModules() — achado deste fix
+// round: este repo carrega tudo via require() (CJS) puro, e vi.resetModules()
+// gerencia o registro de módulos do PRÓPRIO vitest (import/ESM), não o
+// require.cache nativo do Node — com só vi.resetModules() o require()
+// abaixo devolvia o mesmo no-op já cacheado desde o beforeAll (NODE_ENV
+// ainda 'test' na hora em que server.js->routes/sinalizacao.js primeiro
+// carregou o módulo) e o teste sempre via 200. Roda por ÚLTIMO no arquivo e
+// restaura NODE_ENV/require.cache no afterAll para não vazar para as outras
+// describes deste arquivo nem para os próximos arquivos da suíte
+// (fileParallelism:false).
+describe('middlewares/sinalizacaoLimiter — 30 req/h por usuário (fora de NODE_ENV=test)', () => {
+  const NODE_ENV_ORIGINAL = process.env.NODE_ENV;
+
+  afterAll(() => {
+    process.env.NODE_ENV = NODE_ENV_ORIGINAL;
+    // Devolve o módulo ao estado no-op de teste para o resto da suíte
+    // (outros arquivos de teste também requerem sinalizacaoLimiter via
+    // routes/sinalizacao.js -> server.js).
+    delete require.cache[require.resolve('../../middlewares/sinalizacaoLimiter')];
+    require('../../middlewares/sinalizacaoLimiter');
+  });
+
+  it('31ª requisição do MESMO usuário na janela -> 429; outro usuário na mesma janela não é afetado', async () => {
+    // vi.resetModules() por si só NÃO reevalua módulos carregados via
+    // require() puro (CJS) neste repo — o cache que decide é o
+    // require.cache nativo do Node. sinalizacaoLimiter.js já tinha sido
+    // executado em NODE_ENV=test (via server.js no beforeAll) e ficou preso
+    // no ramo no-op; sem este delete explícito o teste mede o middleware
+    // ERRADO (sempre 200, achado do próprio fix round).
+    delete require.cache[require.resolve('../../middlewares/sinalizacaoLimiter')];
+    process.env.NODE_ENV = 'development';
+    const sinalizacaoLimiter = require('../../middlewares/sinalizacaoLimiter');
+    const express = require('express');
+
+    const appTeste = express();
+    // keyGenerator da lib usa req.user.id (routes/sinalizacao.js monta o
+    // limiter DEPOIS de verifyToken) — aqui simulamos só essa parte.
+    appTeste.use((req, res, next) => { req.user = { id: req.headers['x-user'] }; next(); });
+    appTeste.use(sinalizacaoLimiter);
+    appTeste.get('/ping', (req, res) => res.status(200).json({ ok: true }));
+
+    let statusFinalU1;
+    for (let i = 0; i < 31; i++) {
+      const r = await request(appTeste).get('/ping').set('x-user', 'u1');
+      statusFinalU1 = r.status;
+    }
+    expect(statusFinalU1).toBe(429);
+
+    const rOutro = await request(appTeste).get('/ping').set('x-user', 'u2');
+    expect(rOutro.status).toBe(200);
   });
 });
