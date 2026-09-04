@@ -124,6 +124,11 @@ Frontend: botão nos 3 feeds (guest disabled, logado abre modal, já sinalizada 
 - Reenvio após remover com a limitação real do B1 (C4); critério do teste "sem dígitos" (C5); agregados escopados ao ciclo e `abuso` só sobre `valida:true` (C11); "uma sinalização por obra para sempre" explícito + item 11 a comunicar (C12); contagem do painel corrigida para 42 (C13); teste positivo (não "re-pino de shape") em `/admin/aprovacoes` (C14).
 - Ambiguidades pinadas: `ateV` exclusivo e 30% em inteiros; ordenação da fila; 201/200 por `findOne` + `create`/E11000; escalonamento em qualquer `emAberto`; reclassificar/remover idempotentes; thread somente leitura; 5 templates; `targetId` String; namespace i18n `sinalizar.*`; `error.code` no `api.ts`.
 
+## Decisões nascidas na execução (revisões das tasks, 04/09)
+
+- **T2**: `resumoMotivos` só de contas maduras; aviso ao artista truncado em 2000 caracteres (limite de `MensagemPortal.texto`).
+- **T4**: `remover` também limpa `submittedAt` (obra publicada pelo PUT genérico do admin ainda o tem preenchido — sem isso voltaria à Fila de Aprovação na hora e o artista não conseguiria editar). **Lock otimista no fechamento**: `fecharCaso` reivindica o caso com `updateOne({ _id, emAberto:true }, { emAberto:false })`; se nada foi modificado → 409 (dois curadores simultâneos = 1 fechamento, 1 aviso, 1 AdminLog). `motivoDecisao` é gravado em TODO fechamento (null no `aprovar` — um "solicitar correção" anterior não deixa motivo numa aprovação). `solicitar correção` com falha real no envio da mensagem → 500 (não 400 "sem canal"). `observacao` não-string ou > 2000 → 400. `reavaliarPendentes` ao abrir a fila roda em try/catch (erro no banco não derruba a listagem). Dívida 5.1: throttle da reavaliação ao abrir a fila (custo ~7 + 2K queries por abertura, K = casos abertos).
+
 ## Mudanças da rev.2 (painel de 04/09)
 
 - **Escada de limiares contínua** (ALTO, lente contrato): a rev.1 tinha descontinuidade em V=1.000.
