@@ -139,6 +139,33 @@ Frontend: botão nos 3 feeds (guest disabled, logado abre modal, já sinalizada 
   - **Mensagem de aviso sobrevive à obra apagada** (decisão): `DELETE /content/series/:id` limpa `Sinalizacao` e `CasoCuradoria`, mas **não** as `MensagemPortal` do aviso. Elas são comunicação privada do artista e citam o título no texto; o `refId` fica órfão de propósito, e a interface do portal já tolera obra ausente.
 - **T4**: `remover` também limpa `submittedAt` (obra publicada pelo PUT genérico do admin ainda o tem preenchido — sem isso voltaria à Fila de Aprovação na hora e o artista não conseguiria editar). **Lock otimista no fechamento**: `fecharCaso` reivindica o caso com `updateOne({ _id, emAberto:true }, { emAberto:false })`; se nada foi modificado → 409 (dois curadores simultâneos = 1 fechamento, 1 aviso, 1 AdminLog). `motivoDecisao` é gravado em TODO fechamento (null no `aprovar` — um "solicitar correção" anterior não deixa motivo numa aprovação). `solicitar correção` com falha real no envio da mensagem → 500 (não 400 "sem canal"). `observacao` não-string ou > 2000 → 400. `reavaliarPendentes` ao abrir a fila roda em try/catch (erro no banco não derruba a listagem). Dívida 5.1: throttle da reavaliação ao abrir a fila (custo ~7 + 2K queries por abertura, K = casos abertos).
 
+## Deploy (Bloco 3)
+
+*Escrita na T8 contra o CÓDIGO FINAL (pós-3 rodadas de concorrência), não contra o plano.*
+
+1. **Fluxo padrão da VPS** (`guide.md:181-190`): `cd /var/www/lorflux` → `git stash` → `git pull origin main` → `npm install` → `npm run build` → `pm2 restart all`.
+2. **Nenhuma variável de ambiente nova.** Os únicos `process.env` do bloco são as guardas de teste (`middlewares/sinalizacaoLimiter.js:9`, `services/curadoriaService.js:302`) — em produção o limiter e o timer diário ligam sozinhos.
+3. **Índices que o `autoIndex` do Mongoose constrói no PRIMEIRO boot** (em background; o app sobe normalmente enquanto isso — conferir `pm2 logs` por erro de índice):
+
+   | Coleção | Índices novos | Onde |
+   |---|---|---|
+   | `Sinalizacao` (coleção NOVA, vazia) | **3**: `{userId, seriesId}` **unique** · `{seriesId, revisadaEm, valida}` · `{revisadaEm, valida, seriesId, grave}` | `models/Sinalizacao.js:27`, `:30`, `:42` |
+   | `CasoCuradoria` (coleção NOVA, vazia) | **3**: `{seriesId}` **unique PARCIAL** (`partialFilterExpression {emAberto:true}`) · `{emAberto, prioridade, abertoEm}` · `{seriesId, decisao, decisaoEm}` | `models/CasoCuradoria.js:56-59`, `:60`, `:63` |
+   | `EngagementEvent` (**a coleção mais volumosa do app**, já em produção desde a Fase 3) | **1**: `{seriesId, userId, type, flagged}` **PARCIAL** (`partialFilterExpression {seriesId: {$exists: true}}`) | `models/EngagementEvent.js:46-49` |
+
+   As duas primeiras nascem vazias — construção instantânea. **A terceira é a única que custa**: roda sobre todo o log de engajamento e pode levar minutos em acervo grande. É **SÓ ÍNDICE** — nenhum documento é tocado, então o append-only e a cadeia de hash de `EngagementEvent` continuam intactos (`models/EngagementEvent.js:3-14`); o filtro parcial deixa de fora os eventos de anúncio, que nascem sem `seriesId`.
+4. **Versão do MongoDB da VPS: NÃO CONFIRMADA.** O que depende dela é a FORMA do `partialFilterExpression` dos dois índices parciais acima: `$in`/`$ne` dentro do filtro exigiriam MongoDB ≥ 6, e por isso o código os EVITA de propósito — `CasoCuradoria` usa igualdade booleana (`emAberto: true`, e o campo é derivado do `status` em `pre('validate')`, `models/CasoCuradoria.js:71-74`) e `EngagementEvent` usa `$exists: true`, formas aceitas por qualquer versão suportada. Os planos foram validados por `explain` no MongoDB do ambiente de teste (`tests/backend/curadoriaService.test.js:607-633` e `:639-653`); **no primeiro deploy, confirmar `db.version()` e reconferir que os índices ficaram `isPartial`** — se por algum motivo o parcial for recusado, o índice completo também funciona (só ocupa mais espaço).
+5. **NÃO HÁ BACKFILL.** `Sinalizacao` e `CasoCuradoria` são coleções novas e o acervo não precisa de migração; nenhum script novo em `scripts/`. O único toque em coleção existente é o índice do item 3, que não edita documento.
+6. **Smoke test mínimo** (depois do restart):
+   - logado como leitor comum, abrir uma obra publicada e sinalizar → **201**; repetir na mesma obra → **200 `jaSinalizada`** (`routes/sinalizacao.js:102` e `:71-72`);
+   - `GET /api/content/series/:id/sinalizacao` com a mesma sessão → `{ jaSinalizada: true, motivo }` (`routes/sinalizacao.js:127-138`);
+   - `GET /api/admin/aprovacoes` com token admin traz `curadoria: { abertos, graves }` (`routes/adminPortal.js:283`) — **e a Fila de Aprovação continua respondendo mesmo se a curadoria falhar** (`try/catch` próprio, `routes/adminPortal.js:195-220`);
+   - aba **Curadoria** no admin abre (vazia, sem erro) — a view precisa estar em `ADMIN_VIEWS` (`App.tsx:49-60`), senão o `<main>` fica vazio;
+   - `pm2 logs` sem `[Curadoria]` de erro na varredura de boot (`services/curadoriaService.js:314-317`).
+7. **Nota do `real_ip` do Cloudflare** — `ipsDistintos` da fila do curador depende de `req.ip` ser o IP do LEITOR. O app usa `app.set("trust proxy", 1)` (`server.js:67`), ou seja, confia só no hop do Nginx. Com Cloudflare na frente e o Nginx **sem** `set_real_ip_from` + `real_ip_header CF-Connecting-IP`, `req.ip` vira o IP do edge e `ipsDistintos` colapsa para ~1. É a **MESMA dependência** do dedupe do log de royalties, já em produção (`routes/content.js:461-466` passa `ip: req.ip` ao `engagementLogger`). **Não afeta S nem V** — só a leitura auxiliar do curador. Conferir a config do Nginx no deploy.
+
+---
+
 ## Mudanças da rev.2 (painel de 04/09)
 
 - **Escada de limiares contínua** (ALTO, lente contrato): a rev.1 tinha descontinuidade em V=1.000.
