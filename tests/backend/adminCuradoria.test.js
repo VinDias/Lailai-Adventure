@@ -167,7 +167,10 @@ describe('GET /api/admin/curadoria', () => {
   });
 
   it('erro em reavaliarPendentes não derruba a fila: GET responde 200 mesmo assim (fix round T4, item 6)', async () => {
-    const spy = vi.spyOn(Sinalizacao, 'distinct').mockRejectedValueOnce(new Error('mongo off'));
+    // A varredura de candidatas passou a ser um aggregate (consolidação,
+    // item 4) — o spy tem de mirar nele, senão o teste deixa de exercitar o
+    // try/catch e passa por acidente.
+    const spy = vi.spyOn(Sinalizacao, 'aggregate').mockRejectedValueOnce(new Error('mongo off'));
     const r = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
     spy.mockRestore();
     expect(r.status).toBe(200);
@@ -346,14 +349,19 @@ describe('ações do curador', () => {
     expect((await CasoCuradoria.findById(caso._id).lean()).status).toBe('aberto');
   });
 
-  it('solicitar correção: falha ao enviar a mensagem (MensagemPortal.create rejeita) -> 500, caso continua aberto (fix round T4, item 2)', async () => {
+  it('solicitar correção: falha ao enviar a mensagem (MensagemPortal.create rejeita) -> 500, caso continua ABERTO (fix round T4, item 2)', async () => {
     const { serie } = await criarObra();
     const caso = await abrirCasoGrave(serie);
     const spy = vi.spyOn(MensagemPortal, 'create').mockRejectedValueOnce(new Error('boom'));
     const r = await request(app).post(`/api/admin/curadoria/${caso._id}/solicitar-correcao`).set('Authorization', ADMIN()).send({ texto: 'Ajuste algo.' });
     spy.mockRestore();
     expect(r.status).toBe(500);
-    expect((await CasoCuradoria.findById(caso._id).lean()).status).toBe('aberto');
+    // Consolidação (item 2): a gravação do caso passou a vir ANTES do envio
+    // (é ela que fecha a corrida com um `aprovar` concorrente), então o caso
+    // fica em 'aguardando_artista' SEM a mensagem — continua `emAberto` e o
+    // curador repete a ação. O que não pode acontecer é o caso sair da fila.
+    const relido = await CasoCuradoria.findById(caso._id).lean();
+    expect(relido).toMatchObject({ emAberto: true, status: 'aguardando_artista', decisao: null });
   });
 
   it('fecharCaso grava motivoDecisao SEMPRE (fix round T4, item 5): solicitar correção deixa motivoDecisao, aprovar depois limpa para null', async () => {
@@ -430,6 +438,130 @@ describe('ações do curador', () => {
   });
 });
 
+/**
+ * Fix round de CONSOLIDAÇÃO do backend (painel adversarial + sondas de
+ * execução). Cada teste aqui reproduz um defeito CONFIRMADO por sonda: a obra
+ * mudava fora do lock (item 1), `solicitar-correcao` gravava por cima de um
+ * caso já fechado (item 2), `fecharCaso` deixava o caso preso em falha parcial
+ * (item 5), o histórico filtrava por `emAberto` (item 6) e a Fila de Aprovação
+ * inteira caía junto com a curadoria (item 7).
+ */
+describe('consolidação: concorrência e robustez das ações', () => {
+  it('item 5: falha no updateMany de revisadaEm -> 500, mas o caso fica FECHADO e decidido, fora da fila (nunca preso em emAberto:false + status aberto)', async () => {
+    const { serie } = await criarObra({ title: 'Falha Parcial 8' });
+    const caso = await abrirCasoGrave(serie);
+    // sem `abuso`, o ÚNICO updateMany de Sinalizacao do fechamento é o de revisadaEm
+    const spy = vi.spyOn(Sinalizacao, 'updateMany').mockRejectedValueOnce(new Error('mongo off'));
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/aprovar`).set('Authorization', ADMIN()).send({});
+    spy.mockRestore();
+    expect(r.status).toBe(500);
+    const relido = await CasoCuradoria.findById(caso._id).lean();
+    expect(relido).toMatchObject({ emAberto: false, status: 'fechado', decisao: 'aprovar', decididoPor: auth.getId('admin') });
+    const fila = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
+    expect(fila.body.casos.some(c => c.casoId === String(caso._id))).toBe(false);
+  });
+
+  it('item 6: caso REIVINDICADO em voo (emAberto:false, status:aberto) não aparece na fila NEM no histórico', async () => {
+    const { serie } = await criarObra({ title: 'Em Voo 3' });
+    const caso = await abrirCasoGrave(serie);
+    await CasoCuradoria.updateOne({ _id: caso._id }, { $set: { emAberto: false } });
+    const fila = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
+    expect(fila.body.casos.some(c => c.casoId === String(caso._id))).toBe(false);
+    const hist = await request(app).get('/api/admin/curadoria?status=fechado').set('Authorization', ADMIN());
+    expect(hist.body.casos.some(c => c.casoId === String(caso._id))).toBe(false);
+  });
+
+  it('item 1: remover reivindica ANTES de despublicar — o curador concorrente perde o caso e a obra só muda pelas mãos de quem reivindicou', async () => {
+    const { serie } = await criarObra({ title: 'Corrida Remover 4' });
+    const caso = await abrirCasoGrave(serie);
+    const seriesPublishService = require('../../services/seriesPublishService');
+    const original = seriesPublishService.applySeriesUpdate;
+    let concorrenteVenceu = null;
+    const spy = vi.spyOn(seriesPublishService, 'applySeriesUpdate').mockImplementationOnce(async (id, updates) => {
+      // Outro curador tenta APROVAR o mesmo caso exatamente na janela em que a
+      // obra está sendo alterada. Com o claim antes do applySeriesUpdate ele
+      // perde (409); sem o claim ele vence e a obra some do ar com decisão
+      // 'aprovar' gravada e ZERO AdminLog de remoção.
+      try {
+        await svc.fecharCaso(await CasoCuradoria.findById(caso._id), { decisao: 'aprovar', adminId: 'outro-curador' });
+        concorrenteVenceu = true;
+      } catch (err) { concorrenteVenceu = false; }
+      return original(id, updates);
+    });
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'Cópia confirmada.' });
+    spy.mockRestore();
+    expect(concorrenteVenceu).toBe(false);
+    expect(r.status).toBe(200);
+    expect(await CasoCuradoria.findById(caso._id).lean()).toMatchObject({ status: 'fechado', decisao: 'remover', motivoDecisao: 'Cópia confirmada.' });
+    expect((await Series.findById(serie._id).lean()).isPublished).toBe(false);
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_REMOVER', targetId: String(serie._id) })).toBe(1);
+  });
+
+  it('item 1: reclassificar reivindica ANTES de gravar o content_rating — o concorrente perde e o rating é o do vencedor', async () => {
+    const { serie } = await criarObra({ title: 'Corrida Reclassificar 5' });
+    const caso = await abrirCasoGrave(serie);
+    const seriesPublishService = require('../../services/seriesPublishService');
+    const original = seriesPublishService.applySeriesUpdate;
+    let concorrenteVenceu = null;
+    const spy = vi.spyOn(seriesPublishService, 'applySeriesUpdate').mockImplementationOnce(async (id, updates) => {
+      try {
+        await svc.fecharCaso(await CasoCuradoria.findById(caso._id), { decisao: 'aprovar', adminId: 'outro-curador' });
+        concorrenteVenceu = true;
+      } catch (err) { concorrenteVenceu = false; }
+      return original(id, updates);
+    });
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/reclassificar`).set('Authorization', ADMIN()).send({ content_rating: 'teen' });
+    spy.mockRestore();
+    expect(concorrenteVenceu).toBe(false);
+    expect(r.status).toBe(200);
+    expect((await Series.findById(serie._id).lean()).content_rating).toBe('teen');
+    expect(await CasoCuradoria.findById(caso._id).lean()).toMatchObject({ status: 'fechado', decisao: 'reclassificar' });
+  });
+
+  it('item 1: caso fechado ANTES da requisição -> 409 nas duas ações com a obra INALTERADA e 0 AdminLog', async () => {
+    const { serie } = await criarObra({ title: 'Ja Fechado 6' });
+    const caso = await abrirCasoGrave(serie);
+    await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: auth.getId('admin') });
+    const rRemover = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'x' });
+    const rReclass = await request(app).post(`/api/admin/curadoria/${caso._id}/reclassificar`).set('Authorization', ADMIN()).send({ content_rating: 'kids' });
+    expect([rRemover.status, rReclass.status]).toEqual([409, 409]);
+    const s = await Series.findById(serie._id).lean();
+    expect(s.isPublished).toBe(true);
+    expect(s.content_rating).toBe('young');
+    expect(await AdminLog.countDocuments({ action: { $in: ['CURADORIA_REMOVER', 'CURADORIA_RECLASSIFICAR'] }, targetId: String(serie._id) })).toBe(0);
+  });
+
+  it('item 1: falha no applySeriesUpdate devolve a reivindicação — o caso volta para a fila', async () => {
+    const { serie } = await criarObra({ title: 'Rollback Remover 2' });
+    const caso = await abrirCasoGrave(serie);
+    const seriesPublishService = require('../../services/seriesPublishService');
+    const spy = vi.spyOn(seriesPublishService, 'applySeriesUpdate').mockRejectedValueOnce(new Error('boom'));
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/remover`).set('Authorization', ADMIN()).send({ motivo: 'x' });
+    spy.mockRestore();
+    expect(r.status).toBe(500);
+    expect(await CasoCuradoria.findById(caso._id).lean()).toMatchObject({ emAberto: true, status: 'aberto', decisao: null });
+    const fila = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
+    expect(fila.body.casos.some(c => c.casoId === String(caso._id))).toBe(true);
+  });
+
+  it('item 2: solicitar-correcao não grava por cima de um caso fechado na janela -> 409 e o caso continua aprovar/fechado', async () => {
+    const { serie } = await criarObra({ title: 'Correcao Tardia 7' });
+    const caso = await abrirCasoGrave(serie);
+    const original = CasoCuradoria.findById.bind(CasoCuradoria);
+    // Fecha o caso EXATAMENTE entre o carregamento (carregarCasoAberto) e a
+    // gravação de 'aguardando_artista': é a janela que a sonda explorou.
+    const spy = vi.spyOn(CasoCuradoria, 'findById').mockImplementationOnce(async (id) => {
+      const doc = await original(id);
+      await svc.fecharCaso(await original(caso._id), { decisao: 'aprovar', adminId: 'outro-curador' });
+      return doc;
+    });
+    const r = await request(app).post(`/api/admin/curadoria/${caso._id}/solicitar-correcao`).set('Authorization', ADMIN()).send({ texto: 'Troque a capa.' });
+    spy.mockRestore();
+    expect(r.status).toBe(409);
+    expect(await CasoCuradoria.findById(caso._id).lean()).toMatchObject({ emAberto: false, status: 'fechado', decisao: 'aprovar', motivoDecisao: null });
+  });
+});
+
 describe('GET /api/admin/aprovacoes += curadoria e removidaPelaCuradoria', () => {
   it('curadoria: {abertos, graves} reflete os casos abertos', async () => {
     const { serie } = await criarObra();
@@ -438,6 +570,22 @@ describe('GET /api/admin/aprovacoes += curadoria e removidaPelaCuradoria', () =>
     expect(r.body.curadoria.abertos).toBeGreaterThanOrEqual(1);
     expect(r.body.curadoria.graves).toBeGreaterThanOrEqual(1);
     expect(r.body.curadoria.abertos).toBe(await CasoCuradoria.countDocuments({ emAberto: true }));
+  });
+
+  it('item 7: curadoria fora do ar NÃO derruba a Fila de Aprovação — 200 com itens/naoClassificadas e curadoria zerada', async () => {
+    const { serie } = await criarObra({ title: 'Pendente Fila 7' });
+    await Series.updateOne({ _id: serie._id }, { $set: { isPublished: false, submittedAt: new Date('2026-09-01T00:00:00Z') } });
+    // A Fila de Aprovação é código do Bloco 1 EM PRODUÇÃO e é o único
+    // caminho do Master para publicar: a curadoria nunca pode levá-la junto.
+    const spy = vi.spyOn(CasoCuradoria, 'find').mockImplementationOnce(() => { throw new Error('mongo off'); });
+    const r = await request(app).get('/api/admin/aprovacoes').set('Authorization', ADMIN());
+    spy.mockRestore();
+    expect(r.status).toBe(200);
+    const item = r.body.itens.find(i => i.tipo === 'series' && i.id === String(serie._id));
+    expect(item).toBeTruthy();
+    expect(item.removidaPelaCuradoria).toBeNull();
+    expect(typeof r.body.naoClassificadas).toBe('number');
+    expect(r.body.curadoria).toEqual({ abertos: 0, graves: 0 });
   });
 
   it('obra removida pela curadoria e reenviada pelo portal traz removidaPelaCuradoria no item; série nunca removida -> null', async () => {

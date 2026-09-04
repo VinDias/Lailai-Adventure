@@ -182,7 +182,7 @@ router.post('/mensagens/:canalId', verifyToken, requireAdmin, async (req, res) =
 // nova só para esse número (spec: "decida a rota mais natural").
 router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const [seriesPendentes, episodiosPendentes, naoClassificadas, casosAbertos] = await Promise.all([
+    const [seriesPendentes, episodiosPendentes, naoClassificadas] = await Promise.all([
       Series.find({ submittedAt: { $ne: null }, isPublished: false })
         .select('title description cover_image content_rating_sugerida content_rating genre tags channelId submittedAt')
         .lean(),
@@ -190,19 +190,34 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
         .select('title description thumbnail panels seriesId submittedAt')
         .lean(),
       Series.countDocuments({ isPublished: true, content_rating: null }),
-      // Fase 5 Bloco 3: badge "Curadoria N" — mesma request do badge de
-      // Aprovações (AdminDashboard.tsx refetchAprovacoesBadges), sem rota nova.
-      CasoCuradoria.find({ emAberto: true }).select('prioridade').lean(),
     ]);
-    const curadoria = { abertos: casosAbertos.length, graves: casosAbertos.filter(c => c.prioridade === 'grave').length };
 
-    // Fase 5 Bloco 3: obra removida pela curadoria e reenviada pelo artista —
-    // o Master não deve aprovar às cegas. Último caso 'remover' por série,
-    // uma query $in + Map (sem N+1).
-    const removidos = seriesPendentes.length
-      ? await CasoCuradoria.find({ seriesId: { $in: seriesPendentes.map(s => s._id) }, decisao: 'remover' })
-          .sort({ decisaoEm: -1 }).select('seriesId decisaoEm motivoDecisao').lean()
-      : [];
+    // Fase 5 Bloco 3 — as DUAS leituras da curadoria ficam FORA do Promise.all
+    // acima e num try/catch próprio: esta rota é o único caminho do Master
+    // para publicar (código do Bloco 1 em produção) e não pode cair junto com
+    // um bloco novo. Degrada para badge zerado e nenhum aviso de remoção —
+    // mesmo padrão da reavaliação isolada em routes/adminCuradoria.js
+    // (GET /curadoria), onde um erro do gatilho de maturação não derruba a
+    // listagem.
+    let curadoria = { abertos: 0, graves: 0 };
+    let removidos = [];
+    try {
+      // badge "Curadoria N" — mesma request do badge de Aprovações
+      // (AdminDashboard.tsx refetchAprovacoesBadges), sem rota nova.
+      const casosAbertos = await CasoCuradoria.find({ emAberto: true }).select('prioridade').lean();
+      curadoria = { abertos: casosAbertos.length, graves: casosAbertos.filter(c => c.prioridade === 'grave').length };
+      // Obra removida pela curadoria e reenviada pelo artista — o Master não
+      // deve aprovar às cegas. Último caso 'remover' por série, uma query
+      // $in + Map (sem N+1).
+      removidos = seriesPendentes.length
+        ? await CasoCuradoria.find({ seriesId: { $in: seriesPendentes.map(s => s._id) }, decisao: 'remover' })
+            .sort({ decisaoEm: -1 }).select('seriesId decisaoEm motivoDecisao').lean()
+        : [];
+    } catch (err) {
+      logger.error('[AdminPortal] curadoria indisponível na fila de aprovação', err && err.message);
+      curadoria = { abertos: 0, graves: 0 };
+      removidos = [];
+    }
     const removidaPorSerie = new Map();
     for (const c of removidos) {
       const k = String(c.seriesId);

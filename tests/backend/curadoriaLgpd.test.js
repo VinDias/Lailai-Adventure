@@ -78,21 +78,32 @@ describe('export do TITULAR', () => {
 });
 
 describe('DELETE /api/account/me', () => {
-  it('apaga as sinalizações do titular (descrições junto) e S cai na próxima avaliação', async () => {
+  it('apaga as sinalizações do titular (descrições junto) e NÃO as de outros leitores — escopo provado por contagem global', async () => {
     const leitor = await criarConta();
     const artista = await criarConta();
     const { serie } = await criarObraDe(artista);
     await request(app).post(`/api/content/series/${serie._id}/sinalizar`).set('Authorization', leitor.token).send({ motivo: 'conteudo_proibido', descricao: 'apagar comigo' });
     await svc.flushForTests();
     expect(await Sinalizacao.countDocuments({ userId: leitor.id })).toBe(1);
+    // TESTEMUNHA: outro leitor, outra obra. Sem ela, um
+    // `Sinalizacao.deleteMany({})` no lugar do `{userId}` passaria VERDE —
+    // provado por mutação. A contagem GLOBAL com delta exato é o pino.
+    const outroLeitor = await criarConta();
+    const { serie: outraSerie } = await criarObraDe(artista, 'Obra Testemunha 4');
+    await request(app).post(`/api/content/series/${outraSerie._id}/sinalizar`).set('Authorization', outroLeitor.token).send({ motivo: 'conteudo_proibido', descricao: 'fica' });
+    await svc.flushForTests();
+
+    const antes = await Sinalizacao.countDocuments({});
     const r = await request(app).delete('/api/account/me').set('Authorization', leitor.token).send({ password: leitor.senha });
     expect(r.status).toBe(200);
     expect(await Sinalizacao.countDocuments({ userId: leitor.id })).toBe(0);
+    expect(await Sinalizacao.countDocuments({})).toBe(antes - 1);
+    expect(await Sinalizacao.countDocuments({ userId: outroLeitor.id })).toBe(1);
   });
 });
 
 describe('DELETE /api/content/series/:id (admin)', () => {
-  it('apaga Sinalizacao e CasoCuradoria da obra: fila fica sem o caso, badge cai, 0 órfãs no export do leitor', async () => {
+  it('apaga Sinalizacao e CasoCuradoria da obra: fila fica sem o caso, badge cai, 0 órfãs no export do leitor; nada de OUTRAS obras é tocado', async () => {
     const leitor = await criarConta();
     const artista = await criarConta();
     const { serie } = await criarObraDe(artista);
@@ -100,12 +111,30 @@ describe('DELETE /api/content/series/:id (admin)', () => {
     await svc.flushForTests();
     const caso = await abrirCasoGrave(serie._id);
     expect(caso).toBeTruthy();
+    // TESTEMUNHAS: sinalização de outro leitor e CASO ABERTO de OUTRA obra.
+    // Sem elas, trocar os dois filtros `{seriesId}` por `{}` mantinha a suíte
+    // verde (provado por mutação); as contagens GLOBAIS com delta exato são o
+    // pino de escopo.
+    const outroLeitor = await criarConta();
+    const { serie: outraSerie } = await criarObraDe(artista, 'Obra Testemunha 9');
+    await request(app).post(`/api/content/series/${outraSerie._id}/sinalizar`).set('Authorization', outroLeitor.token).send({ motivo: 'conteudo_proibido', descricao: 'fica' });
+    await svc.flushForTests();
+    const casoTestemunha = await abrirCasoGrave(outraSerie._id);
+    expect(casoTestemunha).toBeTruthy();
+
     const antes = await request(app).get('/api/admin/aprovacoes').set('Authorization', ADMIN());
+    const antesSinalizacoes = await Sinalizacao.countDocuments({});
+    const antesCasos = await CasoCuradoria.countDocuments({});
 
     const r = await request(app).delete(`/api/content/series/${serie._id}`).set('Authorization', ADMIN());
     expect(r.status).toBe(200);
     expect(await Sinalizacao.countDocuments({ seriesId: serie._id })).toBe(0);
     expect(await CasoCuradoria.countDocuments({ seriesId: serie._id })).toBe(0);
+    // 6 = 1 do leitor + as 5 do gatilho grave desta obra; 1 caso.
+    expect(await Sinalizacao.countDocuments({})).toBe(antesSinalizacoes - 6);
+    expect(await CasoCuradoria.countDocuments({})).toBe(antesCasos - 1);
+    expect(await CasoCuradoria.countDocuments({ _id: casoTestemunha._id })).toBe(1);
+    expect(await Sinalizacao.countDocuments({ seriesId: outraSerie._id })).toBe(6);
     const fila = await request(app).get('/api/admin/curadoria').set('Authorization', ADMIN());
     expect(fila.body.casos.some(c => c.casoId === String(caso._id))).toBe(false);
     const depois = await request(app).get('/api/admin/aprovacoes').set('Authorization', ADMIN());

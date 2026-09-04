@@ -55,7 +55,13 @@ router.get('/curadoria', async (req, res) => {
         logger.error('[AdminCuradoria] reavaliarPendentes falhou ao abrir a fila', err && err.message);
       }
     }
-    const casos = await CasoCuradoria.find({ emAberto: !historico })
+    // O histórico filtra por `status:'fechado'`, NÃO por `emAberto:false`
+    // (consolidação, item 6): `emAberto:false` também é o estado de um caso
+    // apenas REIVINDICADO (remover/reclassificar em voo, ver
+    // svc.reivindicarCaso) — ele não pode se disfarçar de decidido no
+    // histórico. A fila continua sendo `emAberto:true` (o índice
+    // {emAberto, prioridade, abertoEm} serve esse ramo).
+    const casos = await CasoCuradoria.find(historico ? { status: 'fechado' } : { emAberto: true })
       .sort(historico ? { decisaoEm: -1 } : { abertoEm: 1 })
       .limit(historico ? 100 : 500)
       .lean();
@@ -176,11 +182,12 @@ router.post('/curadoria/:casoId/aprovar', async (req, res) => {
     const caso = await carregarCasoAberto(req, res);
     if (!caso) return;
     const abuso = req.body.abuso === true;
-    await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: req.user.id, observacao: obs.observacao, abuso });
+    // `aprovar` não altera a obra: o claim atômico de fecharCaso basta.
+    const fechado = await svc.fecharCaso(caso, { decisao: 'aprovar', adminId: req.user.id, observacao: obs.observacao, abuso });
     const series = await Series.findById(caso.seriesId).select('title channelId').lean();
     const aviso = await avisar(series, series ? svc.TEXTOS.aprovar(series.title) : '', req.user.id);
     await logAdmin(req, 'CURADORIA_APROVAR', caso, { abuso, avisoArtista: aviso.status });
-    res.json({ caso });
+    res.json({ caso: fechado });
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/aprovar'); }
 });
 
@@ -194,13 +201,25 @@ router.post('/curadoria/:casoId/reclassificar', async (req, res) => {
     if (obs.error) return res.status(400).json({ error: obs.error });
     const caso = await carregarCasoAberto(req, res);
     if (!caso) return;
+    // REIVINDICA antes de tocar na obra (consolidação, item 1) — ver
+    // svc.reivindicarCaso. Quem perde a corrida responde 409 sem ter
+    // reclassificado nada; se a alteração falhar, a reivindicação é devolvida
+    // e o caso volta para a fila.
+    if (!await svc.reivindicarCaso(caso._id)) {
+      return res.status(409).json({ error: 'Caso já fechado.' });
+    }
     const { applySeriesUpdate } = require('../services/seriesPublishService');
-    await applySeriesUpdate(caso.seriesId, { content_rating });
-    await svc.fecharCaso(caso, { decisao: 'reclassificar', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: content_rating });
+    try {
+      await applySeriesUpdate(caso.seriesId, { content_rating });
+    } catch (err) {
+      await svc.devolverReivindicacao(caso._id);
+      throw err;
+    }
+    const fechado = await svc.fecharCaso(caso, { decisao: 'reclassificar', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: content_rating, jaReivindicado: true });
     const series = await Series.findById(caso.seriesId).select('title channelId').lean();
     const aviso = await avisar(series, series ? svc.TEXTOS.reclassificar(series.title, svc.ROTULO_RATING[content_rating]) : '', req.user.id);
     await logAdmin(req, 'CURADORIA_RECLASSIFICAR', caso, { content_rating, avisoArtista: aviso.status });
-    res.json({ caso });
+    res.json({ caso: fechado });
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/reclassificar'); }
 });
 
@@ -211,20 +230,39 @@ router.post('/curadoria/:casoId/solicitar-correcao', async (req, res) => {
     const caso = await carregarCasoAberto(req, res);
     if (!caso) return;
     const series = await Series.findById(caso.seriesId).select('title channelId').lean();
-    const aviso = await avisar(series, series ? svc.TEXTOS.solicitarCorrecao(series.title, t.texto) : '', req.user.id);
-    // Fix round T4 (item 2): 'sem_canal' é entrada inválida do curador (não
-    // há artista para pedir a correção — nada muda no caso, use outra ação).
-    // 'falhou' é uma falha NOSSA (MensagemPortal.create caiu) — 500, não 400;
-    // antes as duas caíam no mesmo `!== 'enviado'` e escondiam a diferença.
-    if (aviso.status === 'falhou') {
-      return res.status(500).json({ error: 'Não foi possível enviar a mensagem ao artista.' });
-    }
-    if (aviso.status !== 'enviado') {
+    // 'sem_canal' é entrada inválida do curador (não há artista para pedir a
+    // correção — nada muda no caso, use outra ação), então é conferido ANTES
+    // de qualquer escrita; 'falhou' é falha NOSSA e vira 500 (fix round T4,
+    // item 2) — as duas caíam no mesmo `!== 'enviado'` e escondiam a
+    // diferença.
+    const canal = series && series.channelId
+      ? await Channel.findById(series.channelId).select('_id').lean()
+      : null;
+    if (!canal) {
       return res.status(400).json({ error: 'Obra sem canal: não há artista para avisar. Use aprovar, reclassificar ou remover.' });
+    }
+    // Update CONDICIONAL a `emAberto:true`, ANTES de enviar a mensagem
+    // (consolidação, item 2): o `caso.save()` de antes escrevia sobre um
+    // documento lido dois awaits atrás — um `aprovar` concorrente fechava o
+    // caso e este save gravava `status:'aguardando_artista'` por cima,
+    // deixando o caso fora da fila (emAberto:false), no histórico e em 409
+    // para sempre. Se o envio falhar DEPOIS, o caso fica em
+    // aguardando_artista sem mensagem e o curador repete a ação (nenhum dado
+    // fica inconsistente). Dois curadores pedindo correção ao mesmo tempo
+    // ainda geram 2 mensagens — aceito: o estado do caso é o mesmo nas duas.
+    const atualizado = await CasoCuradoria.updateOne(
+      { _id: caso._id, emAberto: true },
+      { $set: { status: 'aguardando_artista', motivoDecisao: t.texto } },
+    );
+    if (atualizado.matchedCount === 0) {
+      return res.status(409).json({ error: 'Caso já fechado.' });
     }
     caso.status = 'aguardando_artista';
     caso.motivoDecisao = t.texto;
-    await caso.save();
+    const aviso = await avisar(series, svc.TEXTOS.solicitarCorrecao(series.title, t.texto), req.user.id);
+    if (aviso.status !== 'enviado') {
+      return res.status(500).json({ error: 'Não foi possível enviar a mensagem ao artista.' });
+    }
     await logAdmin(req, 'CURADORIA_SOLICITAR_CORRECAO', caso, { mensagemId: String(aviso.mensagemId) });
     res.json({ caso });
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/solicitar-correcao'); }
@@ -238,6 +276,14 @@ router.post('/curadoria/:casoId/remover', async (req, res) => {
     if (obs.error) return res.status(400).json({ error: obs.error });
     const caso = await carregarCasoAberto(req, res);
     if (!caso) return;
+    // Consolidação (item 1): REIVINDICA o caso ANTES de despublicar. Sem
+    // isto, um curador que perdesse a corrida na hora de fechar já teria
+    // tirado a obra do ar — 409 na resposta, obra despublicada, ZERO AdminLog
+    // e o artista recebendo "obra mantida sem alterações" do vencedor (viola
+    // a regra 1 do Vin: quem muda a obra é quem decide o caso).
+    if (!await svc.reivindicarCaso(caso._id)) {
+      return res.status(409).json({ error: 'Caso já fechado.' });
+    }
     // DESPUBLICAR, nunca DELETE (regra 1): episódios, favoritos e votos de
     // terceiros ficam; o artista pode corrigir e reenviar. Obra já
     // despublicada por fora -> no-op do update, o caso fecha normalmente.
@@ -246,12 +292,17 @@ router.post('/curadoria/:casoId/remover', async (req, res) => {
     // limpar aqui ela cairia direto em GET /aprovacoes (filtro
     // submittedAt!=null && !isPublished) antes do artista sequer reenviar.
     const { applySeriesUpdate } = require('../services/seriesPublishService');
-    await applySeriesUpdate(caso.seriesId, { isPublished: false, submittedAt: null });
-    await svc.fecharCaso(caso, { decisao: 'remover', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: t.texto });
+    try {
+      await applySeriesUpdate(caso.seriesId, { isPublished: false, submittedAt: null });
+    } catch (err) {
+      await svc.devolverReivindicacao(caso._id);
+      throw err;
+    }
+    const fechado = await svc.fecharCaso(caso, { decisao: 'remover', adminId: req.user.id, observacao: obs.observacao, motivoDecisao: t.texto, jaReivindicado: true });
     const series = await Series.findById(caso.seriesId).select('title channelId').lean();
     const aviso = await avisar(series, series ? svc.TEXTOS.remover(series.title, t.texto) : '', req.user.id);
     await logAdmin(req, 'CURADORIA_REMOVER', caso, { motivo: t.texto, avisoArtista: aviso.status });
-    res.json({ caso });
+    res.json({ caso: fechado });
   } catch (err) { tratarErro(err, res, 'POST /curadoria/:casoId/remover'); }
 });
 

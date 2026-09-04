@@ -304,6 +304,78 @@ describe('avaliarObra — gatilhos', () => {
   });
 });
 
+/**
+ * Fix round de CONSOLIDAÇÃO do backend: defeitos de concorrência/custo
+ * confirmados por sondas de execução no motor da avaliação.
+ */
+describe('consolidação: avaliação sob concorrência e custo da reavaliação', () => {
+  it('item 3: contagem que zera entre a apuração e o create NÃO abre caso novo nem manda 2º aviso', async () => {
+    const { serie } = await criarObra({ title: 'Zerou na Janela 4' });
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
+    const EngagementEvent = require('../../models/EngagementEvent');
+    const original = EngagementEvent.aggregate.bind(EngagementEvent);
+    // O aggregate de V é o await mais caro entre a contagem e o create — é
+    // nele que a sonda encaixou o `aprovar` concorrente (revisadaEm em todas
+    // as pendentes). Sem a reconferência, o caso nascia com gatilho.S=5 e o
+    // artista levava um aviso de ABERTURA logo após o de fechamento.
+    const spy = vi.spyOn(EngagementEvent, 'aggregate').mockImplementationOnce(async (pipeline) => {
+      await Sinalizacao.updateMany({ seriesId: serie._id, revisadaEm: null }, { $set: { revisadaEm: AGORA } });
+      return original(pipeline);
+    });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    spy.mockRestore();
+    expect(caso).toBeNull();
+    expect(await CasoCuradoria.countDocuments({ seriesId: serie._id })).toBe(0);
+    expect(await MensagemPortal.countDocuments({ refId: serie._id })).toBe(0);
+  });
+
+  it('item 3: caso fechado entre a contagem e o escalonamento não é regravado nem gera log ESCALONADO', async () => {
+    const { serie, ep } = await criarObra({ title: 'Escalona Tarde 8' });
+    await views(serie, ep, { quantas: 20, prefixo: '47.0' });
+    await sinalizar(serie._id, { quantas: 20 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    expect(caso.prioridade).toBe('normal');
+    await sinalizar(serie._id, { quantas: 5, motivo: 'direitos_autorais', idadeDias: 10 });
+
+    const original = CasoCuradoria.findOne.bind(CasoCuradoria);
+    const spy = vi.spyOn(CasoCuradoria, 'findOne').mockImplementationOnce(async (filtro) => {
+      const doc = await original(filtro);
+      await svc.fecharCaso(await CasoCuradoria.findById(caso._id), { decisao: 'aprovar', adminId: 'outro-curador', agora: AGORA });
+      return doc;
+    });
+    await svc.avaliarObra(serie._id, { agora: AGORA });
+    spy.mockRestore();
+
+    const relido = await CasoCuradoria.findById(caso._id).lean();
+    expect(relido).toMatchObject({ status: 'fechado', decisao: 'aprovar', prioridade: 'normal' });
+    expect(relido.gatilho.S).toBe(20);
+    expect(await AdminLog.countDocuments({ action: 'CURADORIA_CASO_ESCALONADO', targetId: String(serie._id) })).toBe(0);
+  });
+
+  it('item 4: reavaliarPendentes só consulta as obras que já podem disparar (curto-circuito no banco)', async () => {
+    const pequenas = [];
+    for (let i = 0; i < 3; i++) {
+      const { serie } = await criarObra({ title: `Uma Pendente ${i}` });
+      await sinalizar(serie._id, { quantas: 1 });
+      pequenas.push(String(serie._id));
+    }
+    const { serie: grande } = await criarObra({ title: 'Vinte Pendentes 9' });
+    await sinalizar(grande._id, { quantas: 20 });
+    const idsDoTeste = new Set([...pequenas, String(grande._id)]);
+
+    const spy = vi.spyOn(Series, 'findById');
+    await svc.reavaliarPendentes({ agora: AGORA });
+    const consultadas = spy.mock.calls.map(c => String(c[0])).filter(id => idsDoTeste.has(id));
+    spy.mockRestore();
+    // As 3 com UMA pendente nem chegam a virar candidata (o $match do
+    // aggregate as descarta); antes cada uma custava um findById + duas
+    // contagens para terminar em null.
+    expect(consultadas).toEqual([String(grande._id)]);
+    expect(await CasoCuradoria.countDocuments({ seriesId: grande._id, emAberto: true })).toBe(1);
+    for (const id of pequenas) expect(await CasoCuradoria.countDocuments({ seriesId: id })).toBe(0);
+  });
+});
+
 describe('fecharCaso + TEXTOS', () => {
   it('aprovar: revisadaEm em TODAS as pendentes (válidas e inválidas), emAberto false, S zera; abuso só flipa valida:true', async () => {
     const { serie } = await criarObra();
@@ -380,6 +452,23 @@ describe('fecharCaso + TEXTOS', () => {
     expect(relido).toMatchObject({ decisao: 'remover', motivoDecisao: 'Cópia.', observacao: 'interna', sinalizacoesAbusivas: false, emAberto: false });
   });
 
+  it('consolidação (item 5): falha no updateMany de revisadaEm deixa o caso DECIDIDO e coerente, nunca preso', async () => {
+    const { serie } = await criarObra({ title: 'Parcial no Servico 5' });
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
+    const caso = await svc.avaliarObra(serie._id, { agora: AGORA });
+    const spy = vi.spyOn(Sinalizacao, 'updateMany').mockRejectedValueOnce(new Error('mongo off'));
+    await expect(svc.fecharCaso(caso, { decisao: 'remover', adminId: auth.getId('admin'), motivoDecisao: 'Cópia.', agora: AGORA }))
+      .rejects.toThrow('mongo off');
+    spy.mockRestore();
+    // A decisão inteira já está gravada (um único findOneAndUpdate): o caso
+    // não fica `emAberto:false + status:'aberto' + decisao:null`, que era
+    // invisível na fila E no histórico e respondia 409 para sempre.
+    const relido = await CasoCuradoria.findById(caso._id).lean();
+    expect(relido).toMatchObject({ emAberto: false, status: 'fechado', decisao: 'remover', motivoDecisao: 'Cópia.' });
+    // As sinalizações continuam pendentes — o pior caso é um ciclo novo.
+    expect(await Sinalizacao.countDocuments({ seriesId: serie._id, revisadaEm: null })).toBe(5);
+  });
+
   it('fix round T4 (item 4): lock otimista — fecharCaso 2x no mesmo caso: a 2ª rejeita 409 e NÃO regrava revisadaEm', async () => {
     const { serie } = await criarObra();
     await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 8 });
@@ -395,5 +484,79 @@ describe('fecharCaso + TEXTOS', () => {
     // falhou ANTES do updateMany de revisadaEm.
     expect(await Sinalizacao.countDocuments({ seriesId: serie._id, revisadaEm: maisTarde })).toBe(0);
     expect(await Sinalizacao.countDocuments({ seriesId: serie._id, revisadaEm: AGORA })).toBe(5);
+  });
+});
+
+// Consolidação (item 8): a varredura de BOOT de iniciarReavaliacaoPeriodica.
+// Roda por ÚLTIMO no arquivo e restaura NODE_ENV/require.cache no afterAll —
+// mesmo padrão do teste do limiter em curadoriaSinalizar.test.js:340-366:
+// este repo carrega tudo por require() (CJS) e vi.resetModules() gerencia o
+// registro do próprio vitest (ESM), não o require.cache do Node; sem o delete
+// explícito o require abaixo devolveria a instância já cacheada em
+// NODE_ENV=test, presa no ramo no-op.
+describe('iniciarReavaliacaoPeriodica — varredura de boot (fora de NODE_ENV=test)', () => {
+  const NODE_ENV_ORIGINAL = process.env.NODE_ENV;
+
+  afterAll(() => {
+    process.env.NODE_ENV = NODE_ENV_ORIGINAL;
+    delete require.cache[require.resolve('../../services/curadoriaService')];
+    require('../../services/curadoriaService');
+  });
+
+  it('abre o caso das graves já maduras no BOOT, sem esperar as 24h do timer', async () => {
+    const { serie } = await criarObra({ title: 'Boot Grave 6' });
+    await sinalizar(serie._id, { quantas: 5, motivo: 'conteudo_proibido', idadeDias: 30 });
+
+    delete require.cache[require.resolve('../../services/curadoriaService')];
+    process.env.NODE_ENV = 'development';
+    const svcBoot = require('../../services/curadoriaService');
+    svcBoot.iniciarReavaliacaoPeriodica();
+    // A varredura é fire-and-forget mas fica registrada em `pendentes` — o
+    // mesmo flushForTests que espera as avaliações disparadas por sinalização.
+    await svcBoot.flushForTests();
+    svcBoot.pararReavaliacaoPeriodica();
+
+    expect(await CasoCuradoria.countDocuments({ seriesId: serie._id, emAberto: true })).toBe(1);
+  });
+});
+
+// Consolidação (item 10): o índice {seriesId,userId,type,flagged} nasceu SEM
+// filtro parcial e indexava também ad_impression/ad_click, que não têm
+// seriesId. O filtro parcial só pode entrar se as TRÊS queries consumidoras
+// continuarem elegíveis ao índice — daí o pino por explain (equality em
+// seriesId implica $exists:true, mas isso é comportamento do planner e
+// precisa ser verificado, não presumido).
+describe('índice de EngagementEvent — parcial em seriesId (consolidação, item 10)', () => {
+  function planoVencedor(explain) {
+    const qp = explain.queryPlanner
+      || (explain.stages && explain.stages[0] && explain.stages[0].$cursor && explain.stages[0].$cursor.queryPlanner);
+    return JSON.stringify(qp.winningPlan);
+  }
+
+  it('é PARCIAL (evento de anúncio, sem seriesId, fica fora) e as TRÊS queries consumidoras continuam em IXSCAN', async () => {
+    const EngagementEvent = require('../../models/EngagementEvent');
+    await EngagementEvent.init();
+    const indices = await EngagementEvent.collection.indexes();
+    const idx = indices.find(i => i.name === 'seriesId_1_userId_1_type_1_flagged_1');
+    expect(idx.partialFilterExpression).toEqual({ seriesId: { $exists: true } });
+
+    const sid = oid(); const uid = oid();
+    const planos = [
+      // (1) V da curadoria — contarConsumidoresUnicos (services/curadoriaService.js)
+      planoVencedor(await EngagementEvent.aggregate([
+        { $match: { seriesId: sid, type: { $in: ['view', 'read'] }, flagged: false } },
+        { $group: { _id: null, consumers: { $addToSet: { $ifNull: ['$userId', '$ipHash'] } } } },
+        { $project: { _id: 0, total: { $size: '$consumers' } } },
+      ]).explain()),
+      // (2) consumo real do sinalizador — EngagementEvent.exists de routes/sinalizacao.js
+      planoVencedor(await EngagementEvent.findOne({ seriesId: sid, userId: uid, type: { $in: ['view', 'read'] }, flagged: false }).select('_id').explain()),
+      // (3) engajamento recente do algoritmo — services/recommendationService.js coletarSinaisInatividade
+      planoVencedor(await EngagementEvent.findOne({ seriesId: sid, flagged: false }).select('_id').explain()),
+    ];
+    for (const plano of planos) {
+      expect(plano).toMatch(/IXSCAN/);
+      expect(plano).toMatch(/"indexName":"seriesId_1_userId_1_type_1_flagged_1"/);
+      expect(plano).not.toMatch(/COLLSCAN/);
+    }
   });
 });

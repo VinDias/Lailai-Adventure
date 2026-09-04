@@ -140,6 +140,18 @@ async function logSistema(action, seriesId, details) {
 }
 
 /**
+ * Traduz contagens vivas + V no gatilho a aplicar, ou null se nada dispara.
+ * Existe para que a decisão seja tomada UMA vez, sobre a contagem mais nova
+ * (ver a reconferência em avaliarObra) — sem duplicar a escada de limiares.
+ */
+function decidirGatilho({ S, S_grave }, V) {
+  if (S_grave >= L.GRAVE) return { tipo: 'grave', limiar: L.GRAVE, prioridade: 'grave' };
+  const limiar = L.limiarPara(V);
+  if (S < limiar) return null;
+  return { tipo: L.tipoGatilho(V), limiar, prioridade: 'normal' };
+}
+
+/**
  * Avalia UMA obra. Lança para o chamador (testes); dispararAvaliacao absorve.
  * Ordem (spec): contagens baratas → curto-circuito → V só se necessário →
  * caso (índice único parcial decide a corrida) → aviso em try/catch próprio
@@ -161,31 +173,45 @@ async function avaliarObra(seriesId, { agora = new Date() } = {}) {
   const atingiuGrave = S_grave >= L.GRAVE;
   const casoAberto = await CasoCuradoria.findOne({ seriesId, emAberto: true });
   if (casoAberto) {
-    casoAberto.resumoMotivos = resumoMotivos;
-    casoAberto.gatilho.S = S;
     const escalona = atingiuGrave && casoAberto.prioridade !== 'grave';
-    if (escalona) casoAberto.prioridade = 'grave';
-    await casoAberto.save();
-    if (escalona) await logSistema('CURADORIA_CASO_ESCALONADO', seriesId, { casoId: String(casoAberto._id), S, S_grave });
+    // Update CONDICIONAL a `emAberto:true` (consolidação, item 3): o
+    // `casoAberto.save()` de antes escrevia sobre um documento lido dois
+    // awaits atrás — um curador fechando o caso nessa janela via
+    // resumoMotivos/gatilho.S/prioridade do ciclo NOVO gravados por cima da
+    // decisão dele, e um AdminLog de escalonamento de um caso já decidido.
+    const r = await CasoCuradoria.updateOne(
+      { _id: casoAberto._id, emAberto: true },
+      { $set: { resumoMotivos, 'gatilho.S': S, ...(escalona ? { prioridade: 'grave' } : {}) } },
+    );
+    if (r.matchedCount === 1) {
+      casoAberto.resumoMotivos = resumoMotivos;
+      casoAberto.gatilho.S = S;
+      if (escalona) casoAberto.prioridade = 'grave';
+    }
+    if (escalona && r.modifiedCount === 1) await logSistema('CURADORIA_CASO_ESCALONADO', seriesId, { casoId: String(casoAberto._id), S, S_grave });
     return casoAberto;
   }
 
   const V = await contarConsumidoresUnicos(seriesId);
-  let tipo, limiar;
-  if (atingiuGrave) {
-    tipo = 'grave'; limiar = L.GRAVE;
-  } else {
-    limiar = L.limiarPara(V);
-    if (S < limiar) return null;
-    tipo = L.tipoGatilho(V);
-  }
+  // RECONFERÊNCIA antes de abrir (consolidação, item 3): entre a contagem
+  // acima e este ponto houve o aggregate de V na coleção mais volumosa do
+  // app — tempo de sobra para um `aprovar` concorrente marcar revisadaEm em
+  // TODAS as pendentes. Sem reconferir, o caso novo nascia com um gatilho.S
+  // que já não existia e o artista levava um 2º aviso de abertura logo depois
+  // do aviso de fechamento. A query é barata (índice
+  // {seriesId, revisadaEm, valida}) e só roda no caminho que ABRE caso.
+  const conferida = await contarSinalizacoes(seriesId, { agora });
+  const gatilho = decidirGatilho(conferida, V);
+  if (!gatilho) return null;
 
   let caso;
   try {
     caso = await CasoCuradoria.create({
       seriesId, emAberto: true, status: 'aberto',
-      prioridade: atingiuGrave ? 'grave' : 'normal',
-      abertoEm: agora, gatilho: { tipo, S, V, limiar }, resumoMotivos,
+      prioridade: gatilho.prioridade,
+      abertoEm: agora,
+      gatilho: { tipo: gatilho.tipo, S: conferida.S, V, limiar: gatilho.limiar },
+      resumoMotivos: conferida.resumoMotivos,
     });
   } catch (err) {
     // Outro fluxo abriu o caso entre o findOne e o create: ele avisa e loga.
@@ -197,7 +223,7 @@ async function avaliarObra(seriesId, { agora = new Date() } = {}) {
 
   let aviso = { status: 'falhou', mensagemId: null };
   try {
-    const rotulos = Object.keys(resumoMotivos).map(m => ROTULO_MOTIVO[m] || m);
+    const rotulos = Object.keys(conferida.resumoMotivos).map(m => ROTULO_MOTIVO[m] || m);
     aviso = await enviarAvisoArtista(series, TEXTOS.abertura(series.title, rotulos));
   } catch (err) {
     logger.error('[Curadoria] aviso ao artista falhou', err && err.message);
@@ -206,7 +232,7 @@ async function avaliarObra(seriesId, { agora = new Date() } = {}) {
   caso.mensagemAvisoId = aviso.mensagemId;
   await caso.save();
 
-  await logSistema('CURADORIA_CASO_ABERTO', seriesId, { casoId: String(caso._id), tipo, S, S_grave, V, limiar, avisoArtista: aviso.status });
+  await logSistema('CURADORIA_CASO_ABERTO', seriesId, { casoId: String(caso._id), tipo: gatilho.tipo, S: conferida.S, S_grave: conferida.S_grave, V, limiar: gatilho.limiar, avisoArtista: aviso.status });
   return caso;
 }
 
@@ -233,7 +259,20 @@ function flushForTests() {
 async function reavaliarPendentes({ agora = new Date() } = {}) {
   const Sinalizacao = require('../models/Sinalizacao');
   const CasoCuradoria = require('../models/CasoCuradoria');
-  const candidatas = await Sinalizacao.distinct('seriesId', { valida: true, revisadaEm: null });
+  // O CURTO-CIRCUITO acontece no BANCO (consolidação, item 4): o `distinct`
+  // de antes devolvia TODA obra com uma única sinalização pendente — o
+  // conjunto só cresce (obra despublicada com pendente nunca sai dele) e cada
+  // candidata custava um Series.findById + duas contagens para terminar em
+  // null. Aqui só sobem as obras que já podem disparar alguma coisa: total
+  // >= PISO_PEQUENA (o menor limiar possível) ou graves >= GRAVE. `grave` é
+  // o campo derivado do motivo, gravado na sinalização.
+  const grupos = await Sinalizacao.aggregate([
+    { $match: { valida: true, revisadaEm: null } },
+    { $group: { _id: '$seriesId', total: { $sum: 1 }, graves: { $sum: { $cond: ['$grave', 1, 0] } } } },
+    { $match: { $or: [{ total: { $gte: L.PISO_PEQUENA } }, { graves: { $gte: L.GRAVE } }] } },
+    { $project: { _id: 1 } },
+  ]);
+  const candidatas = grupos.map(g => g._id);
   if (!candidatas.length) return 0;
   const comCaso = new Set((await CasoCuradoria.distinct('seriesId', { seriesId: { $in: candidatas }, emAberto: true })).map(String));
   let abertos = 0;
@@ -259,9 +298,54 @@ function iniciarReavaliacaoPeriodica() {
     reavaliarPendentes().catch((err) => logger.error('[Curadoria] reavaliação periódica falhou', err && err.message));
   }, REAVALIACAO_INTERVALO_MS);
   if (typeof timerReavaliacao.unref === 'function') timerReavaliacao.unref();
+  // Varredura de BOOT (consolidação, item 8): só o setInterval significava
+  // que um processo reiniciado pelo PM2 antes de completar 24h nunca rodava a
+  // maturação — as contas que completaram a idade mínima ficavam esperando
+  // alguém abrir a fila do admin. Fire-and-forget (a função continua
+  // SÍNCRONA: server.js chama sem .catch), com a promise registrada em
+  // `pendentes` para o flushForTests dos testes.
+  const p = reavaliarPendentes()
+    .catch((err) => logger.error('[Curadoria] varredura de boot da reavaliação falhou', err && err.message))
+    .finally(() => pendentes.delete(p));
+  pendentes.add(p);
 }
 function pararReavaliacaoPeriodica() {
   if (timerReavaliacao) { clearInterval(timerReavaliacao); timerReavaliacao = null; }
+}
+
+/**
+ * RESERVA o caso para este curador sem decidi-lo (`emAberto:false` com o
+ * status intacto). Existe porque `remover` e `reclassificar` ALTERAM A OBRA
+ * antes de fechar: sem reivindicar primeiro, dois curadores simultâneos
+ * despublicavam/reclassificavam a obra e SÓ DEPOIS descobriam que perderam a
+ * corrida — a obra saía do ar sem AdminLog e o artista recebia "obra mantida
+ * sem alterações" (viola a regra 1 do Vin: só o curador que decide muda a
+ * obra). Devolve false para quem perdeu (a rota responde 409 sem tocar em
+ * nada). Enquanto reivindicado o caso não aparece na fila (`emAberto:true`)
+ * nem no histórico (`status:'fechado'`) — ver o filtro de GET /curadoria.
+ */
+async function reivindicarCaso(casoId) {
+  const CasoCuradoria = require('../models/CasoCuradoria');
+  const r = await CasoCuradoria.updateOne({ _id: casoId, emAberto: true }, { $set: { emAberto: false } });
+  return r.modifiedCount === 1;
+}
+
+/**
+ * Desfaz a reivindicação quando a alteração da obra falhou — sem isto o caso
+ * ficaria invisível para sempre (fora da fila e fora do histórico).
+ * `status: {$ne:'fechado'}` protege contra devolver um caso que já foi
+ * decidido nesse meio-tempo. O erro do próprio update é ENGOLIDO (log) para
+ * não mascarar o erro original que a rota está propagando; o caso pode ter
+ * ganhado um irmão aberto (índice único parcial em {seriesId, emAberto:true})
+ * enquanto estava reivindicado, e nesse caso o E11000 aqui é esperado.
+ */
+async function devolverReivindicacao(casoId) {
+  const CasoCuradoria = require('../models/CasoCuradoria');
+  try {
+    await CasoCuradoria.updateOne({ _id: casoId, emAberto: false, status: { $ne: 'fechado' } }, { $set: { emAberto: true } });
+  } catch (err) {
+    logger.error('[Curadoria] devolver reivindicação falhou', err && err.message);
+  }
 }
 
 /**
@@ -269,44 +353,53 @@ function pararReavaliacaoPeriodica() {
  * `abuso` marca só as que eram válidas (as 'sem_consumo' mantêm o motivo).
  * `motivoDecisao` é o texto que VAI ao artista; `observacao` é interna.
  *
- * Fix round T4 (item 4): LOCK OTIMISTA antes de tocar qualquer coisa. Dois
- * curadores agindo no mesmo caso ao mesmo tempo (ex. 2 abas abertas) sem
- * isto gravariam 2 avisos ao artista e 2 AdminLogs — o `updateOne` com o
- * filtro `emAberto:true` é ATÔMICO no MongoDB (documento único): só quem
- * "ganha" a corrida encontra `modifiedCount:1` e segue; o perdedor lança 409
- * ANTES de mexer em Sinalizacao (senão as sinalizações já revisadas pelo
- * vencedor seriam regravadas com um `agora` diferente). `tratarErro` das
- * rotas admin já mapeia `err.status` para a resposta HTTP.
+ * LOCK OTIMISTA com a decisão INTEIRA num único `findOneAndUpdate` atômico —
+ * dois curadores no mesmo caso (ex. 2 abas) dão 1 fechamento, 1 aviso, 1
+ * AdminLog; o perdedor lança 409 ANTES de tocar em Sinalizacao (senão as
+ * sinalizações já revisadas pelo vencedor seriam regravadas com outro
+ * `agora`). Os dois `updateMany` vêm DEPOIS de propósito (consolidação, item
+ * 5): quando o claim gravava só `emAberto:false` e a decisão ia num
+ * `caso.save()` no fim, uma falha no meio deixava o caso `emAberto:false +
+ * status:'aberto' + decisao:null` — fora da fila, fora do histórico e 409
+ * para sempre. Nesta ordem o pior caso é sinalização pendente que abre um
+ * ciclo novo, nunca um caso preso. `tratarErro` das rotas admin já mapeia
+ * `err.status` para a resposta HTTP.
+ *
+ * `jaReivindicado` = o chamador já segurou o caso com `reivindicarCaso`
+ * (rotas que alteram a obra): aí o documento a fechar é o que está
+ * `emAberto:false` e ainda não decidido.
  */
-async function fecharCaso(caso, { decisao, adminId, observacao = null, motivoDecisao = null, abuso = false, agora = new Date() }) {
+async function fecharCaso(caso, { decisao, adminId, observacao = null, motivoDecisao = null, abuso = false, agora = new Date(), jaReivindicado = false }) {
   const Sinalizacao = require('../models/Sinalizacao');
   const CasoCuradoria = require('../models/CasoCuradoria');
-  const claim = await CasoCuradoria.updateOne({ _id: caso._id, emAberto: true }, { $set: { emAberto: false } });
-  if (claim.modifiedCount === 0) {
+  const decidido = await CasoCuradoria.findOneAndUpdate(
+    { _id: caso._id, emAberto: jaReivindicado ? false : true, status: { $ne: 'fechado' } },
+    {
+      $set: {
+        emAberto: false, status: 'fechado', decisao,
+        decididoPor: String(adminId), decisaoEm: agora, observacao,
+        // Grava SEMPRE, inclusive null (fix round T4, item 5) — um "solicitar
+        // correção" anterior deixava motivoDecisao preenchido; sem sobrescrever
+        // aqui, um "aprovar" logo depois herdaria esse texto e o histórico
+        // mostraria um "motivo" numa aprovação que não teve motivo.
+        motivoDecisao, sinalizacoesAbusivas: !!abuso,
+      },
+    },
+    { new: true },
+  );
+  if (!decidido) {
     throw Object.assign(new Error('Caso já fechado.'), { status: 409 });
   }
   if (abuso) {
     await Sinalizacao.updateMany({ seriesId: caso.seriesId, revisadaEm: null, valida: true }, { $set: { valida: false, invalidaMotivo: 'abuso' } });
   }
   await Sinalizacao.updateMany({ seriesId: caso.seriesId, revisadaEm: null }, { $set: { revisadaEm: agora } });
-  caso.emAberto = false;
-  caso.status = 'fechado';
-  caso.decisao = decisao;
-  caso.decididoPor = String(adminId);
-  caso.decisaoEm = agora;
-  caso.observacao = observacao;
-  // Fix round T4 (item 5): grava SEMPRE, inclusive null — um "solicitar
-  // correção" anterior deixava motivoDecisao preenchido; sem sobrescrever
-  // aqui, um fechamento por "aprovar" logo depois herdaria esse texto e o
-  // histórico mostraria um "motivo" numa aprovação que não teve motivo.
-  caso.motivoDecisao = motivoDecisao;
-  caso.sinalizacoesAbusivas = !!abuso;
-  await caso.save();
-  return caso;
+  return decidido;
 }
 
 module.exports = {
   contarConsumidoresUnicos, contarSinalizacoes, avaliarObra, dispararAvaliacao, flushForTests,
   reavaliarPendentes, iniciarReavaliacaoPeriodica, pararReavaliacaoPeriodica,
-  enviarAvisoArtista, fecharCaso, TEXTOS, ROTULO_MOTIVO, ROTULO_RATING,
+  enviarAvisoArtista, reivindicarCaso, devolverReivindicacao, fecharCaso,
+  TEXTOS, ROTULO_MOTIVO, ROTULO_RATING,
 };

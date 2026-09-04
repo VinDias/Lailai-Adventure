@@ -36,6 +36,16 @@ EngagementEventSchema.index({ type: 1, flagged: 1, createdAt: -1 });
 // "consumo real" do sinalizador ({seriesId, userId}). Só ÍNDICE — nenhum
 // documento é tocado (append-only + cadeia de hash intactos). Também serve
 // às queries por seriesId de services/recommendationService.js.
-EngagementEventSchema.index({ seriesId: 1, userId: 1, type: 1, flagged: 1 });
+//
+// PARCIAL em `seriesId: {$exists: true}`: os eventos de anúncio
+// (ad_impression/ad_click) nascem SEM seriesId (services/engagementLogger.js
+// grava `seriesId || undefined`) e entrariam na chave só para ocupar espaço —
+// nenhuma consulta procura por seriesId ausente. Toda query consumidora filtra
+// por um seriesId concreto, o que implica $exists:true e mantém o índice
+// elegível (pinado por explain em tests/backend/curadoriaService.test.js).
+EngagementEventSchema.index(
+  { seriesId: 1, userId: 1, type: 1, flagged: 1 },
+  { partialFilterExpression: { seriesId: { $exists: true } } },
+);
 
 module.exports = mongoose.model('EngagementEvent', EngagementEventSchema);
