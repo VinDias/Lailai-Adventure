@@ -263,6 +263,7 @@ app.use("/api/me", require("./routes/progress"));
 app.use("/api/settings", require("./routes/settings"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
 app.use("/api/content", require("./routes/content"));
+app.use("/api/content", require("./routes/sinalizacao")); // Fase 5 Bloco 3: sinalizar conteudo (leitor)
 app.use("/api/channels", require("./routes/channels"));
 app.use("/api/portal", require("./routes/portal"));
 app.use("/api/favorites", require("./routes/favorites"));
