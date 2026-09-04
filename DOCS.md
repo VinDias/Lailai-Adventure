@@ -137,6 +137,38 @@ A partir deste deploy as rotas públicas passam a filtrar por publicado (busca, 
 
 ---
 
+## Controle Parental + Tags (Fase 5, Bloco 2)
+
+Classificação etária oficial (`Series.content_rating`) e filtro pessoal por tags do vocabulário fechado (19 slugs, `utils/tagsVocabulario.json`). Reaproveita a infraestrutura existente — **nenhuma variável de ambiente nova**.
+
+### Passo manual pós-deploy: migrar as tags livres do acervo para o vocabulário fechado
+
+Antes deste bloco, `Series.tags` aceitava qualquer string livre (Bloco 4 da Fase 4). O validator agora só aceita 0–8 slugs do vocabulário oficial (`models/Series.js:40-45`) — sem migrar, a primeira edição de uma série com tags livres antigas (inclusive um draft do portal) responde 400. Rode nesta ordem, **na VPS**, depois do `git pull`:
+
+1. **Dry-run primeiro (não escreve nada):**
+   ```bash
+   node scripts/migrarTagsVocabulario.js
+   ```
+   Sem `--apply` o script sempre roda em modo leitura (`scripts/migrarTagsVocabulario.js:308` — `dryRun = !process.argv.includes('--apply')`). A saída lista: total de séries, todas as tags livres distintas do acervo real com a contagem de obras e o mapeamento proposto (`tag → slug` ou `NÃO MAPEADA`), o antes/depois por obra e um resumo. **Copie essa saída e mande para quem escreveu o script** — o mapa manual (próximo passo) é fechado com base nela, porque o desenvolvimento não tem acesso às tags de produção.
+
+2. **Ajuste o mapa se necessário.** O mapa fica em `scripts/mapaTagsVocabulario.js` (objeto `{ 'tag livre normalizada': 'slug' }`, já pré-populado com o óbvio: identidade, rótulo em português, sinônimos evidentes). Qualquer tag "NÃO MAPEADA" no dry-run que devesse virar um slug entra ali — a ORDEM das entradas do objeto define a prioridade de qual tag sobrevive quando uma obra tem mais de 8 tags mapeáveis (comentário no topo do arquivo explica o porquê).
+
+3. **Aplicar de verdade:**
+   ```bash
+   node scripts/migrarTagsVocabulario.js --apply
+   ```
+   Cobre **todas** as séries — publicadas, despublicadas e drafts (`scripts/migrarTagsVocabulario.js:197` — `Series.find()` sem filtro nenhum). É seguro rodar mais de uma vez: tags já migradas (já slugs válidos) passam direto sem gravação, então nada é regravado (`scripts/migrarTagsVocabulario.js:163` calcula `mudou`; `:219-225` só escreve quando `mudou === true`). Se o mapa produzir algo inválido (slug fora do vocabulário, ou mais de 8 depois do corte), o script aborta **sem escrever nada** — nem as obras que estavam corretas (`scripts/migrarTagsVocabulario.js:150-161`, o ASSERT roda dentro de `planejarMigracao`, que termina 100% antes de qualquer `updateOne`).
+
+4. `npm run build` e reinicie o PM2 como de costume (`npm run restart`).
+
+### `content_rating`/`tags` ausentes no documento — corrigido sozinho no boot, sem passo manual
+Séries de antes deste bloco não têm `content_rating` gravado (o campo nasceu com `default: null` na Task 1, mas o Mongoose só aplica default em `create()`/`save()`, nunca retroativamente a documentos já existentes); séries de antes da Fase 3/4 também podem não ter `tags`. O boot do servidor roda um backfill idempotente **antes** de aceitar conexões (`server.js:740-750` — `app.listen` só chama depois de `backfillCamposParental()` terminar; falha aqui derruba o boot em vez de servir 500 silencioso) — `services/parentalBackfill.js:51-58`. O passo 3 acima (`--apply`) chama a **mesma função**, então rodar a migração já cobre isso também; o backfill do boot é a rede de segurança para o que a migração não tocar (séries sem `tags` no documento) e para qualquer novo deploy futuro.
+
+### Smoke manual da recomendação antes/depois (não é teste automatizado)
+O algoritmo de recomendação (`services/recommendationService.js`) usa `Series.tags` para a Afinidade — migrar o acervo muda a cardinalidade das tags reais (Bloco 4 tinha mínimo 5; este bloco não tem mínimo, até 8). Para conferir manualmente que o ranking não regrediu: suba `node scripts/devMock.js` (Mongo em memória com um catálogo de teste com tags livres), rode `node scripts/migrarTagsVocabulario.js` (dry-run) contra ele para ver o mapeamento real do seed, compare `GET /api/content/recommendations` antes e depois de aplicar a migração no mesmo ambiente. **Tags do seed do devMock que hoje NÃO mapeiam** com o mapa inicial (`scripts/mapaTagsVocabulario.js`): `noir`, `vampiros`, `gotico`, `slow burn`, `musical`, `juvenil`, `urbano`, `experimental`, `curta`, `poetico` — ficam registradas aqui para quem decidir se vale adaptar o seed (o script **não** altera `scripts/devMock.js`).
+
+---
+
 ## Ativar Notificações Push na VPS
 
 ### Gerar Chaves VAPID (uma única vez)
