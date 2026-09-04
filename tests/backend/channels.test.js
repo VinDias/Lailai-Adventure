@@ -46,6 +46,20 @@ describe('POST /api/channels', () => {
     expect(res.status).toBe(201);
     expect(res.body.name).toBe('Canal Criado Pelo Admin');
   });
+
+  // Fix round da T8 — achado do revisor: name como ARRAY faz o Mongoose
+  // lançar ValidationError (não CastError) na criação — Channel.create()
+  // roda validação completa ANTES de salvar (diferente do cast síncrono de
+  // findByIdAndUpdate). Sem tratamento de ValidationError, caía no catch
+  // genérico e virava 500.
+  it('name como ARRAY (ValidationError, não CastError) -> 400, não 500', async () => {
+    const res = await request(app)
+      .post('/api/channels')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ name: ['a', 'b'] });
+    expect(res.status).toBe(400);
+    expect(res.status).not.toBe(500);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -155,6 +169,24 @@ describe('PUT /api/channels/:id', () => {
     const inalterado = await Channel.findById(canalDeOutro._id).lean();
     expect(inalterado.description).not.toBe('Tentando editar canal alheio');
   });
+
+  // Fix round da T8 — achado do revisor: name como ARRAY faz channel.save()
+  // lançar ValidationError (não CastError) — validação completa do documento
+  // roda no save(), diferente do cast síncrono de findByIdAndUpdate (que é
+  // o caminho que produz CastError puro em routes/adminPortal.js). Sem
+  // tratamento de ValidationError aqui, caía no catch genérico e virava 500.
+  it('name como ARRAY (ValidationError, não CastError) -> 400, não 500', async () => {
+    const canal = await criarCanal('user', 'Canal Validation Error');
+    const res = await request(app)
+      .put(`/api/channels/${canal._id}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ name: ['a', 'b'] });
+    expect(res.status).toBe(400);
+    expect(res.status).not.toBe(500);
+
+    const inalterado = await Channel.findById(canal._id).lean();
+    expect(inalterado.name).toBe('Canal Validation Error');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -234,6 +266,229 @@ describe('GET /api/channels/:id — shape público', () => {
 // público já escondia; /me, a resposta do PUT e a do desativar ainda vazavam
 // os userIds dos seguidores (dado pessoal de leitor).
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Higiene do Bloco 1 (Fase 5 Bloco 2, Task 8): CastError (id malformado) em
+// TODAS as rotas de canal com :id devolve 404 — não mais o 500 do catch
+// genérico (o CastError do Mongoose caía sem tratamento específico). Padrão
+// restrito a `err.path === '_id'` (utils/routeErrors.js) — ver o mesmo
+// arquivo para o outro lado (CastError em outro campo → 400, coberto em
+// adminAprovacoes.test.js, a rota que de fato recebe campos castáveis).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Higiene do Bloco 1: CastError (id malformado) → 404 em rotas de canal', () => {
+  const ID_MALFORMADO = 'id-nao-e-um-objectid';
+
+  it('GET /api/channels/:id', async () => {
+    const res = await request(app).get(`/api/channels/${ID_MALFORMADO}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('PUT /api/channels/:id (admin)', async () => {
+    const res = await request(app)
+      .put(`/api/channels/${ID_MALFORMADO}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ description: 'X' });
+    expect(res.status).toBe(404);
+  });
+
+  it('PUT /api/channels/:id (não-admin)', async () => {
+    const res = await request(app)
+      .put(`/api/channels/${ID_MALFORMADO}`)
+      .set('Authorization', `Bearer ${getToken('user')}`)
+      .send({ description: 'X' });
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/channels/:id/desativar', async () => {
+    const res = await request(app)
+      .post(`/api/channels/${ID_MALFORMADO}/desativar`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/channels/:id/reativar', async () => {
+    const res = await request(app)
+      .post(`/api/channels/${ID_MALFORMADO}/reativar`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /api/channels/:id/follow', async () => {
+    const res = await request(app)
+      .post(`/api/channels/${ID_MALFORMADO}/follow`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('DELETE /api/channels/:id/follow', async () => {
+    const res = await request(app)
+      .delete(`/api/channels/${ID_MALFORMADO}/follow`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(res.status).toBe(404);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/channels?includeInactive=true — Fase 5 Bloco 2, Task 8. A rota já
+// é admin-only (middleware requireAdmin) — não-admin nunca alcança o
+// handler, então o parâmetro simplesmente não tem efeito nenhum pra ele.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('GET /api/channels?includeInactive=true', () => {
+  it('admin sem o parâmetro: só ativos (regressão do shape antigo)', async () => {
+    const ativo = await criarCanal('user', 'Canal Ativo Regressao IncludeInactive');
+    const inativo = await criarCanal('premium', 'Canal Inativo Regressao IncludeInactive');
+    inativo.isActive = false;
+    await inativo.save();
+
+    const res = await request(app)
+      .get('/api/channels')
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+    expect(res.status).toBe(200);
+    expect(res.body.some(c => c._id === String(inativo._id))).toBe(false);
+    expect(res.body.some(c => c._id === String(ativo._id))).toBe(true);
+  });
+
+  it('admin com includeInactive=true: TODOS os canais, com isActive no shape', async () => {
+    const ativo = await criarCanal('user', 'Canal Ativo Com IncludeInactive');
+    const inativo = await criarCanal('premium', 'Canal Inativo Com IncludeInactive');
+    inativo.isActive = false;
+    await inativo.save();
+
+    const res = await request(app)
+      .get('/api/channels?includeInactive=true')
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+    expect(res.status).toBe(200);
+
+    const achadoInativo = res.body.find(c => c._id === String(inativo._id));
+    expect(achadoInativo).toBeDefined();
+    expect(achadoInativo.isActive).toBe(false);
+
+    const achadoAtivo = res.body.find(c => c._id === String(ativo._id));
+    expect(achadoAtivo).toBeDefined();
+    expect(achadoAtivo.isActive).toBe(true);
+  });
+
+  it('não-admin: 403 (a rota inteira é admin-only, o parâmetro não abre exceção)', async () => {
+    const res = await request(app)
+      .get('/api/channels?includeInactive=true')
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(res.status).toBe(403);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// POST /api/channels/:id/reativar — Fase 5 Bloco 2, Task 8 (conserto da
+// desativação sem inversa — cortesia registrada, não faturável no B2).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('POST /api/channels/:id/reativar', () => {
+  it('admin reativa o canal (isActive volta a true)', async () => {
+    const canal = await criarCanal('user', 'Canal A Reativar');
+    canal.isActive = false;
+    await canal.save();
+
+    const res = await request(app)
+      .post(`/api/channels/${canal._id}/reativar`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+    expect(res.status).toBe(200);
+    expect(res.body.isActive).toBe(true);
+
+    const atualizado = await Channel.findById(canal._id).lean();
+    expect(atualizado.isActive).toBe(true);
+  });
+
+  it('403 para não-admin (canal permanece inativo)', async () => {
+    const canal = await criarCanal('user', 'Canal Reativar Protegido');
+    canal.isActive = false;
+    await canal.save();
+
+    const res = await request(app)
+      .post(`/api/channels/${canal._id}/reativar`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(res.status).toBe(403);
+
+    const inalterado = await Channel.findById(canal._id).lean();
+    expect(inalterado.isActive).toBe(false);
+  });
+
+  it('canal inexistente → 404', async () => {
+    const res = await request(app)
+      .post('/api/channels/000000000000000000000000/reativar')
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('resposta não devolve followers[]', async () => {
+    const canal = await criarCanal('user', 'Canal Reativar Sem Followers');
+    canal.isActive = false;
+    canal.followers = [getId('premium')];
+    await canal.save();
+
+    const res = await request(app)
+      .post(`/api/channels/${canal._id}/reativar`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+    expect(res.status).toBe(200);
+    expect(res.body.followers).toBeUndefined();
+  });
+
+  it('NÃO desarquiva a thread de mensagens do canal (a arquivada era do ex-dono; o dono atual tem a vigente própria)', async () => {
+    const MensagemPortal = require('../../models/MensagemPortal');
+    const canal = await criarCanal('user', 'Canal Reativar Thread Arquivada');
+
+    const arquivada = await MensagemPortal.create({
+      canalId: canal._id,
+      ownerUserId: getId('premium'), // ex-dono simulado — não precisa ser o ownerId real do canal
+      autorTipo: 'ilustrador',
+      autorUserId: getId('premium'),
+      texto: 'Mensagem do ex-dono',
+      arquivadaEm: new Date('2026-08-01T00:00:00.000Z'),
+    });
+
+    await request(app)
+      .post(`/api/channels/${canal._id}/desativar`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+
+    await request(app)
+      .post(`/api/channels/${canal._id}/reativar`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+
+    const depois = await MensagemPortal.findById(arquivada._id).lean();
+    expect(depois.arquivadaEm).toEqual(new Date('2026-08-01T00:00:00.000Z'));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GET /api/channels/:id — admin enxerga canal INATIVO (Fase 5 Bloco 2, Task
+// 8): necessário pro CanaisPanel buscar o detalhe completo (dono populado
+// etc.) de um canal inativo listado via includeInactive=true. Público e
+// não-admin continuam recebendo 404 — só o shape pinado da Fase 5 muda de
+// consumidor, nunca de forma.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('GET /api/channels/:id — admin enxerga canal inativo', () => {
+  it('canal inativo: 404 para anônimo e não-admin; 200 (com isActive:false) para admin', async () => {
+    const canal = await criarCanal('user', 'Canal Inativo Detalhe Admin');
+    canal.isActive = false;
+    await canal.save();
+
+    const anonimo = await request(app).get(`/api/channels/${canal._id}`);
+    expect(anonimo.status).toBe(404);
+
+    const naoAdmin = await request(app)
+      .get(`/api/channels/${canal._id}`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(naoAdmin.status).toBe(404);
+
+    const admin = await request(app)
+      .get(`/api/channels/${canal._id}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+    expect(admin.status).toBe(200);
+    expect(admin.body.isActive).toBe(false);
+    expect(admin.body.followers).toBeUndefined();
+  });
+});
 
 describe('followers[] nunca sai nas demais respostas de canal', () => {
   it('GET /channels/me não devolve followers[]', async () => {

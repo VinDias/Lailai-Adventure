@@ -459,6 +459,133 @@ describe('POST /api/content/episodes — criação (admin)', () => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// episode_number duplicado (Fase 5 Bloco 2, Task 8 — higiene do Bloco 1):
+// validação NA ROTA (não índice único — séries antigas podem ter duplicatas
+// de antes desta task). Mesma validação existe do lado do portal (routes/
+// portal.js POST /series/:id/episodios) — ver tests/backend/portalCrud.test.js.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('POST /api/content/episodes — episode_number duplicado (admin)', () => {
+  it('mesmo episode_number na MESMA série → 400 (não cria)', async () => {
+    const serieRes = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Serie Numero Duplicado Admin', genre: 'Drama', content_type: 'hqcine', isPublished: true });
+    const idSerie = serieRes.body._id;
+
+    const primeiro = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: idSerie, episode_number: 1, title: 'Ep Admin Um' });
+    expect(primeiro.status).toBe(201);
+
+    const duplicado = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: idSerie, episode_number: 1, title: 'Ep Admin Um De Novo' });
+    expect(duplicado.status).toBe(400);
+    expect(duplicado.body.error).toMatch(/epis[oó]dio/i);
+
+    const Episode = require('../../models/Episode');
+    const total = await Episode.countDocuments({ seriesId: idSerie });
+    expect(total).toBe(1);
+  });
+
+  it('episode_number DIFERENTE na mesma série → 201', async () => {
+    const serieRes = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Serie Numero Diferente Admin', genre: 'Drama', content_type: 'hqcine', isPublished: true });
+    const idSerie = serieRes.body._id;
+
+    await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: idSerie, episode_number: 1, title: 'Ep Admin Um Diferente' });
+
+    const segundo = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: idSerie, episode_number: 2, title: 'Ep Admin Dois Diferente' });
+    expect(segundo.status).toBe(201);
+  });
+
+  it('mesma numeração em OUTRA série → 201 (a restrição é só dentro da MESMA série)', async () => {
+    const serieARes = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Serie A Numero Admin', genre: 'Drama', content_type: 'hqcine', isPublished: true });
+    const serieBRes = await request(app)
+      .post('/api/content/series')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ title: 'Serie B Numero Admin', genre: 'Drama', content_type: 'hqcine', isPublished: true });
+
+    await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: serieARes.body._id, episode_number: 1, title: 'Ep A1 Admin' });
+
+    const capB = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId: serieBRes.body._id, episode_number: 1, title: 'Ep B1 Admin' });
+    expect(capB.status).toBe(201);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fix round da T8 (Fase 5 Bloco 2) — o revisor achou que a divida "CastError
+// -> 500" tinha sido fechada só PARCIALMENTE: estas 3 rotas de content.js
+// (todas optionalAuth, anonimo E logado passam pelo MESMO catch) e o POST
+// /episodes admin (episode_number malformado) ainda davam 500. Fechado com
+// utils/routeErrors.js::responderCastError, mesmo padrao das rotas de canal/
+// portal/adminPortal.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('Higiene do Bloco 1 (fix round T8): CastError (id malformado) → 404 em content.js', () => {
+  const ID_MALFORMADO = 'id-nao-e-um-objectid';
+
+  it('GET /api/content/series/:id — anônimo e logado', async () => {
+    const anonimo = await request(app).get(`/api/content/series/${ID_MALFORMADO}`);
+    expect(anonimo.status).toBe(404);
+
+    const logado = await request(app)
+      .get(`/api/content/series/${ID_MALFORMADO}`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(logado.status).toBe(404);
+  });
+
+  it('GET /api/content/series/:id/episodes — anônimo e logado', async () => {
+    const anonimo = await request(app).get(`/api/content/series/${ID_MALFORMADO}/episodes`);
+    expect(anonimo.status).toBe(404);
+
+    const logado = await request(app)
+      .get(`/api/content/series/${ID_MALFORMADO}/episodes`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(logado.status).toBe(404);
+  });
+
+  it('GET /api/content/episodes/:id — anônimo e logado', async () => {
+    const anonimo = await request(app).get(`/api/content/episodes/${ID_MALFORMADO}`);
+    expect(anonimo.status).toBe(404);
+
+    const logado = await request(app)
+      .get(`/api/content/episodes/${ID_MALFORMADO}`)
+      .set('Authorization', `Bearer ${getToken('user')}`);
+    expect(logado.status).toBe(404);
+  });
+
+  it('POST /api/content/episodes — episode_number malformado (CastError em campo diferente de _id) → 400, não 500', async () => {
+    const res = await request(app)
+      .post('/api/content/episodes')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ seriesId, episode_number: 'abc', title: 'Ep Numero Malformado' });
+    expect(res.status).toBe(400);
+    expect(res.status).not.toBe(500);
+  });
+});
+
 describe('DELETE /api/content/episodes/:id', () => {
   it('admin remove episódio e ele some da listagem', async () => {
     const create = await request(app)

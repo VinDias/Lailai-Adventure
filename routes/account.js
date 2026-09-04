@@ -29,6 +29,7 @@ const ReadingProgress = require('../models/ReadingProgress');
 const PushSubscription = require('../models/PushSubscription');
 const SuperReaderContribution = require('../models/SuperReaderContribution');
 const MensagemPortal = require('../models/MensagemPortal');
+const { avaliarTentativaPin, paraUpdateParental } = require('../services/parentalPinService');
 
 /**
  * LGPD — Direitos do titular dos dados (Art. 18).
@@ -78,6 +79,16 @@ router.get('/me/export', verifyToken, async (req, res) => {
     const user = await User.findById(req.user.id).select('-passwordHash').lean();
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
+    // parental.pinHash tem select:false — a query acima já vem SEM ele, então
+    // não há como derivar `temPin` do `user` já carregado. Uma 2ª query,
+    // enxuta (só `_id` + `parental.pinHash`, confirmado: projeção de
+    // inclusão de um path aninhado override o select:false sem precisar do
+    // prefixo "+" e sem trazer o resto do documento), busca só o suficiente
+    // para o booleano — o hash em si é descartado logo em seguida e NUNCA
+    // entra no payload (só `temPin` deriva dele).
+    const parentalPin = await User.findById(req.user.id).select('parental.pinHash').lean();
+    const temPin = !!(parentalPin && parentalPin.parental && parentalPin.parental.pinHash);
+
     const [votes, seriesVotes, favorites, channels, readingProgress, pushSubscriptions, superReaderContributions, portalMessages] = await Promise.all([
       Vote.find({ userId: req.user.id }).lean(),
       SeriesVote.find({ userId: req.user.id }).lean(),
@@ -112,6 +123,16 @@ router.get('/me/export', verifyToken, async (req, res) => {
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         consent: user.consent || null,
+        // Fase 5 Bloco 2 (LGPD): campo a campo, NUNCA por spread — o
+        // payload é allowlist (mesma regra das seções acima). pinHash
+        // jamais aparece aqui, nem como valor nem como presença de campo:
+        // só o booleano `temPin` (derivado acima, sem o hash chegar perto
+        // deste objeto).
+        parental: {
+          classificacaoEtaria: user.parental?.classificacaoEtaria ?? 'young',
+          tagsBloqueadas: user.parental?.tagsBloqueadas ?? [],
+          temPin,
+        },
       },
       votes: votes.map(v => ({ episodeId: v.episodeId, type: v.type, createdAt: v.createdAt })),
       seriesVotes: seriesVotes.map(v => ({ seriesId: v.seriesId, type: v.type, createdAt: v.createdAt })),
@@ -192,7 +213,7 @@ router.put('/me/consent', verifyToken, async (req, res) => {
 // ─── EXCLUSÃO DE CONTA (DIREITO AO ESQUECIMENTO) ─────────────────────────────
 router.delete('/me', verifyToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).select('+parental.pinHash');
     if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
 
     // Confirmação por senha para contas locais (evita exclusão acidental/CSRF).
@@ -203,6 +224,24 @@ router.delete('/me', verifyToken, async (req, res) => {
       }
       const ok = await bcrypt.compare(password, user.passwordHash || '');
       if (!ok) return res.status(401).json({ error: 'Senha incorreta.' });
+    }
+
+    // Fase 5 Bloco 2: com PIN de proteção definido, a exclusão TAMBÉM exige
+    // o PIN — de QUALQUER provider (inclusive social, que não passou pela
+    // checagem de senha acima). Sem isso, quem sabe a senha (ou já tem a
+    // sessão social aberta) apagaria a conta e recriaria sem parental —
+    // mesma brecha que o PUT fecha para as próprias tagsBloqueadas do
+    // adulto. Mesmo rate limit persistido das outras rotas do PIN. ORDEM:
+    // senha (acima, só local) → PIN (aqui) → 409 de canal ativo (abaixo) →
+    // efeitos — todas as checagens de "pode fazer isso" acontecem ANTES de
+    // qualquer side effect (Stripe, deletes).
+    const temPin = !!(user.parental && user.parental.pinHash);
+    if (temPin) {
+      const avaliacao = await avaliarTentativaPin({ user, pin: req.body?.pin });
+      if (avaliacao.updateParental) {
+        await User.findByIdAndUpdate(user._id, { $set: paraUpdateParental(avaliacao.updateParental) });
+      }
+      if (!avaliacao.ok) return res.status(avaliacao.status).json(avaliacao.body);
     }
 
     const userId = user._id;
@@ -269,6 +308,10 @@ router.delete('/me', verifyToken, async (req, res) => {
       Channel.updateMany({ followers: userId }, { $pull: { followers: userId } }),
       RefreshToken.deleteMany({ userId: userId.toString() }),
       PasswordResetToken.deleteMany({ userId }),
+      // Token de recuperação de PIN (Fase 5 Bloco 2) — mesmo tratamento do
+      // token de senha: sem isso ficava órfão até o TTL de 1h (achado da
+      // revisão da T3).
+      require('../models/ParentalPinResetToken').deleteMany({ userId }),
       // Log de royalties é append-only (cadeia de hash): eventos não podem ser
       // deletados, mas o vínculo com a conta é removido — o userId fica fora
       // do hash justamente para permitir esta desvinculação LGPD.

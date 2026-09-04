@@ -24,6 +24,20 @@ router.get("/", verifyToken, requireRole("superadmin"), async (req, res) => {
         .sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       User.countDocuments(filter)
     ]);
+    // parental (classificação etária, tags bloqueadas, PIN) é privado — nem
+    // superadmin vê no painel (Fase 5 Bloco 2, letra do PDF de 26/08).
+    // pinHash em si já sai protegido pelo select:false do schema (não é
+    // devolvido mesmo sem menção explícita na projeção acima), mas os
+    // DEMAIS campos do subdoc (classificacaoEtaria, tagsBloqueadas, ...)
+    // não têm select:false e viriam junto por padrão — por isso remove-se o
+    // subdoc inteiro aqui. NÃO dá para fazer isso via projeção do Mongo
+    // ("-parental" na string acima): colide com a exclusão automática de
+    // `parental.pinHash` (select:false) e o Mongo recusa a query com
+    // "Path collision at parental.pinHash" — dois caminhos do mesmo ramo
+    // (o pai `parental` e o filho `parental.pinHash`) não podem ser
+    // excluídos ao mesmo tempo. Pós-processar em vez de brigar com a
+    // projeção.
+    users.forEach(u => { delete u.parental; });
     res.json({ users, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     logger.error("[Admin Users] GET /", err);

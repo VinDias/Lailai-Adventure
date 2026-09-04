@@ -1,8 +1,11 @@
 /**
- * Testes: Admin — chips de tags no formulário de série (Fase 4, Bloco 4, Task 1).
- * Cobre: digitar + Enter/vírgula adiciona chip, X remove, dedupe e minúsculas
- * na borda da UI, contador "n/15", aviso de mínimo quando há 1–4 tags, e o
- * envio do array certo para api.createSeries / api.updateSeries (criar E
+ * Testes: Admin — seletor de tags no formulário de série (Fase 5 Bloco 2,
+ * Task 6 — RE-PINADO do desenho livre do Bloco 4).
+ * Cobre: 19 chips do vocabulário fechado (rótulo PT do JSON —
+ * utils/tagsVocabulario.json), clique liga/desliga, máx 8 (chips extras
+ * desabilitados ao atingir o teto), contador "n/8", SEM input livre e SEM o
+ * aviso de "mínimo 5" (revogado — spec rev.3, "Cardinalidade × algoritmo"),
+ * e o envio do array certo para api.createSeries / api.updateSeries (criar E
  * editar). Tags nunca aparecem fora do admin — confirmado por grep no
  * backend, sem componente do leitor referenciando `tags`.
  */
@@ -20,7 +23,7 @@ vi.mock('../../services/api', () => ({
     // AdminDashboard busca a fila de aprovação uma vez no mount, para o
     // badge da sidebar (Fase 5 Bloco 1, Task 10) — precisa existir no mock
     // mesmo em testes que não exercitam essa aba.
-    getAdminAprovacoes: vi.fn().mockResolvedValue({ itens: [] }),
+    getAdminAprovacoes: vi.fn().mockResolvedValue({ itens: [], naoClassificadas: 0 }),
   },
 }));
 
@@ -40,13 +43,8 @@ function fieldFor(labelText: string): HTMLInputElement {
   return input as HTMLInputElement;
 }
 
-function tagsInput(): HTMLElement {
-  return screen.getByLabelText('Adicionar tag');
-}
-
-function addTag(text: string) {
-  fireEvent.change(tagsInput(), { target: { value: text } });
-  fireEvent.keyDown(tagsInput(), { key: 'Enter' });
+function tagChip(rotuloPt: string): HTMLElement {
+  return screen.getByRole('button', { name: rotuloPt });
 }
 
 async function openCreateModal() {
@@ -62,79 +60,64 @@ beforeEach(() => {
   vi.mocked(api.listChannels).mockResolvedValue([] as any);
 });
 
-describe('AdminDashboard — chips de tags (criar série)', () => {
-  it('digitar e pressionar Enter adiciona um chip', async () => {
+describe('AdminDashboard — seletor fechado de tags (criar série)', () => {
+  it('renderiza os 19 chips do vocabulário com o rótulo PT', async () => {
     await openCreateModal();
-    addTag('aventura');
-    expect(screen.getByText('aventura')).toBeInTheDocument();
+    ['Romance', 'Drama', 'Comédia', 'Ação', 'Aventura', 'Fantasia', 'Dark Fantasy',
+      'Ficção Científica', 'Terror', 'Thriller', 'Mistério', 'Crime', 'Histórico',
+      'Sobrenatural', 'Super-heróis', 'Slice of Life', 'High School', 'Psicológico', 'LGBTQIA+',
+    ].forEach(rotulo => expect(tagChip(rotulo)).toBeInTheDocument());
   });
 
-  it('vírgula também adiciona o chip', async () => {
+  it('nenhum chip selecionado por padrão — contador 0/8', async () => {
     await openCreateModal();
-    fireEvent.change(tagsInput(), { target: { value: 'drama' } });
-    fireEvent.keyDown(tagsInput(), { key: ',' });
-    expect(screen.getByText('drama')).toBeInTheDocument();
+    expect(screen.getByText('0/8')).toBeInTheDocument();
+    ['Romance', 'Aventura'].forEach(r => expect(tagChip(r)).toHaveAttribute('aria-pressed', 'false'));
   });
 
-  it('normaliza para minúsculas ao adicionar', async () => {
+  it('clicar num chip liga (aria-pressed=true) e atualiza o contador', async () => {
     await openCreateModal();
-    addTag('AVENTURA');
-    expect(screen.getByText('aventura')).toBeInTheDocument();
-    expect(screen.queryByText('AVENTURA')).not.toBeInTheDocument();
+    fireEvent.click(tagChip('Aventura'));
+    expect(tagChip('Aventura')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('1/8')).toBeInTheDocument();
   });
 
-  it('não duplica chip já existente, mesmo com caixa diferente', async () => {
+  it('clicar de novo no mesmo chip desliga (toggle)', async () => {
     await openCreateModal();
-    addTag('drama');
-    addTag('DRAMA');
-    expect(screen.getAllByText('drama')).toHaveLength(1);
+    fireEvent.click(tagChip('Aventura'));
+    fireEvent.click(tagChip('Aventura'));
+    expect(tagChip('Aventura')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('0/8')).toBeInTheDocument();
   });
 
-  it('não adiciona chip vazio (input em branco)', async () => {
+  it('ao atingir 8 chips, os demais ficam desabilitados; os 8 ligados continuam clicáveis (dá pra desligar)', async () => {
     await openCreateModal();
-    addTag('   ');
-    expect(screen.getByText('0/15')).toBeInTheDocument();
+    const oito = ['Romance', 'Drama', 'Comédia', 'Ação', 'Aventura', 'Fantasia', 'Terror', 'Thriller'];
+    oito.forEach(r => fireEvent.click(tagChip(r)));
+    expect(screen.getByText('8/8')).toBeInTheDocument();
+
+    expect(tagChip('Mistério')).toBeDisabled();
+    expect(tagChip('Aventura')).not.toBeDisabled();
+
+    // Chip desabilitado não liga mesmo se clicado.
+    fireEvent.click(tagChip('Mistério'));
+    expect(tagChip('Mistério')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('8/8')).toBeInTheDocument();
+
+    // Desligar um dos 8 libera espaço.
+    fireEvent.click(tagChip('Aventura'));
+    expect(screen.getByText('7/8')).toBeInTheDocument();
+    expect(tagChip('Mistério')).not.toBeDisabled();
   });
 
-  it('botão X remove o chip', async () => {
+  it('SEM input livre de tag e SEM aviso de mínimo 5 (revogados na Task 6)', async () => {
     await openCreateModal();
-    addTag('aventura');
-    expect(screen.getByText('aventura')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('Remover tag aventura'));
-    expect(screen.queryByText('aventura')).not.toBeInTheDocument();
-  });
-
-  it('mostra o contador n/15, atualizado a cada chip', async () => {
-    await openCreateModal();
-    expect(screen.getByText('0/15')).toBeInTheDocument();
-    addTag('aventura');
-    expect(screen.getByText('1/15')).toBeInTheDocument();
-    addTag('drama');
-    expect(screen.getByText('2/15')).toBeInTheDocument();
-  });
-
-  it('mostra aviso de mínimo 5 quando há entre 1 e 4 tags', async () => {
-    await openCreateModal();
-    expect(screen.queryByText(/mínimo 5/i)).not.toBeInTheDocument();
-    addTag('aventura');
-    expect(screen.getByText(/mínimo 5/i)).toBeInTheDocument();
-  });
-
-  it('esconde o aviso de mínimo assim que atinge 5 tags', async () => {
-    await openCreateModal();
-    for (const tag of ['alfa', 'beta', 'gama', 'delta', 'epsilon']) addTag(tag);
-    expect(screen.getByText('5/15')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Adicionar tag')).not.toBeInTheDocument();
+    fireEvent.click(tagChip('Aventura'));
     expect(screen.queryByText(/mínimo 5/i)).not.toBeInTheDocument();
   });
 
-  it('não deixa passar de 15 chips', async () => {
-    await openCreateModal();
-    for (let i = 0; i < 16; i++) addTag(`tag${i}`);
-    expect(screen.getByText('15/15')).toBeInTheDocument();
-    expect(screen.queryByText('tag15')).not.toBeInTheDocument();
-  });
-
-  it('cria a série sem digitar nenhuma tag e envia um array vazio', async () => {
+  it('cria a série sem selecionar nenhuma tag e envia um array vazio', async () => {
     vi.mocked(api.createSeries).mockResolvedValue({ _id: 's1', title: 'Obra Y' } as any);
     await openCreateModal();
     fireEvent.change(fieldFor('Título'), { target: { value: 'Obra Y' } });
@@ -147,34 +130,33 @@ describe('AdminDashboard — chips de tags (criar série)', () => {
     expect(payload.tags).toEqual([]);
   });
 
-  it('cria a série enviando o array de tags digitado (minúsculas e sem duplicatas)', async () => {
+  it('cria a série enviando os slugs das tags selecionadas', async () => {
     vi.mocked(api.createSeries).mockResolvedValue({ _id: 's1', title: 'Obra X' } as any);
     await openCreateModal();
     fireEvent.change(fieldFor('Título'), { target: { value: 'Obra X' } });
     fireEvent.change(fieldFor('Gênero'), { target: { value: 'Ação' } });
 
-    addTag('Aventura');
-    addTag('DRAMA');
-    addTag('aventura'); // duplicata (caixa diferente) — não deve entrar de novo
+    fireEvent.click(tagChip('Aventura'));
+    fireEvent.click(tagChip('Drama'));
 
     fireEvent.click(screen.getByRole('button', { name: 'CRIAR SÉRIE' }));
 
     await waitFor(() => expect(api.createSeries).toHaveBeenCalled());
     const payload = vi.mocked(api.createSeries).mock.calls[0][0];
-    expect(payload.tags).toEqual(['aventura', 'drama']);
+    expect(payload.tags.sort()).toEqual(['aventura', 'drama'].sort());
   });
 });
 
-describe('AdminDashboard — chips de tags (editar série)', () => {
+describe('AdminDashboard — seletor fechado de tags (editar série)', () => {
   const existingSeries = {
     _id: 's-existing', title: 'Obra Existente', genre: 'Ação', description: '',
     isPremium: false, channelId: '', releaseDay: null,
     tags: ['acao', 'drama', 'comedia', 'aventura', 'romance'],
   };
 
-  it('pré-carrega as tags existentes e envia o array atualizado ao salvar', async () => {
+  it('pré-carrega as tags existentes (chips ligados) e envia o array atualizado ao salvar', async () => {
     vi.mocked(api.getAdminContent).mockResolvedValue({ series: [existingSeries] } as any);
-    vi.mocked(api.updateSeries).mockResolvedValue({ ...existingSeries, tags: [...existingSeries.tags, 'suspense'] } as any);
+    vi.mocked(api.updateSeries).mockResolvedValue({ ...existingSeries, tags: [...existingSeries.tags, 'thriller'] } as any);
 
     render(<AdminDashboard onLogout={noop} currentSubView={ViewMode.ADMIN_CONTENT} setSubView={noop} />);
     await waitFor(() => screen.getByText('Obra Existente'));
@@ -182,21 +164,21 @@ describe('AdminDashboard — chips de tags (editar série)', () => {
     fireEvent.click(screen.getByTitle('Editar título, gênero e descrição'));
     await waitFor(() => expect(api.listChannels).toHaveBeenCalled());
 
-    for (const tag of existingSeries.tags) {
-      expect(screen.getByText(tag)).toBeInTheDocument();
-    }
-    expect(screen.getByText('5/15')).toBeInTheDocument();
+    ['Ação', 'Drama', 'Comédia', 'Aventura', 'Romance'].forEach(r => {
+      expect(tagChip(r)).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(screen.getByText('5/8')).toBeInTheDocument();
 
-    addTag('Suspense');
+    fireEvent.click(tagChip('Thriller'));
 
     fireEvent.click(screen.getByRole('button', { name: 'SALVAR ALTERAÇÕES' }));
 
     await waitFor(() => expect(api.updateSeries).toHaveBeenCalled());
     const [, payload] = vi.mocked(api.updateSeries).mock.calls[0];
-    expect(payload.tags).toEqual(['acao', 'drama', 'comedia', 'aventura', 'romance', 'suspense']);
+    expect(payload.tags.sort()).toEqual(['acao', 'aventura', 'comedia', 'drama', 'romance', 'thriller'].sort());
   });
 
-  it('remover uma tag existente e salvar envia o array sem ela', async () => {
+  it('desligar uma tag existente e salvar envia o array sem ela', async () => {
     vi.mocked(api.getAdminContent).mockResolvedValue({ series: [existingSeries] } as any);
     vi.mocked(api.updateSeries).mockResolvedValue({ ...existingSeries } as any);
 
@@ -206,11 +188,11 @@ describe('AdminDashboard — chips de tags (editar série)', () => {
     fireEvent.click(screen.getByTitle('Editar título, gênero e descrição'));
     await waitFor(() => expect(api.listChannels).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByLabelText('Remover tag drama'));
+    fireEvent.click(tagChip('Drama'));
     fireEvent.click(screen.getByRole('button', { name: 'SALVAR ALTERAÇÕES' }));
 
     await waitFor(() => expect(api.updateSeries).toHaveBeenCalled());
     const [, payload] = vi.mocked(api.updateSeries).mock.calls[0];
-    expect(payload.tags).toEqual(['acao', 'comedia', 'aventura', 'romance']);
+    expect(payload.tags.sort()).toEqual(['acao', 'aventura', 'comedia', 'romance'].sort());
   });
 });

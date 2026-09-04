@@ -2,6 +2,7 @@ const express = require('express');
 const optionalAuth = require('../middlewares/optionalAuth');
 const getIdentity = require('../utils/requestIdentity');
 const progressService = require('../services/progressService');
+const { getFiltroParental } = require('../utils/parentalFilter');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -52,6 +53,10 @@ router.get('/progress/:episodeId', async (req, res) => {
 
 // GET /api/me/continue — o carrossel "Continuar". `?contentType=` filtra por
 // aba e aplica o teto de 20 só dentro dela (ver docstring de buildContinueList).
+// Fase 5, Bloco 2, Task 4: o fragmento do filtro parental é calculado UMA
+// vez aqui (a partir de `req.user` — `{}` para visitante/admin, ver
+// utils/parentalFilter) e passado pro service, que o mescla no Series.find
+// final.
 router.get('/continue', async (req, res) => {
   const identity = exigirIdentidade(req, res);
   if (!identity) return;
@@ -59,7 +64,8 @@ router.get('/continue', async (req, res) => {
   const { contentType } = req.query;
 
   try {
-    res.json(await progressService.buildContinueList(identity, contentType));
+    const filtroParental = await getFiltroParental(req.user);
+    res.json(await progressService.buildContinueList(identity, contentType, filtroParental));
   } catch (err) {
     logger.error('[Progresso] GET /continue', err);
     res.status(500).json({ error: 'Erro ao montar a lista de continuar.' });

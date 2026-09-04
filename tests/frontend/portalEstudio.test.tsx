@@ -175,6 +175,58 @@ describe('PortalEstudio — aba Obras', () => {
     expect(screen.getByText('Publicada')).toBeInTheDocument();
   });
 
+  it('Task 6 — seletor de tags i18n no criar obra: chips do vocabulário, até 8, envia os slugs selecionados', async () => {
+    vi.mocked(api.createPortalSeries).mockResolvedValue({ ...serieDraft, _id: 's-tags' } as any);
+
+    await abrirObras();
+    fireEvent.click(screen.getByText('Nova obra'));
+
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Obra Com Tags' } });
+    // Rótulo PT (default do i18n em teste) — mesmo vocabulário do admin.
+    fireEvent.click(screen.getByRole('button', { name: 'Aventura' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Drama' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Criar' }));
+
+    await waitFor(() => expect(api.createPortalSeries).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Obra Com Tags', tags: expect.arrayContaining(['aventura', 'drama']) })
+    ));
+  });
+
+  it('Task 6 — criar obra sem selecionar tags envia array vazio', async () => {
+    vi.mocked(api.createPortalSeries).mockResolvedValue({ ...serieDraft, _id: 's-sem-tags' } as any);
+
+    await abrirObras();
+    fireEvent.click(screen.getByText('Nova obra'));
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Obra Sem Tags' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Criar' }));
+
+    await waitFor(() => expect(api.createPortalSeries).toHaveBeenCalledWith(
+      expect.objectContaining({ tags: [] })
+    ));
+  });
+
+  it('Task 6 — editar obra: mostra as tags atuais selecionadas e envia o array atualizado', async () => {
+    const serieComTags = { ...serieDraft, tags: ['romance', 'comedia'] };
+    vi.mocked(api.getPortalSeries).mockResolvedValue({ series: [serieComTags] } as any);
+    vi.mocked(api.updatePortalSeries).mockResolvedValue({ ...serieComTags } as any);
+
+    await abrirObras();
+    await waitFor(() => screen.getByText('Obra Rascunho'));
+    fireEvent.click(screen.getByRole('button', { name: 'Editar' }));
+
+    expect(screen.getByRole('button', { name: 'Romance' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Comédia' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Ação' })).toHaveAttribute('aria-pressed', 'false');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ação' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(api.updatePortalSeries).toHaveBeenCalledWith('s-draft', expect.objectContaining({
+      tags: expect.arrayContaining(['romance', 'comedia', 'acao']),
+    })));
+  });
+
   it('criar obra: cria draft sem capa, depois sobe a capa e faz PUT com a URL', async () => {
     vi.mocked(api.createPortalSeries).mockResolvedValue({ ...serieDraft, _id: 's-nova' } as any);
     vi.mocked(api.uploadPortalImage).mockResolvedValue('https://cdn/nova-capa.jpg');

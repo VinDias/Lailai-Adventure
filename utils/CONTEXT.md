@@ -37,6 +37,22 @@ Ponto único de "quem enxerga o que não está publicado" e "quem pode subir ima
 ### `requestIdentity.js` (Fase 4)
 `getIdentity(req)` — descobre de quem é a requisição de progresso: conta logada (`req.user.id`) sempre vence; senão cai para o visitante via cabeçalho `X-Anonymous-Id` (validado como UUID v4). Devolve `null` quando nenhum dos dois está presente. Usado por `routes/progress.js`.
 
+### `tagsVocabulario.json` + `tagsVocabulario.js` (Fase 5, Bloco 2)
+Fonte **única** dos 19 slugs do vocabulário fechado de tags (letra do PDF "Sistema de tags dos autores e do usuário", 31/08). O `.json` é um array de `{ slug, rotuloPt }` (`utils/tagsVocabulario.json:1-21`); o `.js` é o wrapper CommonJS que o backend importa. O **frontend importa o MESMO `.json`** (Vite importa JSON nativamente, `tsconfig.json` com `resolveJsonModule`) — nenhuma lista é duplicada em código, então drift de slug entre camadas é impossível por construção.
+- Exports (`tagsVocabulario.js:19`): `VOCABULARIO` (o array), `SLUGS` (`Set` dos slugs) e `isSlugValido(slug)` (`tagsVocabulario.js:15-17`) — string e presente no `Set`
+- **Qual superfície usa qual canal** (decisão pinada da spec): os chips do admin/fila/portal usam o **import do JSON**; os toggles das "Preferências de conteúdo" do leitor usam a lista que vem no `GET /api/parental` (`routes/parental.js:52`, que serve do mesmo JSON) — o componente do leitor **nunca** importa o JSON direto
+- Consumido por: `models/Series.js` (validator `validateTags`), `routes/parental.js` (validação de `tagsBloqueadas`), `scripts/migrarTagsVocabulario.js` (ASSERT), `components/Admin/AdminDashboard.tsx`/`components/PortalEstudio.tsx` (chips)
+
+### `parentalFilter.js` (Fase 5, Bloco 2)
+Fonte **única** do filtro parental — três peças, nenhuma duplicada por superfície (ruling P5 do ledger: as exceções de admin/dono vivem AQUI, nunca na rota).
+- `passaFiltroParental(parental, serie)` (`parentalFilter.js:54-71`) — predicado **PURO**, sem exceção nenhuma (nem admin, nem dono). Usado pelo push (`services/notificationService.js:123`, audiência) e internamente por `serieVisivelPara`. **LANÇA** se `serie.content_rating` **ou** `serie.tags` vierem `undefined` (`:55-59`) — fail-closed contra um `select`/`populate` estreito futuro (ruling P4); `content_rating: null` é valor VÁLIDO (obra não classificada = só para `young`), só o campo **ausente** lança
+- `getFiltroParental(user)` (`parentalFilter.js:99-120`) — fragmento Mongo para **queries de LISTA**, semântica **POSITIVA** (ruling P3, nunca `$ne`/`$nin` no rating): `kids` → `{content_rating:'kids'}`; `teen` → `{content_rating:{$in:['kids','teen']}}`; `young` → sem cláusula. `$in` nunca casa `null` nem campo ausente, então o fail-safe "não classificada só para young" sai de graça. `tagsBloqueadas` vira `tags: {$nin: [...]}` só quando há alguma. `{}` para anônimo **e para admin**
+- `serieVisivelPara(user, serie)` (`parentalFilter.js:137-148`) — **doc único**: `true` para admin, para anônimo e para o **dono do canal** da série (`channelId` ausente não lança, o dono-check só dá `false`); senão delega no predicado puro
+- `classificacaoEfetiva(valor)` (`parentalFilter.js:36-39`, interna) — valor fora do enum (escrita bruta/migração) cai no degrau **mais restritivo** (`kids`), nunca em `young`; ausente/`null`/`''` = `young`
+
+### `routeErrors.js` (Fase 5, Bloco 2, Task 8 — higiene do Bloco 1)
+`responderCastError(err, res, mensagem404)` (`routeErrors.js:24-32`) — trata `CastError` de forma consistente nas rotas com `:id`. `err.path === '_id'` (ObjectId malformado, ex. `"abc"`) → **404** com o mesmo shape de "não encontrado" de um id válido-mas-inexistente; `CastError` em **qualquer outro campo** (ex. `content_rating` recebendo array no body do aprovar) → **400** `Valor inválido para o campo "<path>"` — mapear isso para 404 mascararia erro de input como recurso inexistente. Devolve `true` quando já respondeu, `false` quando `err` não é `CastError` (o chamador segue para o catch genérico). Usado em 12+ rotas de `content.js`, `channels.js`, `portal.js` e `adminPortal.js`.
+
 ---
 
 ### Helpers do frontend (`.ts`)

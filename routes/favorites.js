@@ -4,23 +4,30 @@ const mongoose = require('mongoose');
 const Favorite = require('../models/Favorite');
 const Series = require('../models/Series');
 const verifyToken = require('../middlewares/verifyToken');
+const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
 const logger = require('../utils/logger');
 
 // ─── FAVORITOS (lista por conta) ─────────────────────────────────────────────
 
 // GET /api/favorites — lista favoritos do usuário logado
+// Fase 5, Bloco 2, Task 4: o fragmento do filtro parental (getFiltroParental
+// — {} pra admin) entra no MATCH do populate, junto com isPublished — mesmo
+// critério de antes, só que agora a query decide as duas coisas de uma vez.
+// O documento Favorite em si NUNCA é apagado por isso: a obra só some da
+// LISTA enquanto a tag continuar bloqueada (desbloquear traz de volta).
 router.get('/', verifyToken, async (req, res) => {
   try {
+    const filtroParental = await getFiltroParental(req.user);
     const favorites = await Favorite.find({ userId: req.user.id })
       .sort({ createdAt: -1 })
-      .populate('seriesId')
+      .populate({ path: 'seriesId', match: { isPublished: true, ...filtroParental } })
       .lean();
 
-    // Séries deletadas viram null no populate; despublicadas ficam fora do
-    // catálogo e portanto também não devem aparecer na lista. Critério estrito
-    // === true, igual ao do catálogo (docs legados sem o campo não são públicos).
+    // Séries deletadas OU que não batem no match (despublicada, fora do
+    // catálogo do perfil) viram null no populate — mesmo tratamento pros
+    // dois casos, igual já era antes desta task.
     const items = favorites
-      .filter(f => f.seriesId && f.seriesId.isPublished === true)
+      .filter(f => f.seriesId)
       .map(f => ({ seriesId: f.seriesId._id, series: f.seriesId }));
 
     res.json(items);
@@ -37,8 +44,15 @@ router.post('/:seriesId', verifyToken, async (req, res) => {
       return res.status(400).json({ error: 'ID de série inválido.' });
     }
 
+    // Fase 5, Bloco 2, Task 5: findById sem select já traz content_rating/tags/
+    // channelId — o fetch existente já "garante" os campos por construção.
     const series = await Series.findById(req.params.seriesId).lean();
     if (!series || series.isPublished !== true) {
+      return res.status(404).json({ error: 'Série não encontrada.' });
+    }
+    if (!(await serieVisivelPara(req.user, series))) {
+      // Mesmo 404 de "não encontrada" — o filtro parental não confirma a
+      // existência da obra a quem não pode vê-la. Admin/dono: já `true`.
       return res.status(404).json({ error: 'Série não encontrada.' });
     }
 

@@ -35,6 +35,7 @@ import GuestAccountPrompt from './components/GuestAccountPrompt';
 import { useCamadaVoltar } from './utils/pilhaVoltar';
 import MeuEstudioCard from './components/MeuEstudioCard';
 import PortalEstudio from './components/PortalEstudio';
+import ParentalSettings from './components/ParentalSettings';
 
 const App: React.FC = () => {
   const t = useT();
@@ -62,6 +63,14 @@ const App: React.FC = () => {
   // removido da URL logo no boot (ver useEffect abaixo); fica guardado aqui
   // até existir um `user` para consumir (login OU sessão já restaurada).
   const deepLinkRef = React.useRef<DeepLink | null>(null);
+  // Token de recuperação de PIN (Fase 5 Bloco 2, Task 7): link por e-mail
+  // aponta pra /recuperar-pin?token=xxx, no MESMO padrão do
+  // /redefinir-senha de Auth.tsx — mas a rota de confirmação exige sessão
+  // (nunca pública como a de senha), então o token fica pendente aqui até
+  // existir um `user` (mesma técnica do deepLinkRef acima) e só então é
+  // repassado pra ParentalSettings, que mostra a tela de confirmação.
+  const pinRecoveryTokenRef = React.useRef<string | null>(null);
+  const [pinRecoveryToken, setPinRecoveryToken] = useState<string | null>(null);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -124,7 +133,16 @@ const App: React.FC = () => {
     const superReaderReturn = parseSuperReaderReturn(querySearch);
     if (superReaderReturn === 'success') setSuperReaderThanks(true);
 
-    if (deepLink || superReaderReturn) {
+    // Recuperação de PIN (Fase 5 Bloco 2, Task 7): /recuperar-pin?token=xxx,
+    // mesmo padrão do ?token= de /redefinir-senha em Auth.tsx — mas essa
+    // rota exige sessão, então só guarda o token aqui; o consumo real
+    // (repassar pra ParentalSettings) acontece no useEffect([user]) abaixo.
+    const pinRecoveryTokenDaUrl = window.location.pathname === '/recuperar-pin'
+      ? new URLSearchParams(querySearch).get('token')
+      : null;
+    if (pinRecoveryTokenDaUrl) pinRecoveryTokenRef.current = pinRecoveryTokenDaUrl;
+
+    if (deepLink || superReaderReturn || pinRecoveryTokenDaUrl) {
       const url = new URL(window.location.href);
       url.search = '';
       window.history.replaceState({}, '', url.pathname + url.hash);
@@ -139,7 +157,14 @@ const App: React.FC = () => {
     // setView(HQCINE) default. Capturar o pendente ANTES do await decide
     // certo nas duas execuções: o ref sobrevive ao remount do StrictMode,
     // então a 2ª leitura ainda o vê. Em produção (mount único) é inócuo.
-    const tinhaDeepLinkPendente = deepLinkRef.current !== null;
+    //
+    // Inclui pinRecoveryTokenRef (Fase 5 Bloco 2, Task 7 — fix round, MÉDIA
+    // 1): sem isso, o guard só olhava deep link — se só houvesse um token de
+    // recuperação de PIN pendente, ele passava por aqui "por sorte" (nesse
+    // ramo não há await entre setUser e setView, então o efeito consumidor
+    // do token corria depois de qualquer forma), mas era o MESMO guard
+    // incompleto usado em handleLogin, onde a corrida é real (ver lá).
+    const tinhaDeepLinkPendente = deepLinkRef.current !== null || pinRecoveryTokenRef.current !== null;
     (async () => {
       // Fica true só quando uma sessão de CONTA foi mesmo restaurada — usado
       // no finally abaixo para distinguir esse caminho do modo visitante.
@@ -201,14 +226,35 @@ const App: React.FC = () => {
     setPendingSeriesFocus(deepLink.seriesId);
   }, [user]);
 
+  // Consome o token de recuperação de PIN pendente (mesma técnica do deep
+  // link acima): só quando existe `user` (login nesta sessão OU sessão já
+  // restaurada) — a rota de confirmação exige sessão. Leva pra Conta, onde
+  // ParentalSettings mostra a tela de confirmação (?token= no padrão do
+  // reset de senha).
+  useEffect(() => {
+    const token = pinRecoveryTokenRef.current;
+    if (!user || !token) return;
+    pinRecoveryTokenRef.current = null;
+    setPinRecoveryToken(token);
+    setView(ViewMode.PROFILE);
+  }, [user]);
+
   const handleLogin = async (u: User) => {
-    // Capturado ANTES do setUser e de qualquer await: se havia deep link
-    // pendente, o useEffect([user]) acima pode consumi-lo (zerando o ref)
-    // durante o await da migração logo abaixo — ler o ref DEPOIS do await não
-    // distingue "nunca teve deep link" de "efeito já consumiu" (os dois
+    // Capturado ANTES do setUser e de qualquer await: se havia deep link (ou
+    // token de recuperação de PIN — fix round da T7, MÉDIA 1) pendente, o
+    // useEffect([user]) acima pode consumi-lo (zerando o ref) durante o
+    // await da migração logo abaixo — ler o ref DEPOIS do await não
+    // distingue "nunca teve nada pendente" de "efeito já consumiu" (os dois
     // deixam null). A leitura síncrona aqui resolve isso, e não depende de
     // quando exatamente o efeito dispara.
-    const tinhaDeepLinkPendente = deepLinkRef.current !== null;
+    //
+    // Sequência provada (achado do revisor): setUser → o useEffect([user])
+    // do token de PIN roda no microtask seguinte, ANTES do await abaixo
+    // resolver (bootstrapSession/rede real), e já troca pra PROFILE — mas
+    // sem este guard, quando o await finalmente resolvia, o
+    // `setView(HQCINE)` default rodava por cima, e a tela de confirmação só
+    // aparecia se o usuário abrisse a Conta manualmente depois.
+    const tinhaDeepLinkPendente = deepLinkRef.current !== null || pinRecoveryTokenRef.current !== null;
     setUser(u);
     // A conta substitui o modo visitante (decisão da spec): limpa a flag
     // `lorflux_guest` para não sobrar marcado como visitante quem acabou de
@@ -524,7 +570,18 @@ const App: React.FC = () => {
             </div>
 
             {user ? (
-              <PrivacyCenter user={user} onOpenPolicy={openPolicy} onDeleted={handleAccountDeleted} />
+              <>
+                {/* Fase 5 Bloco 2 (Task 7): "Classificação etária e
+                    Preferências de conteúdo" — antes do LGPD/PrivacyCenter
+                    de propósito (prioridade do cliente: é a seção que o Vin
+                    vê primeiro na entrega deste bloco). */}
+                <ParentalSettings
+                  user={user}
+                  recoveryToken={pinRecoveryToken}
+                  onRecoveryTokenConsumed={() => setPinRecoveryToken(null)}
+                />
+                <PrivacyCenter user={user} onOpenPolicy={openPolicy} onDeleted={handleAccountDeleted} />
+              </>
             ) : (
               <div className="mt-10 text-[10px] text-zinc-600 flex justify-center gap-3">
                 <button type="button" onClick={() => openPolicy('privacy')} className="hover:text-rose-500 transition-colors">{t('auth.privacyLabel')}</button>

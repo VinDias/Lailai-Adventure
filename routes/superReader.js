@@ -21,6 +21,7 @@ router.post('/create-session', verifyToken, async (req, res) => {
     const { seriesId, amountCents, currency } = req.body || {};
     const resultado = await criarSessaoDeApoio({
       userId: req.user.id,
+      role: req.user.role,
       seriesId,
       amountCents,
       currency,

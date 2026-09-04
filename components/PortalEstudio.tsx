@@ -2,12 +2,58 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { X, Lock, Send } from 'lucide-react';
 import { api } from '../services/api';
 import { useT } from '../contexts/I18nContext';
+import type { TFunction } from '../contexts/I18nContext';
 import { useCamadaVoltar } from '../utils/pilhaVoltar';
 import { NOME_ABA } from '../utils/contentTypeLabels';
 import { formatarValorMonetario } from '../utils/currency';
 import ImageWithFallback from './ImageWithFallback';
+// Fonte ÚNICA dos 19 slugs do vocabulário fechado de tags (Fase 5 Bloco 2) —
+// MESMO JSON que o backend (utils/tagsVocabulario.js) e o TagsChipInput do
+// admin (spec, "O vocabulário": chips sempre pelo IMPORT do JSON, nunca uma
+// lista duplicada). Os rótulos aqui vêm do i18n (`tags.<slug>`) — o portal é
+// multilíngue, diferente do admin (PT fixo).
+import TAGS_VOCABULARIO from '../utils/tagsVocabulario.json';
 
 type Aba = 'numeros' | 'obras' | 'mensagens';
+
+const TAGS_MAXIMO = 8;
+
+// Seletor fechado de tags — mesma UX/limite do TagsChipInput do admin
+// (components/Admin/AdminDashboard.tsx: 19 chips, toggle on/off, máx 8,
+// contador n/8, sem input livre), com rótulos traduzidos via i18n em vez de
+// PT fixo. Usado no criar/editar obra do portal.
+const PortalTagsChipInput: React.FC<{ value: string[]; onChange: (tags: string[]) => void; t: TFunction }> = ({ value, onChange, t }) => {
+  const toggleTag = (slug: string) => {
+    if (value.includes(slug)) { onChange(value.filter(tag => tag !== slug)); return; }
+    if (value.length >= TAGS_MAXIMO) return;
+    onChange([...value, slug]);
+  };
+
+  return (
+    <div>
+      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">{t('portal.works.tagsField')}</label>
+      <div className="w-full bg-white/5 border border-white/10 rounded-2xl px-3 py-3 flex flex-wrap gap-2">
+        {TAGS_VOCABULARIO.map(({ slug }) => {
+          const selecionada = value.includes(slug);
+          const desabilitada = !selecionada && value.length >= TAGS_MAXIMO;
+          return (
+            <button
+              key={slug}
+              type="button"
+              aria-pressed={selecionada}
+              disabled={desabilitada}
+              onClick={() => toggleTag(slug)}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${selecionada ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-400 hover:bg-white/10'} disabled:opacity-30 disabled:cursor-not-allowed`}
+            >
+              {t(`tags.${slug}` as any)}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-zinc-600 font-bold mt-1">{value.length}/{TAGS_MAXIMO}</p>
+    </div>
+  );
+};
 
 interface PortalEstudioProps {
   onClose: () => void;
@@ -127,6 +173,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [obraTitle, setObraTitle] = useState('');
   const [obraDescription, setObraDescription] = useState('');
   const [obraRating, setObraRating] = useState<'' | 'kids' | 'teen' | 'young'>('');
+  const [obraTags, setObraTags] = useState<string[]>([]);
   const [obraCoverFile, setObraCoverFile] = useState<File | null>(null);
   const [creatingObra, setCreatingObra] = useState(false);
   const [createObraError, setCreateObraError] = useState<string | null>(null);
@@ -134,7 +181,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   useCamadaVoltar(showCreateObra, () => setShowCreateObra(false));
 
   const abrirCriarObra = () => {
-    setObraTitle(''); setObraDescription(''); setObraRating(''); setObraCoverFile(null);
+    setObraTitle(''); setObraDescription(''); setObraRating(''); setObraTags([]); setObraCoverFile(null);
     setCreateObraError(null);
     setShowCreateObra(true);
   };
@@ -156,7 +203,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     // uma chamada a createPortalSeries pro mesmo clique.
     let created: any;
     try {
-      const payload: any = { title: obraTitle, description: obraDescription, content_rating_sugerida: obraRating || null };
+      const payload: any = { title: obraTitle, description: obraDescription, content_rating_sugerida: obraRating || null, tags: obraTags };
       if (canalIdParaEnvio) payload.channelId = canalIdParaEnvio;
       created = await api.createPortalSeries(payload);
     } catch (err: any) {
@@ -184,6 +231,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editRating, setEditRating] = useState<'' | 'kids' | 'teen' | 'young'>('');
+  const [editTags, setEditTags] = useState<string[]>([]);
   // MEDIO 1a: a edição agora também aceita trocar a capa — é o caminho de
   // saída pra uma obra que nasceu sem capa (create-ok-upload-falhou, MEDIO
   // 1b) ou pra quem simplesmente quer trocar a imagem antes de enviar.
@@ -197,6 +245,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     setEditTitle(s.title || '');
     setEditDescription(s.description || '');
     setEditRating(s.content_rating_sugerida || '');
+    setEditTags(Array.isArray(s.tags) ? s.tags : []);
     setEditCoverFile(null);
     setEditError(null);
     setEditingObra(s);
@@ -215,7 +264,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
       if (editCoverFile) {
         coverUrl = await api.uploadPortalImage(editCoverFile, editingObra._id);
       }
-      const payload: any = { title: editTitle, description: editDescription, content_rating_sugerida: editRating || null };
+      const payload: any = { title: editTitle, description: editDescription, content_rating_sugerida: editRating || null, tags: editTags };
       if (coverUrl) payload.cover_image = coverUrl;
       await api.updatePortalSeries(editingObra._id, payload);
       await carregarSeries();
@@ -809,6 +858,8 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
               </select>
             </div>
 
+            <PortalTagsChipInput value={obraTags} onChange={setObraTags} t={t} />
+
             <div>
               <label htmlFor="portal-cover-input" className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">{t('portal.works.coverField')}</label>
               <input
@@ -858,6 +909,8 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                 <option value="young">{t('portal.works.ratingYoung')}</option>
               </select>
             </div>
+
+            <PortalTagsChipInput value={editTags} onChange={setEditTags} t={t} />
 
             <div>
               <label htmlFor="portal-edit-cover-input" className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">{t('portal.works.coverField')}</label>

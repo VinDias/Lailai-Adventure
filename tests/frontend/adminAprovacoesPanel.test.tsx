@@ -1,11 +1,14 @@
 /**
- * Testes — AprovacoesPanel (Fase 5 Bloco 1, Task 10): Fila de Aprovação no
- * admin (PT fixo, sem i18n). Pina o shape FLAT de GET /admin/aprovacoes
- * (routes/adminPortal.js): `tipo: 'series'|'episode'`, preview por item.
+ * Testes — AprovacoesPanel (Fase 5 Bloco 1, Task 10; Fase 5 Bloco 2, Task 6):
+ * Fila de Aprovação no admin (PT fixo, sem i18n). Pina o shape FLAT de GET
+ * /admin/aprovacoes (routes/adminPortal.js): `tipo: 'series'|'episode'`,
+ * preview por item, `naoClassificadas` ao lado de `itens`.
  * Cobre: render dos cards (preview/classificação sugerida/canal/data),
- * Aprovar bloqueado sem gênero (série), envio de genre/tags editados,
- * episódio com série não publicada (mensagem legível do 400), Devolver
- * (texto obrigatório) e refetch da fila + badge após qualquer ação.
+ * Aprovar bloqueado sem gênero OU sem classificação etária (série), seletor
+ * de classificação pré-preenchido com a sugerida (SEM default quando null),
+ * envio de genre/tags/content_rating editados, episódio com série não
+ * publicada (mensagem legível do 400), Devolver (texto obrigatório) e
+ * refetch da fila + badges (pendentes e não classificadas) após qualquer ação.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -46,6 +49,12 @@ const itemEpisodioSerieNaoPublicada = {
   serie: { id: 's4', title: 'Serie Nao Publicada', isPublished: false },
 };
 
+// Task 6: obra submetida ANTES do Bloco 2 — sem content_rating_sugerida
+// (autor nunca viu o campo). O seletor precisa abrir SEM default.
+const itemSerieSemSugerida = {
+  ...itemSerie, id: 's5', title: 'Obra Sem Sugerida', genre: 'Aventura', content_rating_sugerida: null,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -73,7 +82,10 @@ describe('AprovacoesPanel — render', () => {
     vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemSerie] } as any);
     render(<AprovacoesPanel />);
     await screen.findByText('Obra Submetida');
-    expect(screen.getByText(/teen/i)).toBeInTheDocument();
+    // "Teen" aparece em MAIS de um lugar desde a Task 6 (badge do topo, dica
+    // "Autor sugeriu" e o próprio <option> selecionado do seletor) —
+    // getAllByText em vez de getByText evita o falso "múltiplos elementos".
+    expect(screen.getAllByText(/teen/i).length).toBeGreaterThan(0);
     expect(screen.getByText('Canal do Vin')).toBeInTheDocument();
   });
 });
@@ -97,7 +109,7 @@ describe('AprovacoesPanel — Aprovar série', () => {
     expect(botaoAprovar).not.toBeDisabled();
   });
 
-  it('preencher o gênero habilita Aprovar e envia genre/tags editados', async () => {
+  it('preencher o gênero habilita Aprovar e envia genre/tags/content_rating (rating vem pré-preenchido da sugerida)', async () => {
     vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemSerie] } as any);
     vi.mocked(api.aprovarSerieAdmin).mockResolvedValue({ _id: 's1', isPublished: true } as any);
     render(<AprovacoesPanel onCountChange={vi.fn()} />);
@@ -106,17 +118,88 @@ describe('AprovacoesPanel — Aprovar série', () => {
     const inputGenero = screen.getByPlaceholderText(/g[eê]nero/i);
     fireEvent.change(inputGenero, { target: { value: 'Aventura' } });
 
-    const inputTag = screen.getByLabelText('Adicionar tag');
-    fireEvent.change(inputTag, { target: { value: 'epico' } });
-    fireEvent.keyDown(inputTag, { key: 'Enter' });
+    // Chip de tag (seletor fechado do vocabulário — Task 6): liga "Ação".
+    fireEvent.click(screen.getByRole('button', { name: 'Ação' }));
 
     const botaoAprovar = screen.getAllByRole('button', { name: /aprovar/i })[0];
     expect(botaoAprovar).not.toBeDisabled();
     fireEvent.click(botaoAprovar);
 
-    await waitFor(() => expect(api.aprovarSerieAdmin).toHaveBeenCalledWith('s1', { genre: 'Aventura', tags: ['epico'] }));
+    // content_rating: 'teen' vem da sugerida do item (pré-preenchida, não editada).
+    await waitFor(() => expect(api.aprovarSerieAdmin).toHaveBeenCalledWith('s1', { genre: 'Aventura', tags: ['acao'], content_rating: 'teen' }));
     // Refetch da fila após a ação.
     await waitFor(() => expect(api.getAdminAprovacoes).toHaveBeenCalledTimes(2));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Fase 5 Bloco 2, Task 6: classificação etária obrigatória para aprovar
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('AprovacoesPanel — classificação etária (Task 6)', () => {
+  it('sugerida presente ("teen") pré-preenche o seletor e mostra a dica "Autor sugeriu: Teen"', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemSerieComGenero] } as any);
+    render(<AprovacoesPanel />);
+    await screen.findByText('Obra Com Genero Existente');
+
+    const seletor = screen.getByLabelText('Classificação etária') as HTMLSelectElement;
+    expect(seletor.value).toBe('teen');
+    expect(screen.getByText(/Autor sugeriu:\s*Teen/i)).toBeInTheDocument();
+  });
+
+  it('sugerida NULA — seletor abre SEM default ("— escolha —") mesmo com gênero preenchido; Aprovar fica desabilitado', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemSerieSemSugerida] } as any);
+    render(<AprovacoesPanel />);
+    await screen.findByText('Obra Sem Sugerida');
+
+    const seletor = screen.getByLabelText('Classificação etária') as HTMLSelectElement;
+    expect(seletor.value).toBe('');
+    expect(screen.queryByText(/Autor sugeriu/i)).not.toBeInTheDocument();
+
+    const botaoAprovar = screen.getAllByRole('button', { name: /aprovar/i })[0];
+    expect(botaoAprovar).toBeDisabled();
+  });
+
+  it('escolher a classificação manualmente (sugerida nula) habilita Aprovar e envia o valor escolhido', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemSerieSemSugerida] } as any);
+    vi.mocked(api.aprovarSerieAdmin).mockResolvedValue({ _id: 's5', isPublished: true } as any);
+    render(<AprovacoesPanel onCountChange={vi.fn()} />);
+    await screen.findByText('Obra Sem Sugerida');
+
+    const seletor = screen.getByLabelText('Classificação etária') as HTMLSelectElement;
+    fireEvent.change(seletor, { target: { value: 'kids' } });
+
+    const botaoAprovar = screen.getAllByRole('button', { name: /aprovar/i })[0];
+    expect(botaoAprovar).not.toBeDisabled();
+    fireEvent.click(botaoAprovar);
+
+    await waitFor(() => expect(api.aprovarSerieAdmin).toHaveBeenCalledWith('s5', { genre: 'Aventura', tags: [], content_rating: 'kids' }));
+  });
+
+  it('sem gênero, mesmo com classificação escolhida — Aprovar continua desabilitado (os dois são obrigatórios)', async () => {
+    const semGeneroComSugerida = { ...itemSerieSemSugerida, genre: null };
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [semGeneroComSugerida] } as any);
+    render(<AprovacoesPanel />);
+    await screen.findByText('Obra Sem Sugerida');
+
+    fireEvent.change(screen.getByLabelText('Classificação etária'), { target: { value: 'young' } });
+
+    const botaoAprovar = screen.getAllByRole('button', { name: /aprovar/i })[0];
+    expect(botaoAprovar).toBeDisabled();
+  });
+
+  it('badge de não classificadas: onNaoClassificadasChange é chamado no load inicial e após aprovar', async () => {
+    vi.mocked(api.getAdminAprovacoes)
+      .mockResolvedValueOnce({ itens: [itemSerieComGenero], naoClassificadas: 3 } as any)
+      .mockResolvedValueOnce({ itens: [], naoClassificadas: 4 } as any);
+    vi.mocked(api.aprovarSerieAdmin).mockResolvedValue({ _id: 's2', isPublished: true } as any);
+    const onNaoClassificadasChange = vi.fn();
+    render(<AprovacoesPanel onNaoClassificadasChange={onNaoClassificadasChange} />);
+    await screen.findByText('Obra Com Genero Existente');
+    await waitFor(() => expect(onNaoClassificadasChange).toHaveBeenCalledWith(3));
+
+    fireEvent.click(screen.getAllByRole('button', { name: /aprovar/i })[0]);
+    await waitFor(() => expect(onNaoClassificadasChange).toHaveBeenLastCalledWith(4));
   });
 });
 

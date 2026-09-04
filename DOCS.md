@@ -113,12 +113,14 @@ Os campos novos (`Series.content_rating_sugerida`, `Series.submittedAt`, `Episod
 ### Revogar um ilustrador
 Painel admin → **Canais** → **Desativar canal**. O canal some do catálogo público (`GET /api/channels/:id` passa a responder 404), o ex-dono perde o acesso a todo o portal (403) e a exclusão de conta dele deixa de ser bloqueada. As obras publicadas **continuam no ar** — desativar canal nunca apaga conteúdo.
 
-- **Não existe rota de reativar canal.** Reativar hoje exige `isActive: true` direto no MongoDB (`db.channels.updateOne({_id: ...}, {$set: {isActive: true}})`). Dívida registrada — desative com essa consciência.
+- **Reativar tem botão desde a Fase 5, Bloco 2** (higiene do Bloco 1 — antes só dava para mexer no Mongo na mão): o painel **Canais** lista também os inativos e o canal desativado mostra **"Reativar canal"** no lugar de "Desativar canal" (`POST /api/channels/:id/reativar`, admin). Reativar **não** desarquiva as mensagens da thread — a thread arquivada é do ex-dono, e continua acessível pela aba Mensagens do canal.
 - Transferir a titularidade para outra pessoa é a alternativa a desativar, quando a obra deve continuar tendo um dono ativo.
 
 ### O que o Master precisa fazer para uma obra ir ao ar
 Painel admin → **Aprovações** (badge na sidebar = itens pendentes). Nada enviado pelo ilustrador entra no catálogo sozinho.
-- **Gênero é obrigatório para aprovar uma série** — a obra do portal nasce sem gênero (o formulário do ilustrador não tem esse campo, por decisão de contrato) e o botão Aprovar fica desabilitado até o Master preencher. Tags são opcionais (0 ou 5–15) e podem ser preenchidas na mesma tela.
+- **Gênero é obrigatório para aprovar uma série** — a obra do portal nasce sem gênero (o formulário do ilustrador não tem esse campo, por decisão de contrato) e o botão Aprovar fica desabilitado até o Master preencher. Tags são opcionais — 0 a 8 do vocabulário fechado (Fase 5, Bloco 2) — e podem ser preenchidas na mesma tela.
+- **Classificação etária também é obrigatória para aprovar uma série** (Fase 5, Bloco 2). Aprovar sem ela responde `400 "Classificação etária é obrigatória para aprovar"`, e o botão Aprovar fica desabilitado até o Master escolher Kids/Teen/Young. A **classificação sugerida pelo ilustrador aparece como dica, mas NUNCA é copiada automaticamente** — o seletor abre sem valor pré-selecionado; a decisão é sempre um ato do Master. Essa exigência vale só na Fila de Aprovação: o `PUT` do admin em **Gerenciar Séries** continua publicando sem classificação (fail-safe abaixo cobre).
+- **Obra sem classificação só aparece para o perfil `young`** (fail-safe). É por isso que existe o badge **"N não classificadas"** no cabeçalho de Gerenciar Séries e o chip **"Sem classificação"** em cada série publicada sem `content_rating` — é a lista de trabalho do Master para o acervo antigo, que foi publicado antes de o campo existir.
 - **Aprove a série antes do capítulo.** Aprovar um capítulo de série ainda não publicada responde 400 com essa orientação.
 - **Devolver** limpa o marcador de envio (a obra volta a ser editável pelo ilustrador) e cria automaticamente a mensagem do editor na thread dele, já apontando qual obra/capítulo. Devolver uma série **não** devolve os capítulos dela em cascata.
 - Aprovar e devolver ficam registrados no `AdminLog` (`APROVAR_SERIE_PORTAL`, `APROVAR_EPISODIO_PORTAL`, `DEVOLVER_SERIE_PORTAL`, `DEVOLVER_EPISODIO_PORTAL`).
@@ -134,6 +136,48 @@ Decisão de contrato, não limitação técnica: o mês em aberto mostra **ponto
 
 ### Efeito colateral esperado no catálogo antigo
 A partir deste deploy as rotas públicas passam a filtrar por publicado (busca, detalhe de série, lista e detalhe de capítulo, `signed-url`). Se hoje existir no ar algum **capítulo `draft` dentro de uma série publicada**, ele deixará de aparecer para o leitor — isso é a correção, não uma regressão. Para colocá-lo de volta no ar, publique o capítulo normalmente pelo admin. Admin e dono do canal continuam vendo os próprios rascunhos, e abrir um rascunho **não** conta view nem gera evento de royalties.
+
+---
+
+## Controle Parental + Tags (Fase 5, Bloco 2)
+
+Classificação etária oficial (`Series.content_rating`) e filtro pessoal por tags do vocabulário fechado (19 slugs, `utils/tagsVocabulario.json`). Reaproveita a infraestrutura existente — **nenhuma variável de ambiente nova**.
+
+### O que o leitor vê (Conta → "Classificação etária e Preferências de conteúdo")
+Duas coisas **independentes**, e a nomenclatura é obrigatória (letra do cliente, PDF de 31/08 — nunca chamar o filtro do usuário de "controle de classificação", que confundiria com Kids/Teen/Young):
+- **Classificação etária** — Kids / Teen / Young, definida oficialmente pela Lorflux por obra. O perfil `kids` vê só obras Kids; `teen` vê Kids e Teen; `young` (o default de toda conta) vê tudo, inclusive as ainda não classificadas.
+- **Preferências de conteúdo** — 19 toggles "ocultar", um por tag do vocabulário. Bloquear uma tag **elimina aquelas obras da experiência DESTE usuário** — a obra segue publicada, disponível e recomendável para todos os outros. Não é censura e não é visível para ninguém: o artista **nunca** vê nem altera as preferências de quem quer que seja, e as tags da obra continuam **nunca exibidas na obra** (o rótulo visível segue sendo o Gênero).
+- **PIN de proteção** (opcional, 4–6 dígitos). Com PIN definido, **qualquer** mudança nessas preferências exige o PIN — inclusive as tags que o próprio adulto bloqueou, e inclusive **excluir a conta** (senão a criança apagaria e recriaria a conta sem restrição). 5 erros bloqueiam por 15 min, com o dobro a cada novo lote de 5 (teto de 24h); o bloqueio é **persistido na conta**, então reiniciar o servidor não zera. Esqueceu: "Esqueci meu PIN" manda um link por e-mail (senha também é exigida em conta local) que **remove** o PIN — as preferências continuam intactas.
+
+O filtro é aplicado **no servidor**, em todas as superfícies: catálogo, busca (séries e capítulos), agenda, recomendação (inclusive o fallback), favoritos, continuar lendo, canal público, detalhe da obra, lista de capítulos, leitor, URL assinada de vídeo, **push de capítulo novo** e os writes de engajamento (favoritar/votar/apoiar respondem 404 numa obra invisível). Favorito antigo de obra que passou a ser bloqueada **continua no banco** — some da lista e volta sozinho ao desbloquear a tag.
+
+**Limitações conscientes, a comunicar ao cliente:** o parental é da **conta**, não do aparelho — sair da conta (modo visitante) ou criar uma segunda conta contorna o filtro por definição. Mitigação por dispositivo é escopo futuro. Admin e o **dono do canal** enxergam a própria obra mesmo com a tag dela bloqueada (senão o painel e o portal quebrariam), mas nas **listas** o filtro vale para todos, inclusive para o dono.
+
+### Passo manual pós-deploy: migrar as tags livres do acervo para o vocabulário fechado
+
+Antes deste bloco, `Series.tags` aceitava qualquer string livre (Bloco 4 da Fase 4). O validator agora só aceita 0–8 slugs do vocabulário oficial (`models/Series.js:40-45`) — sem migrar, a primeira edição de uma série com tags livres antigas (inclusive um draft do portal) responde 400. Rode nesta ordem, **na VPS, a partir de `/var/www/lorflux`** (o script usa `dotenv` para ler `MONGO_URI` do `.env` do diretório onde é chamado — `scripts/migrarTagsVocabulario.js:388` — rodar de outro diretório faz cair no default `mongodb://localhost:27017/lorflux`, **não** no banco de produção), depois do `git pull`:
+
+1. **Dry-run primeiro (não escreve nada):**
+   ```bash
+   node scripts/migrarTagsVocabulario.js
+   ```
+   Sem argumento (ou com `--dry-run` explícito) o script roda em modo leitura. **Parse estrito dos argumentos** (`scripts/migrarTagsVocabulario.js:361-380`): só `--apply` e `--dry-run` são reconhecidos — os dois juntos, ou qualquer typo (`--APPLY`, `apply`, `--bogus`), é erro alto (mensagem + `exit(1)`, sem conectar no Mongo) em vez de cair num dry-run silencioso disfarçado. A saída lista: total de séries, todas as tags livres distintas do acervo real com a contagem de obras e o mapeamento proposto (`tag → slug` ou `NÃO MAPEADA`), o antes/depois por obra e um resumo. **Copie essa saída e mande para quem escreveu o script** — o mapa manual (próximo passo) é fechado com base nela, porque o desenvolvimento não tem acesso às tags de produção.
+
+2. **Ajuste o mapa se necessário.** O mapa fica em `scripts/mapaTagsVocabulario.js` (objeto `{ 'tag livre normalizada': 'slug' }`, já pré-populado com o óbvio: identidade, rótulo em português, sinônimos evidentes). Qualquer tag "NÃO MAPEADA" no dry-run que devesse virar um slug entra ali — a ORDEM das entradas do objeto define a prioridade de qual tag sobrevive quando uma obra tem mais de 8 tags mapeáveis (comentário no topo do arquivo explica o porquê).
+
+3. **Aplicar de verdade:**
+   ```bash
+   node scripts/migrarTagsVocabulario.js --apply
+   ```
+   Cobre **todas** as séries — publicadas, despublicadas e drafts (`scripts/migrarTagsVocabulario.js:216` — `Series.find()` sem filtro nenhum). É seguro rodar mais de uma vez: uma obra só é regravada se o array de tags REALMENTE mudar (`scripts/migrarTagsVocabulario.js:182` calcula `mudou` comparando o array cru do doc contra o resultado canônico; `:238-257` só escreve quando `mudou === true`) — **atenção**: "já são slugs válidos" não é o mesmo que "não muda nada". A saída final é sempre CANÔNICA (deduplicada e ordenada pela prioridade do mapa); se uma obra já tiver só slugs válidos mas **fora dessa ordem**, a 1ª rodada ainda a regrava (reordenação, mesmas tags) — só a partir da 2ª rodada ela vira no-op de verdade. Se o mapa produzir algo inválido (slug fora do vocabulário, ou mais de 8 depois do corte), o script aborta **sem escrever nada** — nem as obras que estavam corretas (`scripts/migrarTagsVocabulario.js:157-176`, o ASSERT roda dentro de `planejarMigracao`, que termina 100% antes de qualquer `updateOne`). Se a escrita falhar **no meio** do loop (ex.: o Mongo cair depois de já ter gravado algumas obras), a mensagem de erro diz quantas obras já foram gravadas antes da falha — nunca afirma "nada foi gravado" quando não é verdade; é seguro só rodar `--apply` de novo (idempotente).
+
+4. `npm run build` e reinicie o PM2 como de costume (`npm run restart`).
+
+### `content_rating`/`tags` ausentes no documento — corrigido sozinho no boot, sem passo manual
+Séries de antes deste bloco não têm `content_rating` gravado (o campo nasceu com `default: null` na Task 1, mas o Mongoose só aplica default em `create()`/`save()`, nunca retroativamente a documentos já existentes); séries de antes da Fase 3/4 também podem não ter `tags`. O boot do servidor roda um backfill idempotente **antes** de aceitar conexões (`server.js:740-750` — `app.listen` só chama depois de `backfillCamposParental()` terminar; falha aqui derruba o boot em vez de servir 500 silencioso) — `services/parentalBackfill.js:51-58`. O passo 3 acima (`--apply`) chama a **mesma função**, então rodar a migração já cobre isso também; o backfill do boot é a rede de segurança para o que a migração não tocar (séries sem `tags` no documento) e para qualquer novo deploy futuro.
+
+### Smoke manual da recomendação antes/depois (não é teste automatizado)
+O algoritmo de recomendação (`services/recommendationService.js`) usa `Series.tags` para a Afinidade — migrar o acervo muda a cardinalidade das tags reais (Bloco 4 tinha mínimo 5; este bloco não tem mínimo, até 8). `scripts/devMock.js` (script local, não versionado neste repositório) **já semeia o catálogo com slugs do vocabulário oficial e `content_rating` por obra** — não é mais tags livres à moda do Bloco 4. Rodar `node scripts/migrarTagsVocabulario.js` (dry-run) contra ele mostra **0 tags removidas/não mapeadas** (todo o seed já usa o vocabulário); pode aparecer `MUDARIA` em algumas obras mesmo assim — é só **reordenação** (mesmas tags, canonizadas pela prioridade do mapa, ver seção acima), não perda de tag nenhuma. Depois de um `--apply` local, uma 2ª rodada mostra `0 modificadas` de verdade. **O mapa manual só se fecha com o dry-run de PRODUÇÃO** (passo 1 acima) — o seed local não tem as tags livres reais do acervo, então não serve pra descobrir "NÃO MAPEADA" nenhuma. Para o smoke: compare `GET /api/content/recommendations` antes e depois de aplicar a migração no mesmo ambiente local.
 
 ---
 

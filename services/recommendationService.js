@@ -1330,9 +1330,18 @@ function computeNeutroDerivado(series, perfil, seriesConsumidas = null) {
  *
  * NÃO captura erro nenhum (spec: "Falha em QUALQUER etapa → lança; quem
  * degrada é a ROTA") — qualquer rejeição de query propaga pro chamador.
+ *
+ * `filtroExtra` (Fase 5, Bloco 2, Task 4 — opcional, default `{}`): fragmento
+ * Mongo do filtro parental (`utils/parentalFilter.getFiltroParental`),
+ * calculado UMA vez pela rota e mesclado aqui no `Series.find` dos
+ * candidatos — a MESMA rota reaproveita o fragmento no fallback cru
+ * (routes/content.js:259) quando este serviço lança. Séries fora do filtro
+ * nem chegam a ser carregadas: as cotas 50/30/20 recalculam sozinhas sobre N
+ * já sem elas — "bloqueada no topo do score não aparece" sai de graça, sem
+ * lógica extra de cota.
  */
-async function buildRecommendations({ contentType, userId, anonymousId, agora = new Date() } = {}) {
-  const series = await Series.find({ isPublished: true, content_type: contentType }).lean();
+async function buildRecommendations({ contentType, userId, anonymousId, agora = new Date(), filtroExtra = {} } = {}) {
+  const series = await Series.find({ isPublished: true, content_type: contentType, ...filtroExtra }).lean();
   if (series.length === 0) return [];
 
   const scores = await SeriesScore.find({ seriesId: { $in: series.map((s) => s._id) } }).lean();

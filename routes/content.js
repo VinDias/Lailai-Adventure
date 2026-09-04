@@ -11,9 +11,15 @@ const getIdentity = require('../utils/requestIdentity');
 const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 const { podeVerRascunho } = require('../utils/ownership');
+const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
 const { addPanels } = require('../services/episodePanelService');
+const { responderCastError } = require('../utils/routeErrors');
 
-const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags'];
+// content_rating (Fase 5 Bloco 2, Task 6): só o Master define — admin form
+// (POST/PUT abaixo) e a Fila de Aprovação (routes/adminPortal.js, aprovar
+// série). PORTAL SEGUE SEM o campo (PORTAL_SERIES_FIELDS não inclui —
+// routes/portal.js, teste de allowlist em parentalFoundations.test.js).
+const SERIES_FIELDS = ['title', 'genre', 'description', 'cover_image', 'isPremium', 'content_type', 'order_index', 'isPublished', 'channelId', 'releaseDay', 'tags', 'content_rating'];
 const EPISODE_FIELDS = ['seriesId', 'episode_number', 'title', 'description', 'video_url', 'bunnyVideoId', 'thumbnail', 'duration', 'isPremium', 'order_index', 'status', 'hlsAudioLabels',
   'audioTrack1Url', 'audioTrack1Lang', 'audioTrack2Url', 'audioTrack2Lang', 'audioTrack3Url', 'audioTrack3Lang', 'audioTrack4Url', 'audioTrack4Lang'];
 
@@ -28,9 +34,14 @@ router.get('/search', optionalAuth, async (req, res) => {
     const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(escaped, 'i');
 
+    // Fase 5, Bloco 2, Task 4: fragmento do filtro parental (getFiltroParental
+    // — {} pra anônimo/admin) mesclado no ramo SÉRIES.
+    const filtroParental = await getFiltroParental(req.user);
+
     const seriesFilter = {
       isPublished: true,
-      $or: [{ title: regex }, { genre: regex }, { description: regex }]
+      $or: [{ title: regex }, { genre: regex }, { description: regex }],
+      ...filtroParental,
     };
 
     // Conteúdo premium aparece para todos — free vê anúncio antes de consumir (gate no cliente).
@@ -39,16 +50,37 @@ router.get('/search', optionalAuth, async (req, res) => {
     // já esteja publicada.
     const episodeFilter = { title: regex, status: 'published' };
 
+    // Fase 5, Bloco 2, Task 5 (fix round): ramo EPISÓDIOS filtra QUERY-SIDE
+    // — não mais post-filter com passaFiltroParental na série populada. O
+    // post-filter anterior tinha DOIS problemas achados na revisão: (1) só
+    // `isAdmin` pulava o predicado — visitante (sem `user`) caía direto em
+    // passaFiltroParental(null, serie), que LANÇA se a série tiver
+    // content_rating/tags genuinamente ausentes (doc legado), derrubando a
+    // busca em 500 pra QUALQUER UM, inclusive anônimo; (2) o post-filter
+    // rodava DEPOIS do `.limit(20)` do Episode.find — se os 20 episódios
+    // mais recentes batendo no termo pertencessem todos a séries que o
+    // perfil não vê, a resposta vinha vazia mesmo havendo episódios visíveis
+    // fora da janela dos 20 (fome do limit).
+    // idsVisiveis reusa o MESMO `filtroParental` já calculado pro ramo
+    // SÉRIES acima (sem recomputar — 1 User.findById por request, não 2) —
+    // query PRÓPRIA (sem o `$or` do termo de busca, sem limit): "quais
+    // séries publicadas este perfil enxerga", igual às outras superfícies
+    // de LISTA (T4). `{}` pra anônimo/admin → idsVisiveis = todas as
+    // publicadas, sem tocar em content_rating/tags de doc nenhum — imune ao
+    // throw do doc legado (o campo ausente nunca é lido aqui).
+    const idsVisiveis = await Series.find({ isPublished: true, ...filtroParental }).distinct('_id');
+    episodeFilter.seriesId = { $in: idsVisiveis };
+
     const [series, episodes] = await Promise.all([
       Series.find(seriesFilter).limit(20).lean(),
       Episode.find(episodeFilter)
         .limit(20)
-        .populate('seriesId', 'title content_type cover_image isPublished')
+        .populate('seriesId', 'title content_type cover_image')
         .lean()
     ]);
 
     const visibleEpisodes = episodes
-      .filter(ep => ep.seriesId && ep.seriesId.isPublished !== false)
+      .filter(ep => ep.seriesId) // defesa contra a janela de corrida entre as duas queries (série apagada entre elas)
       .map(ep => ({
         _id: ep._id,
         title: ep.title,
@@ -73,9 +105,13 @@ router.get('/search', optionalAuth, async (req, res) => {
 // definido, agrupadas por dia da semana (0=domingo..6=sábado, Date.getDay()).
 // Posicionada antes de /series/:id — "agenda" não colide com nenhum padrão
 // de rota deste router (sem catch-all de segmento único aqui).
-router.get('/agenda', async (req, res) => {
+// optionalAuth (Fase 5, Bloco 2, Task 4): rota continua pública — só passa a
+// enxergar `req.user` quando houver, pro filtro parental (getFiltroParental
+// — {} pra anônimo/admin) entrar no Series.find.
+router.get('/agenda', optionalAuth, async (req, res) => {
   try {
-    const series = await Series.find({ isPublished: true, releaseDay: { $ne: null } })
+    const filtroParental = await getFiltroParental(req.user);
+    const series = await Series.find({ isPublished: true, releaseDay: { $ne: null }, ...filtroParental })
       .select('title cover_image content_type releaseDay order_index')
       .sort({ order_index: 1, title: 1 })
       .lean();
@@ -102,10 +138,13 @@ router.get('/agenda', async (req, res) => {
 // ─── SERIES ────────────────────────────────────────────────────────────────
 
 // GET /api/content/series — listar séries publicadas
-router.get('/series', async (req, res) => {
+// optionalAuth (Fase 5, Bloco 2, Task 4): rota continua pública — só passa a
+// enxergar `req.user` quando houver, pro filtro parental entrar no filter.
+router.get('/series', optionalAuth, async (req, res) => {
   try {
     const { type } = req.query;
-    const filter = { isPublished: true };
+    const filtroParental = await getFiltroParental(req.user);
+    const filter = { isPublished: true, ...filtroParental };
     if (type) filter.content_type = type;
 
     const series = await Series.find(filter)
@@ -124,17 +163,33 @@ router.get('/series', async (req, res) => {
 // não seja admin ou dono do canal da série (Fase 5 Bloco 1, Task 2 — "Drafts
 // invisíveis ao público"). 404, nunca 403: não confirma a existência do
 // rascunho a quem não tem acesso.
+// Fase 5, Bloco 2, Task 5 (doc único): série PUBLICADA some pelo filtro
+// parental (serieVisivelPara — admin e dono do canal enxergam mesmo com a
+// própria tag bloqueada) com o MESMO 404 dos drafts — nunca confirma
+// existência. O branch de rascunho continua INALTERADO (só podeVerRascunho,
+// sem filtro parental) — composição pinada na spec. findById sem select traz
+// content_rating/tags/channelId por padrão (doc completo), então o helper
+// nunca vê campo undefined aqui.
 router.get('/series/:id', optionalAuth, async (req, res) => {
   try {
     const series = await Series.findById(req.params.id).lean();
     if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
 
-    if (!series.isPublished && !(await podeVerRascunho(req.user, series.channelId))) {
+    if (!series.isPublished) {
+      if (!(await podeVerRascunho(req.user, series.channelId))) {
+        return res.status(404).json({ error: 'Série não encontrada.' });
+      }
+    } else if (!(await serieVisivelPara(req.user, series))) {
       return res.status(404).json({ error: 'Série não encontrada.' });
     }
 
     res.json(series);
   } catch (err) {
+    // Fix round (Fase 5 Bloco 2, Task 8): id malformado (CastError no `_id`
+    // do próprio findById) caía no catch genérico e virava 500 — pra
+    // anônimo E logado, a rota é optionalAuth. Mesmo shape de "não
+    // encontrada" que o id válido-mas-inexistente já usa acima.
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
     logger.error('[Content] GET /series/:id', err);
     res.status(500).json({ error: 'Erro ao buscar série.' });
   }
@@ -143,7 +198,7 @@ router.get('/series/:id', optionalAuth, async (req, res) => {
 // POST /api/content/series — criar série (admin)
 router.post('/series', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay, tags } = req.body;
+    const { title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, channelId, releaseDay, tags, content_rating } = req.body;
     if (!title || !genre || !content_type) {
       return res.status(400).json({ error: 'title, genre e content_type são obrigatórios.' });
     }
@@ -154,7 +209,7 @@ router.post('/series', verifyToken, requireAdmin, async (req, res) => {
     const translations = await translationService.buildTranslationsSafe({ genre, description }, `série "${title}"`);
 
     const series = await Series.create({
-      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay, tags,
+      title, genre, description, cover_image, isPremium, content_type, order_index, isPublished, releaseDay, tags, content_rating,
       ...(channelId ? { channelId } : {}),
       ...(translations ? { translations } : {})
     });
@@ -238,6 +293,10 @@ const RECOMMENDATION_CONTENT_TYPES = ['hqcine', 'vcine', 'hiqua'];
 // agregação, o que for) NUNCA vira 500 — degrada para a MESMA query manual
 // do GET /series acima (spec, seção "Rotas": "NUNCA 500 por falha de score —
 // degrada para a ordem manual"; ledger P3).
+// Fase 5, Bloco 2, Task 4: o fragmento do filtro parental é calculado UMA
+// vez aqui e usado nos DOIS caminhos — candidatos (buildRecommendations,
+// filtroExtra) E fallback cru logo abaixo — pro painel bloqueado nunca
+// aparecer nem quando o serviço de recomendação degrada.
 router.get('/recommendations', optionalAuth, async (req, res) => {
   const { type } = req.query;
   if (!RECOMMENDATION_CONTENT_TYPES.includes(type)) {
@@ -246,17 +305,30 @@ router.get('/recommendations', optionalAuth, async (req, res) => {
 
   const identity = getIdentity(req) || {};
 
+  // Fail-CLOSED, e dentro de try: Express 4 não captura rejeição de handler
+  // async — sem isto, uma falha ao ler o `parental` deixava a conexão
+  // PENDURADA (nem 500). E não degrada para o fallback SEM filtro: isso
+  // vazaria conteúdo para uma conta kids (achado da revisão da T4).
+  let filtroParental;
+  try {
+    filtroParental = await getFiltroParental(req.user);
+  } catch (err) {
+    logger.error('[Content] GET /recommendations — filtro parental indisponível', err);
+    return res.status(500).json({ error: 'Erro ao buscar recomendações.' });
+  }
+
   try {
     const recomendadas = await require('../services/recommendationService').buildRecommendations({
       contentType: type,
       userId: identity.userId,
       anonymousId: identity.anonymousId,
+      filtroExtra: filtroParental,
     });
     return res.json(recomendadas);
   } catch (err) {
     logger.error('[Content] GET /recommendations — degradando para a ordem manual', err);
     try {
-      const fallback = await Series.find({ isPublished: true, content_type: type })
+      const fallback = await Series.find({ isPublished: true, content_type: type, ...filtroParental })
         .sort({ order_index: 1, createdAt: -1 })
         .lean();
       return res.json(fallback);
@@ -282,10 +354,22 @@ router.get('/recommendations', optionalAuth, async (req, res) => {
 // existente pra série inexistente, sem confirmar a existência do rascunho.
 router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
   try {
-    const series = await Series.findById(req.params.id).select('isPublished channelId').lean();
+    // Fase 5, Bloco 2, Task 5: select += content_rating tags (o helper
+    // serieVisivelPara LANÇA sem os dois — fail-closed contra select
+    // estreito, ver utils/parentalFilter.js).
+    const series = await Series.findById(req.params.id).select('isPublished channelId content_rating tags').lean();
     const podeVerRascunhos = series ? await podeVerRascunho(req.user, series.channelId) : false;
 
     if (!series || (!series.isPublished && !podeVerRascunhos)) {
+      return res.json([]);
+    }
+
+    // Série PUBLICADA invisível pelo filtro parental: mesmo contrato de
+    // "inexistente" que a T2/B1 já escolheu para esta rota — [] com 200,
+    // não 404 (a rota nunca confirmou existência de rascunho por status
+    // diferente, e aqui segue o mesmo molde). admin/dono já voltam `true`
+    // de serieVisivelPara, então não perdem os próprios episódios.
+    if (series.isPublished && !(await serieVisivelPara(req.user, series))) {
       return res.json([]);
     }
 
@@ -297,6 +381,12 @@ router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
       .lean();
     res.json(episodes);
   } catch (err) {
+    // Fix round (Fase 5 Bloco 2, Task 8): id malformado (CastError no `_id`
+    // do findById acima) caía no catch genérico e virava 500 — pra anônimo E
+    // logado (optionalAuth). Nota: id válido-mas-inexistente continua `[]`
+    // com 200 (contrato antigo preservado, ver acima) — só o id GENUINAMENTE
+    // malformado vira 404 aqui.
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
     logger.error('[Content] GET /series/:id/episodes', err);
     res.status(500).json({ error: 'Erro ao buscar episódios.' });
   }
@@ -312,8 +402,10 @@ router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
 // nem gerar EngagementEvent.
 router.get('/episodes/:id', optionalAuth, async (req, res) => {
   try {
+    // Fase 5, Bloco 2, Task 5: populate += content_rating tags (o helper
+    // serieVisivelPara LANÇA sem os dois — fail-closed).
     const episode = await Episode.findById(req.params.id)
-      .populate('seriesId', 'title content_type isPublished channelId')
+      .populate('seriesId', 'title content_type isPublished channelId content_rating tags')
       .lean();
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
 
@@ -323,6 +415,11 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
     if (!publicado) {
       const podeVer = serieDoEpisodio && await podeVerRascunho(req.user, serieDoEpisodio.channelId);
       if (!podeVer) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    } else if (!(await serieVisivelPara(req.user, serieDoEpisodio))) {
+      // Episódio PUBLICADO de série que o filtro parental esconde: 404 SEM
+      // nenhum dos efeitos abaixo (increment de views, EngagementEvent) — a
+      // checagem entra ANTES do `if (publicado)` de telemetria, nunca depois.
+      return res.status(404).json({ error: 'Episódio não encontrado.' });
     }
 
     // Conteúdo premium é entregue completo para qualquer usuário — quem decide
@@ -368,6 +465,10 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
 
     res.json(episode);
   } catch (err) {
+    // Fix round (Fase 5 Bloco 2, Task 8): id malformado (CastError no `_id`
+    // do findById acima) caía no catch genérico e virava 500 — pra anônimo E
+    // logado (optionalAuth).
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
     logger.error('[Content] GET /episodes/:id', err);
     res.status(500).json({ error: 'Erro ao buscar episódio.' });
   }
@@ -379,6 +480,16 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
     const { seriesId, episode_number, title, description, video_url, bunnyVideoId, thumbnail, duration, isPremium, order_index, status } = req.body;
     if (!seriesId || !episode_number || !title) {
       return res.status(400).json({ error: 'seriesId, episode_number e title são obrigatórios.' });
+    }
+
+    // episode_number duplicado na MESMA série → 400 (Fase 5 Bloco 2, Task 8
+    // — higiene do Bloco 1). Validação NA ROTA, não índice único no schema:
+    // séries antigas podem já ter duplicatas de antes desta task, e um
+    // índice único quebraria a LEITURA delas. Mesma checagem do lado do
+    // portal (routes/portal.js POST /series/:id/episodios).
+    const jaExiste = await Episode.exists({ seriesId, episode_number });
+    if (jaExiste) {
+      return res.status(400).json({ error: `Já existe um episódio com o número ${episode_number} nesta série.` });
     }
 
     // Tradução automática da descrição (título do episódio fica intacto).
@@ -405,6 +516,12 @@ router.post('/episodes', verifyToken, requireAdmin, async (req, res) => {
 
     res.status(201).json(episode);
   } catch (err) {
+    // Fix round (Fase 5 Bloco 2, Task 8): episode_number não-numérico (ex.
+    // 'abc') faz o Episode.exists({seriesId, episode_number}) acima lançar
+    // CastError com path 'episode_number' (não '_id') — responderCastError
+    // já distingue: 400 legível aqui, nunca 404 (não há id malformado nesta
+    // rota — não recebe :id).
+    if (responderCastError(err, res, 'Série ou episódio não encontrado.')) return;
     logger.error('[Content] POST /episodes', err);
     res.status(500).json({ error: 'Erro ao criar episódio.' });
   }
@@ -532,11 +649,26 @@ router.get('/episodes/:id/vote', verifyToken, async (req, res) => {
 });
 
 // POST /api/content/episodes/:id/vote — criar ou atualizar voto
+// Fase 5, Bloco 2, Task 5: busca o episódio (com a série, via serieVisivelPara)
+// ANTES do upsert — vote não buscava a série nenhuma até esta task. Obra
+// invisível pelo filtro parental → 404 e NADA é gravado (mesmo shape do
+// detalhe/favoritos). Admin/dono: serieVisivelPara já devolve true.
 router.post('/episodes/:id/vote', verifyToken, async (req, res) => {
   try {
     const { type } = req.body;
     if (!['like', 'dislike'].includes(type)) {
       return res.status(400).json({ error: 'type deve ser "like" ou "dislike".' });
+    }
+
+    const episodeAlvo = await Episode.findById(req.params.id)
+      .select('seriesId')
+      .populate('seriesId', 'content_rating tags channelId')
+      .lean();
+    if (!episodeAlvo || !episodeAlvo.seriesId) {
+      return res.status(404).json({ error: 'Episódio não encontrado.' });
+    }
+    if (!(await serieVisivelPara(req.user, episodeAlvo.seriesId))) {
+      return res.status(404).json({ error: 'Episódio não encontrado.' });
     }
 
     const vote = await Vote.findOneAndUpdate(
@@ -580,11 +712,21 @@ router.get('/series/:id/vote', optionalAuth, async (req, res) => {
 });
 
 // POST /api/content/series/:id/vote — criar ou atualizar voto na série
+// Fase 5, Bloco 2, Task 5: busca a série (com content_rating/tags/channelId
+// — já vem completo do findById sem select) ANTES do upsert — a rota não
+// buscava a série nenhuma até esta task. Obra invisível pelo filtro parental
+// → 404 e NADA é gravado. Admin/dono: serieVisivelPara já devolve true.
 router.post('/series/:id/vote', verifyToken, async (req, res) => {
   try {
     const { type } = req.body;
     if (!['like', 'dislike'].includes(type)) {
       return res.status(400).json({ error: 'type deve ser "like" ou "dislike".' });
+    }
+
+    const serieAlvo = await Series.findById(req.params.id).lean();
+    if (!serieAlvo) return res.status(404).json({ error: 'Série não encontrada.' });
+    if (!(await serieVisivelPara(req.user, serieAlvo))) {
+      return res.status(404).json({ error: 'Série não encontrada.' });
     }
 
     const vote = await SeriesVote.findOneAndUpdate(

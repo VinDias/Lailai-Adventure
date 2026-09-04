@@ -18,6 +18,13 @@ export interface AgendaItem {
   releaseDay: number;
 }
 
+// Mensagens FIXAS de middlewares/verifyToken.js — as ÚNICAS duas formas de
+// um 401 significar "sessão", nunca "negócio" (PIN/senha errados). Usado só
+// pelas rotas com `retryAuthOn401=false` (Fase 5 Bloco 2, Task 7, fix round
+// MÉDIA 2) para não confundir accessToken expirado com PIN incorreto — ver
+// comentário de `request()` abaixo.
+const SESSION_401_MESSAGES = ['Token inválido.', 'Acesso negado. Token não fornecido.'];
+
 class ApiService {
   private static instance: ApiService;
   private accessToken: string | null = null;
@@ -139,7 +146,35 @@ class ApiService {
     URL.revokeObjectURL(url);
   }
 
-  private async request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
+  /**
+   * `retryAuthOn401` (Fase 5 Bloco 2, Task 7): por padrão, um 401 é tratado
+   * como "sessão expirada" — tenta renovar o accessToken e REPETE a mesma
+   * chamada. Isso é errado para rotas onde 401 é resultado de NEGÓCIO (PIN
+   * errado, senha errada) e não de sessão: o usuário está autenticado de
+   * verdade, o refresh teria sucesso, e a chamada original seria reenviada
+   * com o MESMO pin/senha errados — dobrando a contagem de tentativas no
+   * servidor (services/parentalPinService.js persiste pinTentativas por
+   * request). As rotas de PIN (updateParental/setParentalPin/recuperarPin)
+   * chamam com `false` por isso — um 401 delas vira erro direto, sem
+   * refresh nem replay.
+   *
+   * Fix round (MÉDIA 2): `retryAuthOn401=false` NÃO significa "nunca é
+   * sessão" — essas 3 rotas passam por `verifyToken` (middlewares/
+   * verifyToken.js) ANTES da lógica de negócio, então um accessToken
+   * expirado enquanto o formulário do PIN estava aberto (>15min parado na
+   * Conta) ainda produz 401, só que com uma das DUAS mensagens fixas do
+   * middleware (`SESSION_401_MESSAGES` abaixo) — nunca as mensagens de
+   * negócio das rotas ("PIN incorreto.", "PIN obrigatório.", "Senha
+   * incorreta.", ...). Distinguir pela mensagem: se bater com o middleware,
+   * tenta o refresh (mas NUNCA repete a chamada original — o corpo dela,
+   * ex. um PIN, nunca chegou a ser avaliado pelo servidor, então repetir
+   * não teria o que "confirmar de novo" com segurança) e relança um erro
+   * com `sessaoRenovada: true` quando o refresh funciona, para o
+   * componente mostrar um aviso neutro (fora do campo de PIN) e manter o
+   * formulário aberto; se o refresh falhar, `onAuthExpired` roda normalmente
+   * (mesmo desfecho do caminho com retry).
+   */
+  private async request<T>(path: string, options: RequestInit = {}, retried = false, retryAuthOn401 = true): Promise<T> {
     const fullUrl = `${API_URL}${path.startsWith('/') ? path : `/${path}`}`;
 
     let response: Response;
@@ -168,13 +203,39 @@ class ApiService {
     }
 
     if (!response.ok) {
+      // `status` e o resto do corpo (ex.: tentativasRestantes do PIN) vão
+      // junto no Error — quem chama (ParentalSettings) precisa deles além
+      // da mensagem para decidir a UI (401 com contagem × 429 bloqueado).
+      const construirErro = (body: any, status: number) => {
+        const error: any = new Error(body.error || `Erro ${status}`);
+        error.status = status;
+        if (body.tentativasRestantes !== undefined) error.tentativasRestantes = body.tentativasRestantes;
+        return error;
+      };
+
       if (response.status === 401 && !retried) {
-        const refreshed = await this.tryRefresh();
-        if (refreshed) return this.request<T>(path, options, true);
-        this.onAuthExpired?.();
+        if (retryAuthOn401) {
+          const refreshed = await this.tryRefresh();
+          if (refreshed) return this.request<T>(path, options, true, retryAuthOn401);
+          this.onAuthExpired?.();
+        } else {
+          // Response.json() só pode ser lido uma vez — decide aqui (sessão
+          // × negócio) e reaproveita o mesmo `body` nos dois desfechos,
+          // nunca chama `response.json()` de novo.
+          const body = await response.json().catch(() => ({}));
+          if (SESSION_401_MESSAGES.includes(body.error)) {
+            const refreshed = await this.tryRefresh();
+            const error = construirErro(body, 401);
+            if (refreshed) error.sessaoRenovada = true;
+            else this.onAuthExpired?.();
+            throw error;
+          }
+          throw construirErro(body, response.status);
+        }
       }
+
       const errBody = await response.json().catch(() => ({}));
-      throw new Error(errBody.error || `Erro ${response.status}`);
+      throw construirErro(errBody, response.status);
     }
 
     return await response.json();
@@ -323,8 +384,12 @@ class ApiService {
     });
   }
 
-  async listChannels() {
-    return this.request<any[]>('/channels');
+  // Fase 5 Bloco 2, Task 8 (higiene do Bloco 1): `includeInactive` — só tem
+  // efeito para admin (a rota já é admin-only) — devolve TODOS os canais,
+  // com `isActive` no shape; sem o parâmetro, só ativos (regressão do shape
+  // antigo, usado pelo formulário de séries).
+  async listChannels(includeInactive = false) {
+    return this.request<any[]>(`/channels${includeInactive ? '?includeInactive=true' : ''}`);
   }
 
   // ─── Royalties (Fase 3, admin) ─────────────────────────────────────────────
@@ -415,7 +480,7 @@ class ApiService {
     });
   }
 
-  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean; releaseDay: number | null; tags: string[] }>) {
+  async updateSeries(id: string, data: Partial<{ title: string; genre: string; description: string; isPremium: boolean; channelId: string; isPublished: boolean; releaseDay: number | null; tags: string[]; content_rating: 'kids' | 'teen' | 'young' | null }>) {
     return this.request<any>(`/content/series/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
@@ -812,11 +877,14 @@ class ApiService {
     return this.request<{ series: any[] }>('/portal/series');
   }
 
-  async createPortalSeries(data: { title: string; description?: string; content_rating_sugerida?: 'kids' | 'teen' | 'young' | null; channelId?: string }) {
+  // `tags` (Fase 5 Bloco 2, Task 6): até 8 slugs do vocabulário fechado —
+  // PORTAL_SERIES_FIELDS passou a aceitar (INVERSÃO deliberada do contrato
+  // do Bloco 1, ver routes/portal.js).
+  async createPortalSeries(data: { title: string; description?: string; content_rating_sugerida?: 'kids' | 'teen' | 'young' | null; channelId?: string; tags?: string[] }) {
     return this.request<any>('/portal/series', { method: 'POST', body: JSON.stringify(data) });
   }
 
-  async updatePortalSeries(id: string, data: Partial<{ title: string; description: string; cover_image: string; content_rating_sugerida: 'kids' | 'teen' | 'young' | null }>) {
+  async updatePortalSeries(id: string, data: Partial<{ title: string; description: string; cover_image: string; content_rating_sugerida: 'kids' | 'teen' | 'young' | null; tags: string[] }>) {
     return this.request<any>(`/portal/series/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   }
 
@@ -921,13 +989,17 @@ class ApiService {
 
   // ─── Fase 5 Bloco 1, Task 10: admin — Fila de Aprovação ────────────────────
   // Shape real de routes/adminPortal.js: lista FLAT com `tipo: 'series'|'episode'`.
+  // `naoClassificadas` (Fase 5 Bloco 2, Task 6): contagem para o badge do
+  // AdminDashboard — MESMA resposta, sem rota dedicada.
   async getAdminAprovacoes() {
-    return this.request<{ itens: any[] }>('/admin/aprovacoes');
+    return this.request<{ itens: any[]; naoClassificadas: number }>('/admin/aprovacoes');
   }
 
-  // genre/tags são OPCIONAIS — o backend usa o gênero já salvo na série
-  // quando não vem no body (a UI só precisa mandar o que o Master editou).
-  async aprovarSerieAdmin(id: string, data: { genre?: string; tags?: string[] } = {}) {
+  // genre/tags/content_rating são OPCIONAIS na leitura do backend (que usa o
+  // que já está salvo na série quando o campo não vem no body), mas
+  // content_rating final é OBRIGATÓRIO para aprovar (Fase 5 Bloco 2, Task 6
+  // — 400 "Classificação etária é obrigatória para aprovar" sem ele).
+  async aprovarSerieAdmin(id: string, data: { genre?: string; tags?: string[]; content_rating?: 'kids' | 'teen' | 'young' | '' } = {}) {
     return this.request<any>(`/admin/aprovacoes/series/${id}/aprovar`, { method: 'POST', body: JSON.stringify(data) });
   }
 
@@ -956,6 +1028,13 @@ class ApiService {
     return this.request<any>(`/channels/${id}/desativar`, { method: 'POST' });
   }
 
+  // Fase 5 Bloco 2, Task 8: inverso de desativarCanal — NÃO desarquiva
+  // nenhuma thread de MensagemPortal (a arquivada é do ex-dono; o dono atual
+  // tem a própria thread vigente) — ver routes/channels.js.
+  async reativarCanal(id: string) {
+    return this.request<any>(`/channels/${id}/reativar`, { method: 'POST' });
+  }
+
   // ─── Fase 5 Bloco 1, Task 10: admin — mensagens por canal ──────────────────
   // Shape real de routes/adminPortal.js: threads agrupadas (vigente primeiro,
   // depois arquivadas da mais recente para a mais antiga).
@@ -965,6 +1044,55 @@ class ApiService {
 
   async sendAdminMensagem(canalId: string, data: { texto: string; refTipo?: 'series' | 'episode'; refId?: string }) {
     return this.request<any>(`/admin/mensagens/${canalId}`, { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  // ─── Fase 5 Bloco 2, Task 7: "Classificação etária e Preferências de
+  // conteúdo" + PIN de proteção (Conta do leitor) ──────────────────────────
+  // Shapes reais de routes/parental.js. `vocabulario` do GET é a fonte ÚNICA
+  // dos slugs para os toggles do leitor (canal pinado pela spec — NUNCA o
+  // import direto de utils/tagsVocabulario.json aqui, esse é o canal dos
+  // chips do admin/portal).
+  async getParental() {
+    return this.request<{
+      classificacaoEtaria: 'kids' | 'teen' | 'young';
+      tagsBloqueadas: string[];
+      temPin: boolean;
+      vocabulario: { slug: string; rotuloPt: string }[];
+    }>('/parental');
+  }
+
+  // `pin` só é enviado quando temPin — e sempre como STRING (um PIN
+  // "001234" numérico perderia os zeros à esquerda e o backend recusa
+  // number com 401 "PIN obrigatório", ver ledger da T3, achado #5).
+  // `retryAuthOn401=false`: ver comentário de `request()` acima.
+  async updateParental(data: { classificacaoEtaria?: 'kids' | 'teen' | 'young'; tagsBloqueadas?: string[]; pin?: string }) {
+    return this.request<{ classificacaoEtaria: 'kids' | 'teen' | 'young'; tagsBloqueadas: string[]; temPin: boolean }>(
+      '/parental',
+      { method: 'PUT', body: JSON.stringify(data) },
+      false,
+      false,
+    );
+  }
+
+  // novoPin (definir/trocar) | pinAtual+novoPin (trocar) | pinAtual+remover (remover).
+  async setParentalPin(data: { novoPin?: string; pinAtual?: string; remover?: boolean }) {
+    return this.request<{ temPin: boolean }>('/parental/pin', { method: 'POST', body: JSON.stringify(data) }, false, false);
+  }
+
+  // Conta local exige `password` (mesma prova de identidade da exclusão de
+  // conta); conta social manda undefined — vira body `{}` (a rota não checa
+  // senha pra quem não tem uma, ver routes/parental.js).
+  async recuperarPin(password?: string) {
+    return this.request<{ message: string }>(
+      '/parental/pin/recuperar',
+      { method: 'POST', body: JSON.stringify(password ? { password } : {}) },
+      false,
+      false,
+    );
+  }
+
+  async confirmarRecuperacaoPin(token: string) {
+    return this.request<{ message: string }>('/parental/pin/recuperar/confirmar', { method: 'POST', body: JSON.stringify({ token }) });
   }
 }
 

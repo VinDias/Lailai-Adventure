@@ -12,6 +12,8 @@ const Episode = require('../models/Episode');
 const Series = require('../models/Series');
 const Favorite = require('../models/Favorite');
 const PushSubscription = require('../models/PushSubscription');
+const User = require('../models/User');
+const { passaFiltroParental } = require('../utils/parentalFilter');
 
 const BATCH_SIZE = 10;
 const DEAD_STATUS_CODES = [404, 410];
@@ -99,7 +101,28 @@ async function notifyEpisodePublished(episodeId) {
   }
 
   const userIds = await Favorite.find({ seriesId: series._id }).distinct('userId');
-  const subscriptions = await PushSubscription.find({ userId: { $in: userIds } });
+
+  // Fase 5, Bloco 2, Task 5: audiência cruzada com o filtro parental —
+  // predicado PURO (passaFiltroParental, SEM exceção admin/dono: quem
+  // bloqueou a tag da própria obra não recebe o push dela, autoinfligido e
+  // coerente com "listas filtram todos" — spec "Push de capítulo novo"). A
+  // obra "eliminada da experiência" não pode apitar com título e deep link
+  // na tela de bloqueio de quem bloqueou. `series` (findById sem select, já
+  // carregado acima) traz content_rating/tags completos — nunca undefined
+  // aqui. Carrega o `parental` de TODOS os favoritadores em UMA query e
+  // descarta quem não passa ANTES de buscar PushSubscription (quem não vai
+  // receber não precisa de mais uma query).
+  // Um userId sem User correspondente (conta apagada — ou um favoritador que
+  // nunca tem subdocumento `parental` gravado) NÃO é descartado por
+  // ausência: `.get(...) ?? null` cai no mesmo "young sem bloqueio" que
+  // passaFiltroParental(null, serie) já trata como caso ausente — filtrar
+  // pela PRESENÇA de um User doc, em vez de pelo valor do parental, seria
+  // uma segunda semântica (silenciosamente mais restritiva) fora da spec.
+  const usuarios = await User.find({ _id: { $in: userIds } }).select('parental').lean();
+  const parentalPorUsuario = new Map(usuarios.map((usuario) => [String(usuario._id), usuario.parental]));
+  const idsPermitidos = userIds.filter((id) => passaFiltroParental(parentalPorUsuario.get(String(id)) ?? null, series));
+
+  const subscriptions = await PushSubscription.find({ userId: { $in: idsPermitidos } });
 
   const payload = montarPayload(series, episode);
 

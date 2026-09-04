@@ -12,6 +12,7 @@ const mongoose = require('mongoose');
 const Series = require('../models/Series');
 const Setting = require('../models/Setting');
 const SuperReaderContribution = require('../models/SuperReaderContribution');
+const { serieVisivelPara } = require('../utils/parentalFilter');
 
 // Trancado em BRL até existir política cambial (ruling da revisão final,
 // 20/08/2026): o relatório de repasse (routes/royalties.js) agrega
@@ -53,7 +54,7 @@ async function lerMinimoCents() {
  * rotas (Task 2) consomem direto, no mesmo padrão de
  * services/progressService.js.
  */
-async function criarSessaoDeApoio({ userId, seriesId, amountCents, currency }) {
+async function criarSessaoDeApoio({ userId, seriesId, amountCents, currency, role }) {
   if (!Number.isInteger(amountCents)) {
     const e = new Error('amountCents deve ser um número inteiro de centavos.');
     e.status = 400;
@@ -85,6 +86,17 @@ async function criarSessaoDeApoio({ userId, seriesId, amountCents, currency }) {
     e.status = 404;
     throw e;
   }
+
+  // Fase 5, Bloco 2, Task 5: obra invisível pelo filtro parental → 404 (mesmo
+  // shape de "não encontrada" — nunca confirma existência). O doc completo
+  // (findById sem select, acima) já traz content_rating/tags/channelId, então
+  // serieVisivelPara nunca vê campo undefined aqui. Admin/dono: já `true`.
+  if (!(await serieVisivelPara({ id: userId, role }, series))) {
+    const e = new Error('Série não encontrada.');
+    e.status = 404;
+    throw e;
+  }
+
   if (!series.isPublished) {
     const e = new Error('Série não publicada.');
     e.status = 400;
