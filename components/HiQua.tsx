@@ -192,8 +192,8 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
     <div className="h-full w-full bg-[var(--bg-color)] overflow-y-auto pb-40 scrollbar-hide">
       <header className="p-8 pt-16 md:p-12 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-5xl font-black premium-text tracking-tighter mb-2 italic">HI-QUA</h1>
-          <p className="text-zinc-500 text-xs font-bold uppercase tracking-[0.4em]">Discover Your Next Story.</p>
+          <h1 className="text-4xl font-black premium-text tracking-tighter mb-2">HI-QUA</h1>
+          <p className="text-zinc-500 text-[10px] font-black uppercase tracking-[0.3em] ml-1">{t('feed.hiquaTagline')}</p>
         </div>
         <button
           onClick={onOpenAgenda}

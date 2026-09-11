@@ -167,6 +167,16 @@ describe('HiQua — usuário anônimo', () => {
     await waitFor(() => expect(screen.getByText('HI-QUA')).toBeInTheDocument());
   });
 
+  // Pedido do cliente em 08/09/2026: as 3 frases de apoio dos feeds estavam
+  // fixas em ingles e precisavam entrar no esquema de traducao. O teste pina
+  // a frase traduzida (pt) — se alguem voltar a escrever texto fixo no
+  // componente, cai aqui.
+  it('frase de apoio do HI-QUA vem do i18n, nao fixa em ingles', async () => {
+    render(<HiQua user={null} onOpen={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Descubra sua próxima história.')).toBeInTheDocument());
+    expect(screen.queryByText('Discover Your Next Story.')).toBeNull();
+  });
+
   it('exibe lista de séries', async () => {
     render(<HiQua user={null} onOpen={vi.fn()} />);
     await waitFor(() => {
@@ -252,6 +262,12 @@ describe('HQCine — usuário anônimo', () => {
   it('exibe header CINECOMICS (rebranding 28/08)', async () => {
     render(<HQCine user={null} onOpen={vi.fn()} />);
     await waitFor(() => expect(screen.getByText('CINECOMICS')).toBeInTheDocument());
+  });
+
+  it('frase de apoio do CINECOMICS vem do i18n, nao fixa em ingles', async () => {
+    render(<HQCine user={null} onOpen={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Quadrinhos ganham vida.')).toBeInTheDocument());
+    expect(screen.queryByText('Comics Brought to Life.')).toBeNull();
   });
 
   it('exibe séries HQCine', async () => {

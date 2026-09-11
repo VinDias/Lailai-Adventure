@@ -65,6 +65,9 @@ const pt = {
   'feed.noSeries': 'Nenhuma série disponível',
   'feed.episodes': 'Episódios',
   'feed.chapter': 'Capítulo',
+  'feed.hqcineTagline': 'Quadrinhos ganham vida.',
+  'feed.vcineTagline': 'Histórias que prendem você.',
+  'feed.hiquaTagline': 'Descubra sua próxima história.',
   'feed.addToList': 'ADICIONAR À LISTA',
   'feed.inMyList': 'NA MINHA LISTA',
 
@@ -382,6 +385,9 @@ const en: Record<keyof typeof pt, string> = {
   'feed.noSeries': 'No series available',
   'feed.episodes': 'Episodes',
   'feed.chapter': 'Chapter',
+  'feed.hqcineTagline': 'Comics brought to life.',
+  'feed.vcineTagline': 'Stories made to keep you watching.',
+  'feed.hiquaTagline': 'Discover your next story.',
   'feed.addToList': 'ADD TO LIST',
   'feed.inMyList': 'IN MY LIST',
 
@@ -675,6 +681,9 @@ const es: Record<keyof typeof pt, string> = {
   'feed.noSeries': 'Ninguna serie disponible',
   'feed.episodes': 'Episodios',
   'feed.chapter': 'Capítulo',
+  'feed.hqcineTagline': 'Cómics que cobran vida.',
+  'feed.vcineTagline': 'Historias que te atrapan.',
+  'feed.hiquaTagline': 'Descubre tu próxima historia.',
   'feed.addToList': 'AGREGAR A LA LISTA',
   'feed.inMyList': 'EN MI LISTA',
 
@@ -968,6 +977,9 @@ const zh: Record<keyof typeof pt, string> = {
   'feed.noSeries': '暂无剧集',
   'feed.episodes': '剧集',
   'feed.chapter': '章节',
+  'feed.hqcineTagline': '让漫画活起来。',
+  'feed.vcineTagline': '让你一直看下去的故事。',
+  'feed.hiquaTagline': '发现你的下一个故事。',
   'feed.addToList': '加入列表',
   'feed.inMyList': '已在列表中',
 
