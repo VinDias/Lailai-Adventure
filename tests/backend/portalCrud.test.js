@@ -681,6 +681,27 @@ describe('POST /api/portal/series/:id/enviar', () => {
     expect(salva.submittedAt).toBeTruthy();
   });
 
+  // Pergunta do cliente em 11/09/2026: por que uma obra removida pela curadoria
+  // exigia um capítulo em RASCUNHO para ser reenviada? Era decisão de
+  // implementação do Bloco 1, quando só existia obra nova (tudo rascunho). A
+  // remoção do Bloco 3 tira a série do ar SEM tocar nos capítulos, que seguem
+  // publicados — o autor tinha de criar um capítulo novo só para destravar.
+  it('obra REMOVIDA pela curadoria (capítulos publicados, zero rascunhos) pode ser reenviada', async () => {
+    const dono = await criarDono('Reenvio Pos Remocao');
+    const { serieId, episodeId } = await serieCompleta(dono, 'Serie Removida Pela Curadoria');
+
+    // estado exato deixado por POST /admin/curadoria/:casoId/remover
+    await Episode.updateOne({ _id: episodeId }, { $set: { status: 'published' } });
+    await Series.updateOne({ _id: serieId }, { $set: { isPublished: false, submittedAt: null } });
+    expect(await Episode.countDocuments({ seriesId: serieId, status: 'draft' })).toBe(0);
+
+    const res = await request(app)
+      .post(`/api/portal/series/${serieId}/enviar`)
+      .set('Authorization', `Bearer ${dono.token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.submittedAt).toBeTruthy();
+  });
+
   it('enviar DUAS vezes → 400 na segunda (idempotente-negativo)', async () => {
     const dono = await criarDono('Enviar Duas Vezes');
     const { serieId } = await serieCompleta(dono, 'Serie Enviada Duas Vezes');

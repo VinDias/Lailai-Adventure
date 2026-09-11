@@ -426,7 +426,7 @@ router.post('/episodios/:id/paineis', requireCanalDoUsuario, async (req, res) =>
 
 // POST /api/portal/series/:id/enviar — marca submittedAt na série draft não
 // submetida do dono. Validações mínimas: capa presente + ao menos um
-// episódio draft com painéis (senão 400 com o que falta).
+// episódio COM PAINÉIS, em qualquer estado (senão 400 com o que falta).
 router.post('/series/:id/enviar', requireCanalDoUsuario, async (req, res) => {
   try {
     const series = await serieDoDono(req.params.id, req.portalChannelIds);
@@ -442,12 +442,18 @@ router.post('/series/:id/enviar', requireCanalDoUsuario, async (req, res) => {
     const faltando = [];
     if (!series.cover_image) faltando.push('capa');
 
+    // Qualquer episódio com painéis serve — NÃO só rascunho. Uma obra removida
+    // pela curadoria (Bloco 3) volta para {isPublished:false, submittedAt:null}
+    // com os capítulos ainda `status:'published'` (routes/adminCuradoria.js só
+    // mexe na série). Exigir rascunho aqui obrigava o autor a criar um capítulo
+    // novo só para destravar o reenvio, contra a promessa de que ele pode
+    // corrigir e reenviar. O que protege a fila de obra vazia é existir painel,
+    // não o estado do capítulo.
     const episodioComPainel = await Episode.exists({
       seriesId: series._id,
-      status: 'draft',
       'panels.0': { $exists: true },
     });
-    if (!episodioComPainel) faltando.push('ao menos um episódio em rascunho com painéis');
+    if (!episodioComPainel) faltando.push('ao menos um episódio com painéis');
 
     if (faltando.length > 0) {
       return res.status(400).json({ error: `Não é possível enviar para aprovação: falta ${faltando.join(' e ')}.` });
