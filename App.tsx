@@ -516,7 +516,11 @@ const App: React.FC = () => {
             (auth.privacyLabel/termsLabel) em vez de duplicar o PrivacyCenter
             inteiro (que também exporta dados e exclui conta — não se aplica
             a quem não tem conta). */}
+        {/* Área de rolagem própria, como os feeds e o PortalEstudio: o <main> é
+            overflow-hidden, então sem este wrapper tudo abaixo da dobra (idioma,
+            Classificação etária, Privacidade) ficava inalcançável no celular. */}
         {view === ViewMode.PROFILE && (
+          <div className="h-full w-full overflow-y-auto pb-40 scrollbar-hide">
           <div className="p-8 animate-apple max-w-xl mx-auto pt-20 text-center">
             {user ? (
               <>
@@ -611,6 +615,7 @@ const App: React.FC = () => {
                 <button type="button" onClick={() => openPolicy('terms')} className="hover:text-rose-500 transition-colors">{t('auth.termsLabel')}</button>
               </div>
             )}
+          </div>
           </div>
         )}
 
