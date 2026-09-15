@@ -1948,10 +1948,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
       {/* Modal — Canais de Áudio */}
 
-      {/* Modal — Nova Série */}
+      {/* Modal — Nova Série (max-h + rolagem como Novo Episódio/Editar Série:
+          com tags e classificação o formulário passa de 1.200px e, sem isso,
+          topo e botão CRIAR SÉRIE ficavam fora da tela em notebook) */}
       {showCreateModal && (
         <div className="fixed inset-0 z-[3000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
-          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg">
+          <div className="bg-[var(--card-bg)] rounded-[2.5rem] border border-[var(--border-color)] p-10 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-8">
               <h3 className="text-2xl font-black tracking-tighter">Nova Série</h3>
               <button onClick={() => setShowCreateModal(false)} className="text-zinc-500 hover:text-white transition-all"><X size={24} /></button>
