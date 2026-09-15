@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Users, Mail, Ban, RefreshCw, Send } from 'lucide-react';
+import { Users, Mail, Ban, RefreshCw, Send, Plus } from 'lucide-react';
 import { api } from '../../services/api';
 
 /**
@@ -17,6 +17,11 @@ import { api } from '../../services/api';
  * backend, sem estado local paralelo. Como o canal inativo continua na
  * lista, ele continua clicável e a aba Mensagens continua mostrando a
  * thread arquivada — a "porta de entrada" que sumia antes desta task.
+ *
+ * Pós-entrega da Fase 5 (pedido do Vin, 11/09): "Novo canal" aqui mesmo, com
+ * o e-mail do ilustrador opcional (POST /channels com `ownerEmail`). Antes o
+ * único jeito de criar era o "+ Canal" escondido no modal Nova Série, e o
+ * canal nascia do admin, exigindo transferir depois nesta aba.
  */
 
 interface CanalResumo {
@@ -43,6 +48,10 @@ const CanaisPanel: React.FC = () => {
   const [loadingThreads, setLoadingThreads] = useState(false);
   const [novaMensagem, setNovaMensagem] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [novoNome, setNovoNome] = useState('');
+  const [novoEmail, setNovoEmail] = useState('');
+  const [criando, setCriando] = useState(false);
+  const [criarMsg, setCriarMsg] = useState<{ texto: string; erro: boolean } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -79,6 +88,25 @@ const CanaisPanel: React.FC = () => {
       setSelected({ ...ch });
     } finally {
       setLoadingDetail(false);
+    }
+  };
+
+  const criarCanal = async () => {
+    if (!novoNome.trim()) return;
+    setCriando(true);
+    setCriarMsg(null);
+    try {
+      const email = novoEmail.trim();
+      const ch = await api.createChannel({ name: novoNome.trim(), ...(email ? { ownerEmail: email } : {}) });
+      setNovoNome('');
+      setNovoEmail('');
+      setCriarMsg({ texto: email ? 'Canal criado e vinculado ao ilustrador!' : 'Canal criado!', erro: false });
+      await load();
+      await abrirCanal(ch);
+    } catch (e: any) {
+      setCriarMsg({ texto: e?.message || 'Erro ao criar canal.', erro: true });
+    } finally {
+      setCriando(false);
     }
   };
 
@@ -168,6 +196,35 @@ const CanaisPanel: React.FC = () => {
       <h2 className="text-4xl font-black tracking-tighter mb-8 flex items-center gap-3">
         <Users size={32} className="text-rose-500" /> Canais
       </h2>
+
+      <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-3xl p-6 mb-8">
+        <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-3">Novo canal</p>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            type="text"
+            value={novoNome}
+            onChange={e => setNovoNome(e.target.value)}
+            placeholder="Nome do canal"
+            className="flex-1 min-w-[180px] bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+          />
+          <input
+            type="email"
+            value={novoEmail}
+            onChange={e => setNovoEmail(e.target.value)}
+            placeholder="E-mail do ilustrador (opcional)"
+            className="flex-1 min-w-[220px] bg-black/5 dark:bg-white/5 border border-[var(--border-color)] rounded-2xl px-4 py-3 text-[var(--text-color)] text-sm font-bold outline-none focus:border-rose-500 transition-colors"
+          />
+          <button
+            onClick={criarCanal}
+            disabled={criando || !novoNome.trim()}
+            className="flex items-center gap-2 px-5 py-3 bg-rose-600 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-rose-500 transition-all disabled:opacity-50"
+          >
+            <Plus size={14} /> {criando ? '...' : 'Criar canal'}
+          </button>
+        </div>
+        <p className="text-xs text-zinc-500 mt-2">Com o e-mail, o canal já nasce do ilustrador e o Meu Estúdio aparece na Conta dele. A pessoa precisa ter cadastro no app.</p>
+        {criarMsg && <p className={`text-xs font-bold mt-2 ${criarMsg.erro ? 'text-rose-500' : 'text-emerald-400'}`}>{criarMsg.texto}</p>}
+      </div>
 
       <div className="flex gap-8 items-start">
         <div className="w-72 shrink-0 bg-[var(--card-bg)] border border-[var(--border-color)] rounded-3xl overflow-hidden">

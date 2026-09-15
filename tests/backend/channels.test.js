@@ -47,6 +47,40 @@ describe('POST /api/channels', () => {
     expect(res.body.name).toBe('Canal Criado Pelo Admin');
   });
 
+  // Aba Canais do admin: o canal nasce já com o ilustrador como dono. Sem
+  // isso o único caminho era criar (dono = admin) e transferir depois.
+  it('admin cria com ownerEmail → o dono é o ilustrador e o Meu Estúdio abre para ele', async () => {
+    const res = await request(app)
+      .post('/api/channels')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ name: 'Canal Com Dono Na Criacao', ownerEmail: `  ${getUsers().premium.email.toUpperCase()}  ` });
+    expect(res.status).toBe(201);
+    expect(String(res.body.ownerId)).toBe(String(getId('premium')));
+
+    const estudio = await request(app)
+      .get('/api/portal/meu-estudio')
+      .set('Authorization', `Bearer ${getToken('premium')}`);
+    expect(estudio.status).toBe(200);
+  });
+
+  it('ownerEmail inexistente → 404 e nenhum canal é criado', async () => {
+    const res = await request(app)
+      .post('/api/channels')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ name: 'Canal Que Nao Pode Nascer', ownerEmail: 'ninguem@lorflux.test' });
+    expect(res.status).toBe(404);
+    expect(await Channel.countDocuments({ name: 'Canal Que Nao Pode Nascer' })).toBe(0);
+  });
+
+  it('ownerEmail em branco → canal nasce do próprio admin (comportamento anterior)', async () => {
+    const res = await request(app)
+      .post('/api/channels')
+      .set('Authorization', `Bearer ${getToken('admin')}`)
+      .send({ name: 'Canal Sem Email', ownerEmail: '   ' });
+    expect(res.status).toBe(201);
+    expect(String(res.body.ownerId)).toBe(String(getId('admin')));
+  });
+
   // Fix round da T8 — achado do revisor: name como ARRAY faz o Mongoose
   // lançar ValidationError (não CastError) na criação — Channel.create()
   // roda validação completa ANTES de salvar (diferente do cast síncrono de

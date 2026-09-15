@@ -81,11 +81,23 @@ router.get('/:id', optionalAuth, async (req, res) => {
 // Bloco 1, "Quem é ilustrador")
 router.post('/', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { name, description, avatar, banner } = req.body;
+    const { name, description, avatar, banner, ownerEmail } = req.body;
     if (!name) return res.status(400).json({ error: 'name é obrigatório.' });
 
-    const channel = await Channel.create({ ownerId: req.user.id, name, description, avatar, banner });
-    logger.info(`[Channel] Criado: ${name} por userId ${req.user.id}`);
+    // Dono já na criação (aba Canais do admin): sem isto o canal nascia do
+    // admin e só virava o Meu Estúdio do ilustrador depois de um PUT
+    // ownerEmail separado. E-mail inexistente → 404 ANTES de criar, para não
+    // sobrar canal do admin pela metade. Canal novo não tem thread de
+    // mensagens, então não há o que arquivar (diferente da troca no PUT).
+    let ownerId = req.user.id;
+    if (ownerEmail != null && String(ownerEmail).trim() !== '') {
+      const dono = await User.findOne({ email: String(ownerEmail).toLowerCase().trim() });
+      if (!dono) return res.status(404).json({ error: 'Usuário com esse e-mail não encontrado.' });
+      ownerId = dono._id;
+    }
+
+    const channel = await Channel.create({ ownerId, name, description, avatar, banner });
+    logger.info(`[Channel] Criado: ${name} por userId ${req.user.id} (dono ${ownerId})`);
     res.status(201).json(channel);
   } catch (err) {
     // Fix round (Fase 5 Bloco 2, Task 8): campo tipado recebendo um valor

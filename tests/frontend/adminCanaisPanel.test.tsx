@@ -9,6 +9,9 @@
  * `GET /channels?includeInactive=true` — o badge "Inativo" vem do `isActive`
  * do PRÓPRIO backend (não mais um estado local mantido só depois de uma
  * desativação na mesma sessão).
+ *
+ * Pós-entrega da Fase 5: "Novo canal" na própria aba, com e-mail do
+ * ilustrador opcional (POST /channels com ownerEmail).
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -18,6 +21,7 @@ import '@testing-library/jest-dom';
 vi.mock('../../services/api', () => ({
   api: {
     listChannels: vi.fn(),
+    createChannel: vi.fn(),
     getChannel: vi.fn(),
     updateChannelAdmin: vi.fn(),
     desativarCanal: vi.fn(),
@@ -85,7 +89,7 @@ describe('CanaisPanel — E-mail do dono (transferência)', () => {
     fireEvent.click(await screen.findByText('Canal do Vin'));
     await waitFor(() => expect(api.getChannel).toHaveBeenCalled());
 
-    const input = await screen.findByPlaceholderText(/e-mail/i);
+    const input = await screen.findByPlaceholderText('E-mail do novo dono');
     fireEvent.change(input, { target: { value: 'novo-dono@lorflux.test' } });
     fireEvent.click(screen.getByRole('button', { name: /transferir/i }));
 
@@ -98,7 +102,7 @@ describe('CanaisPanel — E-mail do dono (transferência)', () => {
     fireEvent.click(await screen.findByText('Canal do Vin'));
     await waitFor(() => expect(api.getChannel).toHaveBeenCalled());
 
-    const input = await screen.findByPlaceholderText(/e-mail/i);
+    const input = await screen.findByPlaceholderText('E-mail do novo dono');
     fireEvent.change(input, { target: { value: 'nada@lorflux.test' } });
     fireEvent.click(screen.getByRole('button', { name: /transferir/i }));
 
@@ -116,7 +120,7 @@ describe('CanaisPanel — E-mail do dono (transferência)', () => {
     fireEvent.click(await screen.findByText('Canal do Vin'));
     await waitFor(() => expect(api.getChannel).toHaveBeenCalled());
 
-    const input = await screen.findByPlaceholderText(/e-mail/i);
+    const input = await screen.findByPlaceholderText('E-mail do novo dono');
     fireEvent.change(input, { target: { value: 'novo-dono@lorflux.test' } });
     fireEvent.click(screen.getByRole('button', { name: /transferir/i }));
 
@@ -288,5 +292,57 @@ describe('CanaisPanel — Mensagens por canal', () => {
 
     await waitFor(() => expect(api.sendAdminMensagem).toHaveBeenCalledWith('c1', { texto: 'Ajuste isso' }));
     await waitFor(() => expect(api.getAdminMensagensCanal).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe('CanaisPanel — Novo canal (pós-entrega da Fase 5)', () => {
+  const nome = () => screen.getByPlaceholderText('Nome do canal');
+  const email = () => screen.getByPlaceholderText('E-mail do ilustrador (opcional)');
+  const botao = () => screen.getByRole('button', { name: /Criar canal/i });
+
+  it('a aba tem o formulário de criar, com o botão desabilitado sem nome', async () => {
+    render(<CanaisPanel />);
+    await screen.findByText('Canal do Vin');
+    expect(botao()).toBeDisabled();
+    fireEvent.change(nome(), { target: { value: '   ' } });
+    expect(botao()).toBeDisabled();
+  });
+
+  it('com e-mail: cria já com ownerEmail, recarrega a lista e abre o canal novo', async () => {
+    vi.mocked(api.createChannel).mockResolvedValue({ _id: 'c9', name: 'Canal da Bia' } as any);
+    render(<CanaisPanel />);
+    await screen.findByText('Canal do Vin');
+    fireEvent.change(nome(), { target: { value: '  Canal da Bia ' } });
+    fireEvent.change(email(), { target: { value: ' bia@ex.com ' } });
+    fireEvent.click(botao());
+    await waitFor(() => expect(api.createChannel).toHaveBeenCalledWith({ name: 'Canal da Bia', ownerEmail: 'bia@ex.com' }));
+    expect(await screen.findByText('Canal criado e vinculado ao ilustrador!')).toHaveClass('text-emerald-400');
+    await waitFor(() => expect(api.listChannels).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.getChannel).toHaveBeenCalledWith('c9'));
+    expect(nome()).toHaveValue('');
+    expect(email()).toHaveValue('');
+  });
+
+  it('sem e-mail: não manda ownerEmail (o canal nasce do admin)', async () => {
+    vi.mocked(api.createChannel).mockResolvedValue({ _id: 'c8', name: 'Canal Solto' } as any);
+    render(<CanaisPanel />);
+    await screen.findByText('Canal do Vin');
+    fireEvent.change(nome(), { target: { value: 'Canal Solto' } });
+    fireEvent.click(botao());
+    await waitFor(() => expect(api.createChannel).toHaveBeenCalledWith({ name: 'Canal Solto' }));
+    expect(await screen.findByText('Canal criado!')).toBeInTheDocument();
+  });
+
+  it('e-mail sem cadastro: mostra o erro do backend em vermelho e mantém o que foi digitado', async () => {
+    vi.mocked(api.createChannel).mockRejectedValue(new Error('Usuário com esse e-mail não encontrado.'));
+    render(<CanaisPanel />);
+    await screen.findByText('Canal do Vin');
+    fireEvent.change(nome(), { target: { value: 'Canal da Bia' } });
+    fireEvent.change(email(), { target: { value: 'errado@ex.com' } });
+    fireEvent.click(botao());
+    expect(await screen.findByText('Usuário com esse e-mail não encontrado.')).toHaveClass('text-rose-500');
+    expect(nome()).toHaveValue('Canal da Bia');
+    expect(email()).toHaveValue('errado@ex.com');
+    expect(api.listChannels).toHaveBeenCalledTimes(1);
   });
 });
