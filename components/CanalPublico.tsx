@@ -107,7 +107,7 @@ const CanalPublico: React.FC<CanalPublicoProps> = ({ channelId, user, onClose, o
       ) : (
         <div className="max-w-4xl mx-auto pt-20">
           {canal.banner && (
-            <div className="w-full h-40 rounded-3xl overflow-hidden mb-[-3rem] relative">
+            <div className="w-full h-40 bg-black rounded-3xl overflow-hidden mb-[-3rem] relative">
               <ImageWithFallback src={canal.banner} className="w-full h-full object-cover opacity-60" alt="" />
             </div>
           )}
@@ -145,7 +145,7 @@ const CanalPublico: React.FC<CanalPublicoProps> = ({ channelId, user, onClose, o
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
               {obras.map(s => (
                 <div key={s._id} onClick={() => handleOpenObra(s)} className="group cursor-pointer">
-                  <div className="aspect-[9/16] rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[1.02] shadow-2xl">
+                  <div className="aspect-[9/16] bg-black rounded-[2.5rem] overflow-hidden relative ring-1 ring-white/5 transition-all group-hover:scale-[1.02] shadow-2xl">
                     <ImageWithFallback src={s.cover_image} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt={s.title} />
                     <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
                     <div className="absolute bottom-6 left-6 right-6">

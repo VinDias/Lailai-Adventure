@@ -177,6 +177,22 @@ describe('HiQua — usuário anônimo', () => {
     expect(screen.queryByText('Discover Your Next Story.')).toBeNull();
   });
 
+  // Pedido do cliente em 11/09/2026: no tema claro as capas ficavam
+  // desbotadas. A capa tem opacity-80 e, sem fundo proprio, misturava com o
+  // fundo da pagina (escuro num tema, claro no outro). O cartao precisa ter
+  // fundo preto proprio para a capa ficar igual nos dois temas.
+  it('capa escurecida tem fundo preto proprio, nao herda o fundo do tema', async () => {
+    vi.mocked(api.getSeries).mockResolvedValue([
+      makeSeries({ _id: 's1', title: 'Webtoon A', content_type: 'hiqua', cover_image: 'https://cdn.test/capa-a.jpg' }),
+    ] as any);
+    render(<HiQua user={null} onOpen={vi.fn()} />);
+    const capa = (await screen.findAllByAltText('Webtoon A'))[0];
+    expect(capa).toHaveClass('opacity-80');
+    const cartao = capa.closest('[class*="aspect-[9/16]"]');
+    expect(cartao).not.toBeNull();
+    expect(cartao).toHaveClass('bg-black');
+  });
+
   it('exibe lista de séries', async () => {
     render(<HiQua user={null} onOpen={vi.fn()} />);
     await waitFor(() => {
