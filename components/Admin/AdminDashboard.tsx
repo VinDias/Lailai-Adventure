@@ -8,7 +8,7 @@ import {
   Trash2, ArrowUp, ArrowDown, DollarSign,
   Film, Plus, X, ThumbsUp, ThumbsDown, Eye, ChevronLeft, List, Camera,
   Megaphone, ToggleLeft, ToggleRight, ExternalLink, BookOpen, ImagePlus, Upload,
-  CheckCircle2, AlertCircle, Settings, Music, Languages, Coins, Pencil, ClipboardCheck, ShieldAlert
+  CheckCircle2, AlertCircle, Settings, Music, Languages, Coins, Pencil, ClipboardCheck, ShieldAlert, RefreshCw
 } from 'lucide-react';
 import ImageWithFallback from '../ImageWithFallback';
 import RoyaltiesPanel from './RoyaltiesPanel';
@@ -565,10 +565,37 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     setBatchFiles(prev => [...prev, ...newEntries]);
   };
 
+  /**
+   * Índice do primeiro painel que ainda NÃO tem camada no idioma escolhido —
+   * é daí que o próximo lote de camadas começa. Sem isso, cada lote voltava
+   * ao painel #1 e sobrescrevia as camadas já enviadas (o índice usado era a
+   * posição do arquivo DENTRO do lote), então quem subia as camadas em partes
+   * perdia o trabalho anterior sem nenhum aviso.
+   */
+  const primeiroPainelSemCamada = (lang: string) => {
+    const i = panelsList.findIndex(
+      (p: any) => !(p.translationLayers ?? []).some((l: any) => l.language === lang)
+    );
+    return i === -1 ? 0 : i;
+  };
+
   const handleBatchUpload = async () => {
     if (!selectedEpisode || batchUploading) return;
     const pending = batchFiles.filter(f => f.status === 'pending');
     if (pending.length === 0) return;
+
+    // Camada de idioma só existe sobre painel existente: avisa ANTES de gastar
+    // upload no Bunny se não houver painel suficiente a partir do ponto atual.
+    const base = batchLanguage === 'original' ? 0 : primeiroPainelSemCamada(batchLanguage);
+    if (batchLanguage !== 'original') {
+      const vagas = panelsList.length - base;
+      if (pending.length > vagas) {
+        setBatchFiles(prev => prev.map(f => f.status === 'pending'
+          ? { ...f, status: 'error', error: `Cabem ${vagas} camada(s) a partir do painel #${base + 1} — o capítulo tem ${panelsList.length} painéis.` }
+          : f));
+        return;
+      }
+    }
     setBatchUploading(true);
     setBatchFiles(prev => prev.map(f => f.status === 'pending' ? { ...f, status: 'uploading' } : f));
     try {
@@ -581,8 +608,10 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         if (!r) return { ...f, status: 'error', error: 'Sem resposta do servidor.' };
         return r.success ? { ...f, status: 'done', url: r.url } : { ...f, status: 'error', error: r.error };
       }));
+      // `i` é a posição do arquivo no lote; o painel alvo é o base + i (o base
+      // é 0 no idioma original, onde os painéis são criados no fim da lista).
       const successItems = result.results
-        .map((r, i) => ({ url: r.url, success: r.success, panelIndex: i }))
+        .map((r, i) => ({ url: r.url, success: r.success, panelIndex: base + i }))
         .filter(item => item.success && item.url);
       const successUrls = successItems.map(item => item.url!);
       const epId = selectedEpisode._id || selectedEpisode.id;
@@ -1264,7 +1293,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 ))}
                 {batchLanguage !== 'original' && (
                   <span className="text-[10px] text-amber-400 font-bold">
-                    As imagens serão adicionadas como camada {batchLanguage.toUpperCase()} nos painéis existentes (por ordem)
+                    Camada {batchLanguage.toUpperCase()} a partir do painel #{primeiroPainelSemCamada(batchLanguage) + 1}, na ordem enviada ({panelsList.length - primeiroPainelSemCamada(batchLanguage)} painel(is) sem essa camada)
                   </span>
                 )}
               </div>
@@ -1296,7 +1325,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                   {/* Cabeçalho da fila */}
                   <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border-color)]">
                     <span className="text-xs font-black text-zinc-400 uppercase tracking-widest">
-                      {batchFiles.length} imagem{batchFiles.length !== 1 ? 'ns' : ''} &nbsp;·&nbsp;
+                      {batchFiles.length} {batchFiles.length !== 1 ? 'imagens' : 'imagem'} &nbsp;·&nbsp;
                       <span className="text-emerald-400">{batchFiles.filter(f => f.status === 'done').length} ok</span>
                       {batchFiles.filter(f => f.status === 'error').length > 0 && (
                         <span className="text-rose-400"> &nbsp;·&nbsp; {batchFiles.filter(f => f.status === 'error').length} erro{batchFiles.filter(f => f.status === 'error').length !== 1 ? 's' : ''}</span>
@@ -1310,6 +1339,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                       Limpar concluídos
                     </button>
                   </div>
+
+                  {/* Erro do lote em texto: antes a mensagem so existia no
+                      title da miniatura (tooltip), entao na pratica o painel
+                      mostrava um icone vermelho sem dizer o que aconteceu. */}
+                  {batchFiles.find(f => f.status === 'error' && f.error) && (
+                    <p role="alert" className="px-5 py-3 text-xs font-bold text-rose-400 border-b border-[var(--border-color)]">
+                      {batchFiles.find(f => f.status === 'error' && f.error)!.error}
+                    </p>
+                  )}
 
                   {/* Lista de miniaturas */}
                   <div className="max-h-60 overflow-y-auto p-3 grid grid-cols-4 sm:grid-cols-6 gap-2">
@@ -1341,6 +1379,18 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 </div>
               )}
 
+              {/* Reenvio depois de falha: sem isto, arquivo em erro não volta
+                  para a fila e o único jeito de tentar de novo era recarregar
+                  a página inteira (relato do cliente em 17/09). */}
+              {batchFiles.some(f => f.status === 'error') && !batchUploading && (
+                <button
+                  onClick={() => setBatchFiles(prev => prev.map(f => f.status === 'error' ? { ...f, status: 'pending', error: undefined } : f))}
+                  className="flex items-center justify-center gap-2 w-full py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-white/5 text-zinc-300 hover:bg-white/10 transition-all"
+                >
+                  <RefreshCw size={14} /> Tentar novamente ({batchFiles.filter(f => f.status === 'error').length})
+                </button>
+              )}
+
               {/* Botão de envio em lote */}
               {batchFiles.filter(f => f.status === 'pending').length > 0 && (
                 <button
@@ -1350,7 +1400,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 >
                   {batchUploading
                     ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Enviando...</>
-                    : <><Upload size={16} /> Enviar {batchFiles.filter(f => f.status === 'pending').length} imagem{batchFiles.filter(f => f.status === 'pending').length !== 1 ? 'ns' : ''} {batchLanguage !== 'original' ? `· Idioma ${batchLanguage.toUpperCase()}` : '· Base'}</>
+                    : <><Upload size={16} /> Enviar {batchFiles.filter(f => f.status === 'pending').length} {batchFiles.filter(f => f.status === 'pending').length !== 1 ? 'imagens' : 'imagem'} {batchLanguage !== 'original' ? `· Idioma ${batchLanguage.toUpperCase()}` : '· Base'}</>
                   }
                 </button>
               )}
