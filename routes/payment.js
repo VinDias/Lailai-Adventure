@@ -27,6 +27,51 @@ function getPriceIdForLocale(locale) {
   return { priceId: map[currency] || process.env.STRIPE_PRICE_ID, currency };
 }
 
+// GET /api/payment/precos — preços REAIS do Stripe, fonte única do valor
+// mostrado no app. Antes, o botão "Assinar Premium" exibia valores fixos no
+// código (utils/localizedPrice.ts), que passavam a mentir assim que o preço
+// mudasse no painel do Stripe. Público (a tela de assinatura é vista antes de
+// qualquer ação de conta) e com cache em memória — o preço muda raramente e o
+// webhook do Stripe não avisa mudança de Price.
+const CACHE_PRECOS_MS = 10 * 60 * 1000;
+let cachePrecos = { em: 0, dados: null };
+
+router.get('/precos', async (req, res) => {
+  try {
+    if (cachePrecos.dados && Date.now() - cachePrecos.em < CACHE_PRECOS_MS) {
+      return res.json(cachePrecos.dados);
+    }
+
+    const ids = {
+      brl: process.env.STRIPE_PRICE_ID_BRL || process.env.STRIPE_PRICE_ID,
+      usd: process.env.STRIPE_PRICE_ID_USD || process.env.STRIPE_PRICE_ID,
+      eur: process.env.STRIPE_PRICE_ID_EUR || process.env.STRIPE_PRICE_ID,
+    };
+
+    const precos = {};
+    for (const [moeda, id] of Object.entries(ids)) {
+      if (!id) continue;
+      try {
+        const price = await stripe.prices.retrieve(id);
+        if (price && typeof price.unit_amount === 'number') {
+          precos[moeda] = { centavos: price.unit_amount, moeda: price.currency };
+        }
+      } catch (err) {
+        // Um Price inválido não pode derrubar os outros — o app cai no valor
+        // de reserva só dessa moeda.
+        logger.warn(`[Payment] Price ${moeda} não pôde ser lido no Stripe: ${err.message}`);
+      }
+    }
+
+    const dados = { precos };
+    cachePrecos = { em: Date.now(), dados };
+    res.json(dados);
+  } catch (err) {
+    logger.error('[Payment] GET /precos', err);
+    res.status(500).json({ error: 'Erro ao consultar os preços.' });
+  }
+});
+
 // Criar sessão de checkout (aceita locale para multi-currency)
 router.post('/create-checkout', verifyToken, async (req, res) => {
   try {
@@ -141,6 +186,42 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       } else {
         logger.warn(`[Webhook] Nenhum usuário encontrado para stripeCustomerId: ${customerId}`);
       }
+    }
+
+    // Renovação mensal. SEM este evento, `premiumExpiresAt` congelava nos 30
+    // dias gravados na primeira cobrança: o assinante que continuava pagando
+    // voltava a ver anúncio (utils/premium.ts isPremiumActive) e sumia da
+    // contagem de assinantes do pool de royalties
+    // (services/royaltyReportService.js). Idempotente: grava uma data
+    // ABSOLUTA vinda da própria fatura, então reenvio do Stripe não acumula.
+    if (event.type === 'invoice.paid') {
+      const invoice = event.data.object;
+      const assinaturaId = invoice.subscription;
+      const clienteId = invoice.customer;
+
+      const user = assinaturaId
+        ? await User.findOne({ stripeSubscriptionId: assinaturaId })
+          || (clienteId ? await User.findOne({ stripeCustomerId: clienteId }) : null)
+        : (clienteId ? await User.findOne({ stripeCustomerId: clienteId }) : null);
+
+      if (!user) {
+        logger.warn('[Webhook] invoice.paid sem usuário correspondente — ignorado.');
+        return res.json({ received: true });
+      }
+
+      // Fim do período pago: a linha da assinatura traz o intervalo cobrado.
+      // `period_end` da fatura serve de reserva; os 30 dias só entram se o
+      // Stripe não mandar nenhum dos dois (nunca visto, mas o usuário não
+      // pode perder o Premium por causa de um campo ausente).
+      const linha = (invoice.lines && invoice.lines.data || []).find(l => l.period && l.period.end);
+      const fimEmSegundos = (linha && linha.period.end) || invoice.period_end;
+      user.premiumExpiresAt = fimEmSegundos
+        ? new Date(fimEmSegundos * 1000)
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      user.isPremium = true;
+      if (assinaturaId && !user.stripeSubscriptionId) user.stripeSubscriptionId = assinaturaId;
+      await user.save();
+      logger.info(`[Webhook] Assinatura renovada até ${user.premiumExpiresAt.toISOString()} para: ${maskEmail(user.email)}`);
     }
 
     if (event.type === 'customer.subscription.deleted') {

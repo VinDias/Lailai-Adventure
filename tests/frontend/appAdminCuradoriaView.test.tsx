@@ -28,6 +28,7 @@ vi.mock('../../services/api', () => ({
     getMeuEstudio: vi.fn(),
     getSuperReaderMe: vi.fn(),
     getParental: vi.fn(),
+    getPrecosPremium: vi.fn().mockResolvedValue({ precos: {} }),
     // Feed que o login abre antes de irmos ao admin.
     getRecommendations: vi.fn(),
     getSeries: vi.fn(),

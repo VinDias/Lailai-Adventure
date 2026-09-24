@@ -23,7 +23,7 @@ import PushAccountToggle from './components/PushAccountToggle';
 import SuperReaderThanks from './components/SuperReaderThanks';
 import SuperReaderBadge from './components/SuperReaderBadge';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search, Heart, Star, Pencil } from 'lucide-react';
-import { getLocalizedPrice } from './utils/localizedPrice';
+import { getLocalizedPrice, getLocalizedCurrency, formatarPreco } from './utils/localizedPrice';
 import { initConsent } from './utils/consent';
 import { useI18n, useT } from './contexts/I18nContext';
 import { LANG_OPTIONS } from './i18n/translations';
@@ -93,6 +93,9 @@ const App: React.FC = () => {
   // repassado pra ParentalSettings, que mostra a tela de confirmação.
   const pinRecoveryTokenRef = React.useRef<string | null>(null);
   const [pinRecoveryToken, setPinRecoveryToken] = useState<string | null>(null);
+  // Preço real da assinatura (Stripe). Enquanto não chega — ou se a consulta
+  // falhar — vale o valor de reserva de utils/localizedPrice.ts.
+  const [precoPremium, setPrecoPremium] = useState<string | null>(null);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -366,6 +369,18 @@ const App: React.FC = () => {
   // Favoritos só é alcançado a partir da Conta (botão "Meus Favoritos") — o
   // voltar natural é para lá, não para a aba inicial, então é uma camada à
   // parte da aba abaixo (que sempre volta para HQCINE).
+  useEffect(() => {
+    if (!user || user.isPremium) return;
+    let vivo = true;
+    api.getPrecosPremium()
+      .then(({ precos }) => {
+        const p = precos?.[getLocalizedCurrency()];
+        if (vivo && p) setPrecoPremium(formatarPreco(p.centavos, p.moeda));
+      })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [user]);
+
   useCamadaVoltar(view === ViewMode.FAVORITES, () => setView(ViewMode.PROFILE));
   // Meu Estúdio (Fase 5 Bloco 1): mesmo padrão de Favoritos — só alcançado a
   // partir do cartão na Conta, volta pra lá (não para a aba inicial). Camadas
@@ -559,7 +574,7 @@ const App: React.FC = () => {
               {user && (
                 <>
                   {!user.isPremium && (
-                    <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')} ({getLocalizedPrice()})</button>
+                    <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')} ({precoPremium ?? getLocalizedPrice()})</button>
                   )}
                   <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> {t('account.myFavorites')}</button>
                   <SuperReaderBadge />

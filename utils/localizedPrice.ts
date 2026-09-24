@@ -22,3 +22,18 @@ export function getLocalizedCurrency(): string {
   const lang = (typeof navigator !== 'undefined' ? navigator.language : 'pt-BR').toLowerCase();
   return LOCALE_CURRENCY[lang] || LOCALE_CURRENCY[lang.split('-')[0]] || 'brl';
 }
+
+
+/**
+ * Formata um preço vindo do Stripe (em centavos) no idioma do aparelho. Usado
+ * pelo App para mostrar o valor REAL da assinatura; PRICE_DISPLAY acima só
+ * entra quando o servidor não responde.
+ */
+export function formatarPreco(centavos: number, moeda: string): string {
+  const idioma = typeof navigator !== 'undefined' ? navigator.language : 'pt-BR';
+  try {
+    return new Intl.NumberFormat(idioma, { style: 'currency', currency: moeda.toUpperCase() }).format(centavos / 100);
+  } catch {
+    return `${moeda.toUpperCase()} ${(centavos / 100).toFixed(2)}`;
+  }
+}

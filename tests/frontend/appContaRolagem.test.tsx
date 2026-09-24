@@ -26,6 +26,7 @@ vi.mock('../../services/api', () => ({
     getMeuEstudio: vi.fn(),
     getSuperReaderMe: vi.fn(),
     getParental: vi.fn(),
+    getPrecosPremium: vi.fn().mockResolvedValue({ precos: {} }),
     getRecommendations: vi.fn(),
     getSeries: vi.fn(),
     getContinueList: vi.fn(),

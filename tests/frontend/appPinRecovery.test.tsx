@@ -35,6 +35,7 @@ vi.mock('../../services/api', () => ({
     getMeuEstudio: vi.fn(),
     getSuperReaderMe: vi.fn(),
     getParental: vi.fn(),
+    getPrecosPremium: vi.fn().mockResolvedValue({ precos: {} }),
     confirmarRecuperacaoPin: vi.fn(),
     // Só usados pelo 2º teste (sem token pendente — vai mesmo pra HQCINE e
     // monta o feed de verdade): getRecommendations/getSeries/getContinueList
