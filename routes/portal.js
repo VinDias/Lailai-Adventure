@@ -19,7 +19,7 @@ const Episode = require('../models/Episode');
 const MensagemPortal = require('../models/MensagemPortal');
 const RoyaltyPeriod = require('../models/RoyaltyPeriod');
 const { parsePeriod, periodoAtual, buildReport, buildSuperReaderSummary } = require('../services/royaltyReportService');
-const { addPanels } = require('../services/episodePanelService');
+const { addPanels, setTranslationLayer } = require('../services/episodePanelService');
 
 router.use(verifyToken);
 
@@ -424,6 +424,39 @@ router.post('/episodios/:id/paineis', requireCanalDoUsuario, async (req, res) =>
   }
 });
 
+// PUT /api/portal/episodios/:id/paineis/:indice/traducoes — grava a camada de
+// idioma de um painel do episódio em rascunho do dono (pedido do cliente em
+// 17/09/2026: o upload dos diálogos precisa existir onde o autor sobe o
+// capítulo). Mesmas guardas dos painéis: só rascunho NÃO submetido, senão o
+// autor trocaria o texto de uma obra que o Master já aprovou. Em capítulo
+// publicado, quem mexe é o Master (routes/content.js, mesma regra da spec do
+// Bloco 1). Reusa services/episodePanelService.setTranslationLayer.
+router.put('/episodios/:id/paineis/:indice/traducoes', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const achado = await episodioDoDono(req.params.id, req.portalChannelIds);
+    if (!achado) return res.status(404).json({ error: 'Episódio não encontrado.' });
+
+    if (achado.episode.status !== 'draft') {
+      return res.status(403).json({ error: 'Só é possível editar os diálogos de um episódio em rascunho.' });
+    }
+    if (achado.episode.submittedAt) {
+      return res.status(403).json({ error: 'Episódio em análise não pode receber diálogos. Aguarde a aprovação ou a devolução.' });
+    }
+
+    const indice = Number.parseInt(req.params.indice, 10);
+    if (!Number.isInteger(indice) || indice < 0) {
+      return res.status(400).json({ error: 'Índice de painel inválido.' });
+    }
+
+    const painel = await setTranslationLayer(req.params.id, indice, req.body.language, req.body.imageUrl);
+    res.json({ success: true, panel: painel });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[Portal] PUT /episodios/:id/paineis/:indice/traducoes', err);
+    res.status(500).json({ error: 'Erro ao gravar a camada de idioma.' });
+  }
+});
 // POST /api/portal/series/:id/enviar — marca submittedAt na série draft não
 // submetida do dono. Validações mínimas: capa presente + ao menos um
 // episódio COM PAINÉIS, em qualquer estado (senão 400 com o que falta).

@@ -1153,3 +1153,106 @@ describe('POST /api/portal/series/:id/episodios — episode_number duplicado', (
     expect(capB.status).toBe(201);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUT /api/portal/episodios/:id/paineis/:indice/traducoes
+// Pedido do cliente em 17/09/2026: o upload dos diálogos precisa existir onde
+// o autor sobe o capítulo. Mesmas guardas dos painéis (só rascunho não
+// submetido) + regra de idioma compartilhada com o Master
+// (services/episodePanelService.setTranslationLayer).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('PUT /api/portal/episodios/:id/paineis/:indice/traducoes', () => {
+  async function episodioComPaineis(dono, titulo, quantidade = 2) {
+    const serie = await criarSerieDraft(dono, { title: titulo, cover_image: 'https://cdn.exemplo/capa.jpg' });
+    const ep = await request(app)
+      .post(`/api/portal/series/${serie.body._id}/episodios`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ title: 'Cap Com Dialogos', episode_number: 1 });
+    const panels = Array.from({ length: quantidade }, (_, i) => ({ image_url: `https://cdn.exemplo/p${i + 1}.jpg`, order: i }));
+    await request(app)
+      .post(`/api/portal/episodios/${ep.body._id}/paineis`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ panels });
+    return { serieId: serie.body._id, episodeId: ep.body._id };
+  }
+
+  it('dono grava a camada e depois a SUBSTITUI, sem duplicar o idioma', async () => {
+    const dono = await criarDono('Dialogos Do Dono');
+    const { episodeId } = await episodioComPaineis(dono, 'Serie Com Dialogos');
+
+    const primeira = await request(app)
+      .put(`/api/portal/episodios/${episodeId}/paineis/1/traducoes`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ language: 'en', imageUrl: 'https://cdn.exemplo/p2-en.png' });
+    expect(primeira.status).toBe(200);
+    expect(primeira.body.panel.translationLayers).toEqual([
+      expect.objectContaining({ language: 'en', imageUrl: 'https://cdn.exemplo/p2-en.png' }),
+    ]);
+
+    const segunda = await request(app)
+      .put(`/api/portal/episodios/${episodeId}/paineis/1/traducoes`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ language: 'en', imageUrl: 'https://cdn.exemplo/p2-en-v2.png' });
+    expect(segunda.status).toBe(200);
+    expect(segunda.body.panel.translationLayers).toHaveLength(1);
+    expect(segunda.body.panel.translationLayers[0].imageUrl).toBe('https://cdn.exemplo/p2-en-v2.png');
+
+    const doc = await Episode.findById(episodeId).lean();
+    expect(doc.panels[0].translationLayers ?? []).toHaveLength(0);
+  });
+
+  it('idioma fora do vocabulário → 400; painel inexistente → 404', async () => {
+    const dono = await criarDono('Dialogos Validacao');
+    const { episodeId } = await episodioComPaineis(dono, 'Serie Dialogos Validacao');
+
+    const idioma = await request(app)
+      .put(`/api/portal/episodios/${episodeId}/paineis/0/traducoes`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ language: 'fr', imageUrl: 'https://cdn.exemplo/p1-fr.png' });
+    expect(idioma.status).toBe(400);
+
+    const semUrl = await request(app)
+      .put(`/api/portal/episodios/${episodeId}/paineis/0/traducoes`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ language: 'es' });
+    expect(semUrl.status).toBe(400);
+
+    const painel = await request(app)
+      .put(`/api/portal/episodios/${episodeId}/paineis/9/traducoes`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ language: 'es', imageUrl: 'https://cdn.exemplo/p10-es.png' });
+    expect(painel.status).toBe(404);
+  });
+
+  it('episódio de OUTRO dono → 404 (nunca confirma que existe)', async () => {
+    const dono = await criarDono('Dialogos Dono A');
+    const outro = await criarDono('Dialogos Dono B');
+    const { episodeId } = await episodioComPaineis(dono, 'Serie Do Dono A');
+
+    const res = await request(app)
+      .put(`/api/portal/episodios/${episodeId}/paineis/0/traducoes`)
+      .set('Authorization', `Bearer ${outro.token}`)
+      .send({ language: 'en', imageUrl: 'https://cdn.exemplo/invasor.png' });
+    expect(res.status).toBe(404);
+  });
+
+  it('episódio em análise (submetido) e episódio publicado → 403', async () => {
+    const dono = await criarDono('Dialogos Em Analise');
+    const { episodeId } = await episodioComPaineis(dono, 'Serie Dialogos Analise');
+
+    await Episode.updateOne({ _id: episodeId }, { $set: { submittedAt: new Date() } });
+    const emAnalise = await request(app)
+      .put(`/api/portal/episodios/${episodeId}/paineis/0/traducoes`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ language: 'en', imageUrl: 'https://cdn.exemplo/p1-en.png' });
+    expect(emAnalise.status).toBe(403);
+
+    await Episode.updateOne({ _id: episodeId }, { $set: { submittedAt: null, status: 'published' } });
+    const publicado = await request(app)
+      .put(`/api/portal/episodios/${episodeId}/paineis/0/traducoes`)
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ language: 'en', imageUrl: 'https://cdn.exemplo/p1-en.png' });
+    expect(publicado.status).toBe(403);
+  });
+});

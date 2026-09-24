@@ -12,7 +12,7 @@ const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 const { podeVerRascunho } = require('../utils/ownership');
 const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
-const { addPanels } = require('../services/episodePanelService');
+const { addPanels, setTranslationLayer } = require('../services/episodePanelService');
 const { responderCastError } = require('../utils/routeErrors');
 
 // content_rating (Fase 5 Bloco 2, Task 6): só o Master define — admin form
@@ -776,35 +776,18 @@ router.delete('/series/:id/vote', verifyToken, async (req, res) => {
 // PUT /api/content/episodes/:episodeId/panels/:panelIndex/translations — admin
 router.put('/episodes/:episodeId/panels/:panelIndex/translations', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { language, imageUrl } = req.body;
-    if (!language || !imageUrl) {
-      return res.status(400).json({ error: 'language e imageUrl são obrigatórios.' });
-    }
-
-    const panelIndex = parseInt(req.params.panelIndex, 10);
-    const episode = await Episode.findById(req.params.episodeId);
-    if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
-    if (!episode.panels[panelIndex]) return res.status(404).json({ error: 'Painel não encontrado.' });
-
-    const panel = episode.panels[panelIndex];
-    const existingLayerIndex = panel.translationLayers
-      ? panel.translationLayers.findIndex(l => l.language === language)
-      : -1;
-
-    if (!panel.translationLayers) panel.translationLayers = [];
-
-    if (existingLayerIndex >= 0) {
-      panel.translationLayers[existingLayerIndex].imageUrl = imageUrl;
-    } else {
-      panel.translationLayers.push({ language, imageUrl });
-    }
-
-    episode.panels[panelIndex] = panel;
-    episode.markModified('panels');
-    await episode.save();
-
-    res.json({ success: true, panel: episode.panels[panelIndex] });
+    // Mesma função do portal (services/episodePanelService) desde 24/09/2026:
+    // a regra da camada de idioma passou a existir em dois caminhos (Master e
+    // autor no Meu Estúdio) e não pode divergir entre eles.
+    const panel = await setTranslationLayer(
+      req.params.episodeId,
+      parseInt(req.params.panelIndex, 10),
+      req.body.language,
+      req.body.imageUrl
+    );
+    res.json({ success: true, panel });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     logger.error('[Content] PUT /episodes/:episodeId/panels/:panelIndex/translations', err);
     res.status(500).json({ error: 'Erro ao atualizar camada de tradução.' });
   }

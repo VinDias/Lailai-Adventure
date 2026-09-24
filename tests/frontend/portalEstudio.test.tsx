@@ -24,6 +24,7 @@ vi.mock('../../services/api', () => ({
     sendPortalMensagem: vi.fn(),
     uploadPortalImage: vi.fn(),
     uploadPortalImagesBatch: vi.fn(),
+    addPortalPainelTraducao: vi.fn(),
     getEpisodesBySeries: vi.fn(),
   },
 }));
@@ -318,6 +319,74 @@ describe('PortalEstudio — aba Obras', () => {
       { image_url: 'https://cdn/p1.jpg', order: 1 },
       { image_url: 'https://cdn/p2.jpg', order: 2 },
     ]));
+  });
+
+
+  it('diálogos (camada de idioma): grava a partir do primeiro painel SEM a camada, na ordem enviada', async () => {
+    // Pedido do cliente em 17/09/2026: subir os diálogos onde se sobe o
+    // capítulo. Painel #1 já tem EN; o lote tem que começar no #2.
+    const epComPaineis = {
+      _id: 'ep-1', title: 'Cap 1', episode_number: 1, status: 'draft', submittedAt: null,
+      panels: [
+        { image_url: 'https://cdn/p1.jpg', translationLayers: [{ language: 'en', imageUrl: 'https://cdn/p1-en.png' }] },
+        { image_url: 'https://cdn/p2.jpg', translationLayers: [] },
+        { image_url: 'https://cdn/p3.jpg', translationLayers: [] },
+      ],
+    };
+    vi.mocked(api.getPortalSeries).mockResolvedValue({ series: [serieDraft] } as any);
+    vi.mocked(api.getEpisodesBySeries).mockResolvedValue([epComPaineis] as any);
+    vi.mocked(api.uploadPortalImagesBatch).mockResolvedValue({
+      results: [
+        { success: true, filename: 'en2.png', index: 0, url: 'https://cdn/p2-en.png' },
+        { success: true, filename: 'en3.png', index: 1, url: 'https://cdn/p3-en.png' },
+      ],
+      successCount: 2, failCount: 0, total: 2,
+    } as any);
+    vi.mocked(api.addPortalPainelTraducao).mockResolvedValue({ success: true, panel: {} } as any);
+
+    await abrirObras();
+    await waitFor(() => screen.getByText('Obra Rascunho'));
+    fireEvent.click(screen.getByText('Obra Rascunho'));
+    await waitFor(() => expect(api.getEpisodesBySeries).toHaveBeenCalledWith('s-draft'));
+
+    fireEvent.click(screen.getByText('Gerenciar painéis'));
+    fireEvent.click(screen.getByRole('button', { name: 'EN' }));
+    expect(screen.getByText(/#2/)).toBeInTheDocument();
+
+    const files = [new File(['a'], 'en2.png', { type: 'image/png' }), new File(['b'], 'en3.png', { type: 'image/png' })];
+    fireEvent.change(screen.getByTestId('portal-panels-input'), { target: { files } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar diálogos' }));
+
+    await waitFor(() => expect(api.addPortalPainelTraducao).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.addPortalPainelTraducao).mock.calls).toEqual([
+      ['ep-1', 1, 'en', 'https://cdn/p2-en.png'],
+      ['ep-1', 2, 'en', 'https://cdn/p3-en.png'],
+    ]);
+    // Camada nunca cria painel novo.
+    expect(api.addPortalPaineis).not.toHaveBeenCalled();
+  });
+
+  it('diálogos demais para os painéis restantes: avisa e não sobe nada', async () => {
+    const epComPaineis = {
+      _id: 'ep-1', title: 'Cap 1', episode_number: 1, status: 'draft', submittedAt: null,
+      panels: [{ image_url: 'https://cdn/p1.jpg', translationLayers: [] }],
+    };
+    vi.mocked(api.getPortalSeries).mockResolvedValue({ series: [serieDraft] } as any);
+    vi.mocked(api.getEpisodesBySeries).mockResolvedValue([epComPaineis] as any);
+
+    await abrirObras();
+    await waitFor(() => screen.getByText('Obra Rascunho'));
+    fireEvent.click(screen.getByText('Obra Rascunho'));
+    await waitFor(() => expect(api.getEpisodesBySeries).toHaveBeenCalledWith('s-draft'));
+
+    fireEvent.click(screen.getByText('Gerenciar painéis'));
+    fireEvent.click(screen.getByRole('button', { name: 'ES' }));
+    const files = [new File(['a'], 'es1.png', { type: 'image/png' }), new File(['b'], 'es2.png', { type: 'image/png' })];
+    fireEvent.change(screen.getByTestId('portal-panels-input'), { target: { files } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar diálogos' }));
+
+    expect(await screen.findByText(/Imagens demais/i)).toBeInTheDocument();
+    expect(api.uploadPortalImagesBatch).not.toHaveBeenCalled();
   });
 
   it('MEDIO 1a — editar obra: trocar a capa pina PUT com cover_image (mostra a capa atual quando houver)', async () => {

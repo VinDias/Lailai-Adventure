@@ -51,4 +51,51 @@ async function addPanels(episodeId, panels) {
   return episode;
 }
 
-module.exports = { addPanels };
+/**
+ * Grava (ou substitui) a camada de idioma de UM painel. Extraído de
+ * routes/content.js (PUT /episodes/:id/panels/:idx/translations, admin) para
+ * o portal do ilustrador reusar a MESMA regra — pedido do cliente em
+ * 17/09/2026: quem sobe o capítulo no Meu Estúdio precisa subir os diálogos
+ * ali mesmo, sem depender do painel do Master.
+ */
+const IDIOMAS_DE_CAMADA = ['pt', 'en', 'es', 'zh'];
+
+async function setTranslationLayer(episodeId, panelIndex, language, imageUrl) {
+  if (!IDIOMAS_DE_CAMADA.includes(language)) {
+    const err = new Error(`language deve ser um de: ${IDIOMAS_DE_CAMADA.join(', ')}.`);
+    err.status = 400;
+    throw err;
+  }
+  if (typeof imageUrl !== 'string' || !imageUrl.trim()) {
+    const err = new Error('imageUrl é obrigatório.');
+    err.status = 400;
+    throw err;
+  }
+
+  const episode = await Episode.findById(episodeId);
+  if (!episode) {
+    const err = new Error('Episódio não encontrado.');
+    err.status = 404;
+    throw err;
+  }
+
+  const panel = episode.panels[panelIndex];
+  if (!panel) {
+    const err = new Error('Painel não encontrado.');
+    err.status = 404;
+    throw err;
+  }
+
+  if (!panel.translationLayers) panel.translationLayers = [];
+  const existente = panel.translationLayers.findIndex(l => l.language === language);
+  if (existente >= 0) panel.translationLayers[existente].imageUrl = imageUrl;
+  else panel.translationLayers.push({ language, imageUrl });
+
+  episode.panels[panelIndex] = panel;
+  episode.markModified('panels');
+  await episode.save();
+
+  return episode.panels[panelIndex];
+}
+
+module.exports = { addPanels, setTranslationLayer, IDIOMAS_DE_CAMADA };

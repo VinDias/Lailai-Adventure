@@ -374,6 +374,9 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   // real e depois grava as URLs em ordem via addPortalPaineis).
   const [panelsModalFor, setPanelsModalFor] = useState<{ episode: any; seriesId: string } | null>(null);
   const [pendingPanelFiles, setPendingPanelFiles] = useState<File[]>([]);
+  // Idioma do lote (pedido do cliente em 17/09/2026): 'original' cria painéis
+  // novos; um idioma grava a camada de diálogo SOBRE painéis que já existem.
+  const [panelsLanguage, setPanelsLanguage] = useState<'original' | 'pt' | 'en' | 'es' | 'zh'>('original');
   const [uploadingPanels, setUploadingPanels] = useState(false);
   const [panelsError, setPanelsError] = useState<string | null>(null);
 
@@ -383,15 +386,71 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     if (!selectedSeriesId) return;
     setPendingPanelFiles([]);
     setPanelsError(null);
+    setPanelsLanguage('original');
     setPanelsModalFor({ episode: ep, seriesId: selectedSeriesId });
+  };
+
+  /**
+   * Primeiro painel sem camada no idioma escolhido — é daí que o próximo lote
+   * de diálogos começa. Mesma regra do painel do Master: sem isso, cada lote
+   * voltaria ao painel #1 e sobrescreveria o anterior.
+   */
+  const primeiroPainelSemCamada = (lang: string) => {
+    const paineis = panelsModalFor?.episode?.panels ?? [];
+    const i = paineis.findIndex((p: any) => !(p.translationLayers ?? []).some((l: any) => l.language === lang));
+    return i === -1 ? 0 : i;
   };
 
   const handleAddPanels = async () => {
     if (!panelsModalFor || pendingPanelFiles.length === 0) return;
+
+    const paineisExistentes = panelsModalFor.episode.panels ?? [];
+    const base = panelsLanguage === 'original' ? 0 : primeiroPainelSemCamada(panelsLanguage);
+    if (panelsLanguage !== 'original') {
+      if (paineisExistentes.length === 0) {
+        setPanelsError(t('portal.works.panelsLayerNone'));
+        return;
+      }
+      if (pendingPanelFiles.length > paineisExistentes.length - base) {
+        setPanelsError(t('portal.works.panelsLayerTooMany'));
+        return;
+      }
+    }
+
     setUploadingPanels(true);
     setPanelsError(null);
     try {
       const result = await api.uploadPortalImagesBatch(pendingPanelFiles, panelsModalFor.seriesId);
+
+      if (panelsLanguage !== 'original') {
+        // Camada: grava painel a painel, preservando a ordem enviada. O índice
+        // é base + posição NO LOTE, nunca a posição entre os que deram certo.
+        const gravados = await Promise.all(
+          result.results.map((r, i) =>
+            r.success && r.url
+              ? api.addPortalPainelTraducao(panelsModalFor.episode._id, base + i, panelsLanguage, r.url)
+              : Promise.resolve(null)
+          )
+        );
+        const paineisAtualizados = [...paineisExistentes];
+        gravados.forEach((resp, i) => {
+          if (resp?.panel) paineisAtualizados[base + i] = resp.panel;
+        });
+        const episodeAtualizado = { ...panelsModalFor.episode, panels: paineisAtualizados };
+        setEpisodesOfSelected(prev => prev.map(ep => (ep._id === panelsModalFor.episode._id ? episodeAtualizado : ep)));
+
+        if (result.failCount > 0) {
+          const falharam = pendingPanelFiles.filter((_, i) => !result.results[i]?.success);
+          setPendingPanelFiles(falharam);
+          setPanelsModalFor({ ...panelsModalFor, episode: episodeAtualizado });
+          setPanelsError(`${result.successCount}/${result.total} ${t('portal.works.panelsPartialLabel')}`);
+        } else {
+          setPendingPanelFiles([]);
+          setPanelsModalFor({ ...panelsModalFor, episode: episodeAtualizado });
+        }
+        return;
+      }
+
       const successUrls = result.results.filter(r => r.success && r.url).map(r => r.url as string);
       const existingCount = panelsModalFor.episode.panels?.length ?? 0;
       const panels = successUrls.map((url, i) => ({ image_url: url, order: existingCount + i + 1 }));
@@ -992,6 +1051,36 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
             <h2 className="text-xl font-black text-[var(--text-color)]">{panelsModalFor.episode.title}</h2>
             <p className="text-xs text-zinc-500">{t('portal.works.panelsUploadHint')}</p>
 
+            {/* Idioma do lote: original cria painéis; um idioma sobe a camada
+                de diálogo sobre os painéis existentes, na ordem enviada. */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest shrink-0">{t('portal.works.panelsLanguage')}:</span>
+              {([
+                { value: 'original', label: t('portal.works.panelsLanguageBase') },
+                { value: 'pt', label: 'PT' },
+                { value: 'en', label: 'EN' },
+                { value: 'es', label: 'ES' },
+                { value: 'zh', label: 'ZH' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => { setPanelsLanguage(opt.value); setPanelsError(null); }}
+                  aria-pressed={panelsLanguage === opt.value}
+                  className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${panelsLanguage === opt.value ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-500 hover:bg-white/10'}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {panelsLanguage !== 'original' && (
+              <p className="text-[10px] text-amber-400 font-bold">
+                {t('portal.works.panelsLayerFrom')} #{primeiroPainelSemCamada(panelsLanguage) + 1} ·{' '}
+                {(panelsModalFor.episode.panels?.length ?? 0) - primeiroPainelSemCamada(panelsLanguage)} {t('portal.works.panelsLayerRemaining')}
+              </p>
+            )}
+
             <input
               data-testid="portal-panels-input"
               type="file"
@@ -1015,7 +1104,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                 disabled={uploadingPanels || pendingPanelFiles.length === 0}
                 className="flex-1 py-3 bg-rose-600 text-white font-black rounded-2xl disabled:opacity-50"
               >
-                {uploadingPanels ? '...' : t('portal.works.addPanels')}
+                {uploadingPanels ? '...' : (panelsLanguage === 'original' ? t('portal.works.addPanels') : t('portal.works.addLayers'))}
               </button>
             </div>
           </div>
