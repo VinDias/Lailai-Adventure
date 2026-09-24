@@ -46,6 +46,35 @@ class ApiService {
     this.onAuthExpired = callback;
   }
 
+  /**
+   * Envio autenticado que NÃO passa pelo `request()`: multipart (o browser
+   * precisa montar o Content-Type com o boundary do FormData) e downloads
+   * (blob). Em 401 renova o accessToken e repete UMA vez, igual ao
+   * `request()`. Sem isso, o accessToken de 15 minutos (server.js) expirava
+   * no meio de uma sessão de upload e o painel só voltava a funcionar depois
+   * de um F5 — relato do cliente em 17/09/2026: "quando se faz uns 3 uploads
+   * ele dá erro, é preciso fazer um refresh". O F5 "consertava" porque o
+   * bootstrap da sessão renova o token pelo cookie de refresh.
+   */
+  private async fetchAutenticado(url: string, init: RequestInit = {}, retried = false): Promise<Response> {
+    const response = await fetch(url, {
+      ...init,
+      headers: {
+        ...(this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {}),
+        ...init.headers,
+      },
+      credentials: 'include',
+    });
+
+    if (response.status === 401 && !retried) {
+      const refreshed = await this.tryRefresh();
+      if (refreshed) return this.fetchAutenticado(url, init, true);
+      this.onAuthExpired?.();
+    }
+
+    return response;
+  }
+
   private async tryRefresh(): Promise<boolean> {
     try {
       const fullUrl = `${API_URL}/auth/refresh-token`;
@@ -116,11 +145,9 @@ class ApiService {
     // boundary) precisa ser definido pelo próprio browser.
     const form = new FormData();
     form.append('avatar', file);
-    const response = await fetch(`${API_URL}/account/me/avatar`, {
+    const response = await this.fetchAutenticado(`${API_URL}/account/me/avatar`, {
       method: 'POST',
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
       body: form,
-      credentials: 'include'
     });
     if (!response.ok) {
       const errBody = await response.json().catch(() => ({}));
@@ -130,10 +157,7 @@ class ApiService {
   }
 
   async exportMyData(): Promise<void> {
-    const response = await fetch(`${API_URL}/account/me/export`, {
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
-      credentials: 'include'
-    });
+    const response = await this.fetchAutenticado(`${API_URL}/account/me/export`);
     if (!response.ok) throw new Error('Não foi possível exportar seus dados.');
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -252,6 +276,14 @@ class ApiService {
     this.refreshTokenValue = token;
   }
 
+  /**
+   * Preços REAIS da assinatura (routes/payment.js GET /payment/precos). O
+   * valor fixo de utils/localizedPrice.ts vira só reserva para quando o
+   * Stripe não responder.
+   */
+  async getPrecosPremium() {
+    return this.request<{ precos: Record<string, { centavos: number; moeda: string }> }>('/payment/precos');
+  }
   async createCheckoutSession() {
     const locale = typeof navigator !== 'undefined' ? navigator.language : 'pt-BR';
     return this.request<{ url: string }>('/payment/create-checkout', {
@@ -416,10 +448,7 @@ class ApiService {
   }
 
   async downloadRoyaltyCsv(period: string): Promise<void> {
-    const response = await fetch(`${API_URL}/admin/royalties/export.csv?period=${encodeURIComponent(period)}`, {
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
-      credentials: 'include'
-    });
+    const response = await this.fetchAutenticado(`${API_URL}/admin/royalties/export.csv?period=${encodeURIComponent(period)}`);
     if (!response.ok) throw new Error('Não foi possível exportar o CSV.');
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -665,11 +694,9 @@ class ApiService {
     formData.append('image', file);
     if (seriesSlug) formData.append('seriesSlug', seriesSlug);
     const fullUrl = `${API_URL}/bunny/upload-image`;
-    const response = await fetch(fullUrl, {
+    const response = await this.fetchAutenticado(fullUrl, {
       method: 'POST',
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
       body: formData,
-      credentials: 'include'
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -684,11 +711,9 @@ class ApiService {
     files.forEach(f => formData.append('images', f));
     if (seriesSlug) formData.append('seriesSlug', seriesSlug);
     const fullUrl = `${API_URL}/bunny/upload-image-batch`;
-    const response = await fetch(fullUrl, {
+    const response = await this.fetchAutenticado(fullUrl, {
       method: 'POST',
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
       body: formData,
-      credentials: 'include'
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -701,11 +726,9 @@ class ApiService {
     const formData = new FormData();
     formData.append('audio', file);
     const fullUrl = `${API_URL}/bunny/upload-audio`;
-    const response = await fetch(fullUrl, {
+    const response = await this.fetchAutenticado(fullUrl, {
       method: 'POST',
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
       body: formData,
-      credentials: 'include'
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -751,11 +774,9 @@ class ApiService {
     formData.append('episodeId', episodeId);
     formData.append('title', title);
     const fullUrl = `${API_URL}/bunny/upload-video`;
-    const response = await fetch(fullUrl, {
+    const response = await this.fetchAutenticado(fullUrl, {
       method: 'POST',
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
       body: formData,
-      credentials: 'include'
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -902,6 +923,16 @@ class ApiService {
     });
   }
 
+  /**
+   * Camada de idioma de UM painel do capítulo em rascunho (Meu Estúdio).
+   * Mesmo contrato da rota do Master (PUT .../panels/:idx/translations).
+   */
+  async addPortalPainelTraducao(episodeId: string, indice: number, language: string, imageUrl: string) {
+    return this.request<{ success: boolean; panel: any }>(`/portal/episodios/${episodeId}/paineis/${indice}/traducoes`, {
+      method: 'PUT',
+      body: JSON.stringify({ language, imageUrl }),
+    });
+  }
   async enviarPortalSerie(seriesId: string) {
     return this.request<any>(`/portal/series/${seriesId}/enviar`, { method: 'POST' });
   }
@@ -935,11 +966,9 @@ class ApiService {
     const formData = new FormData();
     formData.append('image', file);
     formData.append('seriesId', seriesId);
-    const response = await fetch(`${API_URL}/bunny/upload-image`, {
+    const response = await this.fetchAutenticado(`${API_URL}/bunny/upload-image`, {
       method: 'POST',
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
       body: formData,
-      credentials: 'include',
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -953,11 +982,9 @@ class ApiService {
     const formData = new FormData();
     files.forEach(f => formData.append('images', f));
     formData.append('seriesId', seriesId);
-    const response = await fetch(`${API_URL}/bunny/upload-image-batch`, {
+    const response = await this.fetchAutenticado(`${API_URL}/bunny/upload-image-batch`, {
       method: 'POST',
-      headers: this.accessToken ? { 'Authorization': `Bearer ${this.accessToken}` } : {},
       body: formData,
-      credentials: 'include',
     });
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
