@@ -108,14 +108,16 @@ describe('utils/tagsVocabulario — vocabulário fechado de 19 tags', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('User.parental — defaults de um documento novo', () => {
-  it('classificacaoEtaria=young, tagsBloqueadas=[], pinTentativas=0, pinBloqueadoAte=null, pinHash=null', async () => {
+  // Fase 6 (06/10/2026): default do schema passou de 'young' para 'teen' —
+  // conta nova não nasce vendo o catálogo inteiro (PDF do cliente de 25/09).
+  it('classificacaoEtaria=teen (default novo), tagsBloqueadas=[], pinTentativas=0, pinBloqueadoAte=null, pinHash=null', async () => {
     const passwordHash = await bcrypt.hash('Senha@123', 10);
     const user = await User.create({
       email: emailUnico('parental-default'),
       passwordHash,
       nome: 'Default Parental',
     });
-    expect(user.parental.classificacaoEtaria).toBe('young');
+    expect(user.parental.classificacaoEtaria).toBe('teen');
     expect(user.parental.tagsBloqueadas).toEqual([]);
     expect(user.parental.pinTentativas).toBe(0);
     expect(user.parental.pinBloqueadoAte).toBeNull();
@@ -295,7 +297,7 @@ describe('GET /api/account/me/export — parental presente CAMPO A CAMPO, pinHas
     });
   });
 
-  it('sem PIN definido: temPin=false, tagsBloqueadas=[] e classificacaoEtaria default (young)', async () => {
+  it('sem PIN definido: temPin=false, tagsBloqueadas=[] e classificacaoEtaria default (teen)', async () => {
     const email = emailUnico('export-sem-pin');
     const senha = 'Senha@123';
     const passwordHash = await bcrypt.hash(senha, 10);
@@ -310,7 +312,7 @@ describe('GET /api/account/me/export — parental presente CAMPO A CAMPO, pinHas
 
     const data = JSON.parse(res.text);
     expect(data.account.parental).toEqual({
-      classificacaoEtaria: 'young',
+      classificacaoEtaria: 'teen',
       tagsBloqueadas: [],
       temPin: false,
     });

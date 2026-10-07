@@ -152,9 +152,14 @@ describe('passaFiltroParental — tags bloqueadas (filtro pessoal)', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('getFiltroParental — FORMA exata do fragmento (pinada)', () => {
-  it('sem user (anônimo) → {} — nenhuma cláusula', async () => {
-    expect(await getFiltroParental(null)).toEqual({});
-    expect(await getFiltroParental(undefined)).toEqual({});
+  // Fase 6 (06/10/2026 — PDF do cliente de 25/09, seção 5): o visitante
+  // DEIXOU de ser isento. Antes este teste fixava `{}` (vê tudo); agora ele
+  // recebe a MESMA cláusula de uma conta Teen, porque sem conta a pessoa só
+  // pode abrir obra Teen.
+  it('sem user (visitante) → cláusula de Teen, não mais {}', async () => {
+    const esperado = { content_rating: { $in: ['kids', 'teen'] } };
+    expect(await getFiltroParental(null)).toEqual(esperado);
+    expect(await getFiltroParental(undefined)).toEqual(esperado);
   });
 
   it('admin (isAdminUser) → {} — exceção P5, mesmo com preferências restritivas no banco', async () => {
@@ -203,11 +208,13 @@ describe('getFiltroParental — FORMA exata do fragmento (pinada)', () => {
     expect(fragmento).toEqual({ tags: { $nin: ['lgbtqia+'] } });
   });
 
-  it('usuário sem subdocumento parental salvo explicitamente cai nos defaults do schema (young, {})', async () => {
+  // Fase 6: o default do schema passou de 'young' para 'teen' (conta nova não
+  // nasce vendo o catálogo inteiro — PDF do cliente de 25/09, seção 6).
+  it('usuário sem subdocumento parental salvo cai no default do schema, que agora é TEEN', async () => {
     const passwordHash = await bcrypt.hash('Senha@123', 10);
     const user = await User.create({ email: emailUnico('parentalfilter-default'), passwordHash, nome: 'Sem Parental Explicito', role: 'user' });
     const fragmento = await getFiltroParental({ id: user._id.toString(), role: 'user' });
-    expect(fragmento).toEqual({});
+    expect(fragmento).toEqual({ content_rating: { $in: ['kids', 'teen'] } });
   });
 
   // Achado da revisão da T4: valor FORA do enum (só chega por escrita bruta ou
@@ -252,9 +259,18 @@ describe('getFiltroParental — FORMA exata do fragmento (pinada)', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('serieVisivelPara', () => {
-  it('anônimo (sem user) → true, mesmo sem content_rating/tags na série (não precisa nem olhar o doc)', async () => {
-    const visivel = await serieVisivelPara(null, {});
-    expect(visivel).toBe(true);
+  // Fase 6: o visitante passou a ser tratado como conta Teen. Como agora ele
+  // PRECISA olhar a classificação da obra, o doc incompleto deixou de ser
+  // irrelevante e cai no fail-closed de passaFiltroParental (ruling P4).
+  it('visitante (sem user) → regra de Teen: vê Teen e Kids, não vê Young nem não classificada', async () => {
+    expect(await serieVisivelPara(null, { content_rating: 'teen', tags: [] })).toBe(true);
+    expect(await serieVisivelPara(null, { content_rating: 'kids', tags: [] })).toBe(true);
+    expect(await serieVisivelPara(null, { content_rating: 'young', tags: [] })).toBe(false);
+    expect(await serieVisivelPara(null, { content_rating: null, tags: [] })).toBe(false);
+  });
+
+  it('visitante com série de doc incompleto → LANÇA (fail-closed), em vez de liberar', async () => {
+    await expect(serieVisivelPara(null, {})).rejects.toThrow(/content_rating e tags/);
   });
 
   it('admin → true mesmo com doc incompleto (bypass antes de tocar em content_rating/tags)', async () => {

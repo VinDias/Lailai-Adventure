@@ -31,11 +31,16 @@ async function createChannel(name) {
   return Channel.create({ ownerId: auth.getId('admin'), name });
 }
 
+// content_rating 'teen' (Fase 6, 06/10/2026): a instrumentacao e medida com
+// GET /api/content/episodes/:id SEM token, e o visitante passou a ser filtrado
+// como conta Teen — obra sem classificacao vale 'young' e a rota devolveria
+// 404 antes de registrar telemetria. Aqui o assunto e view-vs-read e LGPD do
+// IP, nao classificacao; 'teen' deixa a obra visivel pra todo mundo.
 async function createSeriesWithChannel(title, contentType, channelId) {
   const res = await request(app)
     .post('/api/content/series')
     .set('Authorization', `Bearer ${auth.getToken('admin')}`)
-    .send({ title, genre: 'Teste', content_type: contentType, isPublished: true, channelId });
+    .send({ title, genre: 'Teste', content_type: contentType, isPublished: true, channelId, content_rating: 'teen' });
   return res.body;
 }
 

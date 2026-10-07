@@ -168,11 +168,16 @@ describe('GET /api/content/series — filtro parental', () => {
     expect(ids).toContain(String(semTag._id));
   });
 
-  it('anônimo vê tudo — sem filtro nenhum', async () => {
+  // Fase 6 (06/10/2026): o visitante deixou de ser isento do filtro etário.
+  // Pela regra do cliente (PDF de 25/09, seção 5), sem conta a pessoa só
+  // alcança obra Teen (e Kids, que é degrau abaixo). Young, nula e ausente
+  // somem — por isso classificar o acervo é pré-requisito da regra no ar.
+  it('visitante vê Kids e Teen; Young, nula e ausente somem', async () => {
     const { kidsS, teenS, youngS, nuloS, ausenteS } = await criarConjuntoClassificacoes('SerieLista5');
     const res = await request(app).get('/api/content/series?type=hiqua');
     const ids = idsOf(res.body);
-    [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [kidsS, teenS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [youngS, nuloS, ausenteS].forEach((s) => expect(ids).not.toContain(String(s._id)));
   });
 
   it('admin vê tudo nas listas — mesmo com classificacaoEtaria=kids e tag bloqueada nas PRÓPRIAS preferências', async () => {
@@ -244,11 +249,12 @@ describe('GET /api/content/search (ramo séries) — filtro parental', () => {
     expect(ids).toContain(String(semTag._id));
   });
 
-  it('anônimo vê tudo na busca', async () => {
+  it('visitante na busca: só Kids e Teen', async () => {
     const { kidsS, teenS, youngS, nuloS, ausenteS } = await criarConjuntoClassificacoes('BuscaMatrix11');
     const res = await request(app).get('/api/content/search?q=BuscaMatrix11');
     const ids = idsOf(res.body.series);
-    [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [kidsS, teenS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [youngS, nuloS, ausenteS].forEach((s) => expect(ids).not.toContain(String(s._id)));
   });
 
   it('admin vê tudo na busca, mesmo com preferências restritivas próprias', async () => {
@@ -303,11 +309,12 @@ describe('GET /api/content/agenda — filtro parental', () => {
     expect(ids).toContain(String(semTag._id));
   });
 
-  it('anônimo vê tudo na agenda (rota ganhou optionalAuth mas continua pública)', async () => {
+  it('visitante na agenda (rota segue pública): só Kids e Teen', async () => {
     const { kidsS, teenS, youngS, nuloS, ausenteS } = await criarConjuntoClassificacoes('Agenda17', { releaseDay: DIA });
     const res = await request(app).get('/api/content/agenda');
     const ids = idsDoDia(res);
-    [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [kidsS, teenS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [youngS, nuloS, ausenteS].forEach((s) => expect(ids).not.toContain(String(s._id)));
   });
 
   it('admin vê tudo na agenda, mesmo com preferências restritivas próprias', async () => {
@@ -365,11 +372,12 @@ describe('GET /api/content/recommendations — filtro parental', () => {
     expect(ids).toContain(String(semTag._id));
   });
 
-  it('anônimo vê tudo nas recomendações', async () => {
+  it('visitante nas recomendações: só Kids e Teen', async () => {
     const { kidsS, teenS, youngS, nuloS, ausenteS } = await criarConjuntoClassificacoes('Recom23');
     const res = await request(app).get('/api/content/recommendations?type=hiqua');
     const ids = idsOf(res.body);
-    [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [kidsS, teenS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [youngS, nuloS, ausenteS].forEach((s) => expect(ids).not.toContain(String(s._id)));
   });
 
   it('admin vê tudo nas recomendações, mesmo com preferências restritivas próprias', async () => {
@@ -609,13 +617,14 @@ describe('GET /api/me/continue — filtro parental', () => {
     expect(ids).toContain(String(semTag._id));
   });
 
-  it('anônimo (visitante com X-Anonymous-Id) vê tudo em continuar', async () => {
+  it('visitante em continuar: só Kids e Teen, mesmo tendo progresso nas demais', async () => {
     const anonymousId = 'aaaaaaa0-1111-4bbb-8ccc-0123456789ab';
     const { kidsS, teenS, youngS, nuloS, ausenteS } = await criarConjuntoClassificacoes('Continuar36');
     for (const s of [kidsS, teenS, youngS, nuloS, ausenteS]) await darProgresso({ anonymousId }, s);
     const res = await request(app).get('/api/me/continue?contentType=hiqua').set('X-Anonymous-Id', anonymousId);
     const ids = res.body.map((i) => String(i.seriesId));
-    [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [kidsS, teenS].forEach((s) => expect(ids).toContain(String(s._id)));
+    [youngS, nuloS, ausenteS].forEach((s) => expect(ids).not.toContain(String(s._id)));
   });
 
   it('admin vê tudo em continuar, mesmo com preferências restritivas próprias', async () => {

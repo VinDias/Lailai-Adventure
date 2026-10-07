@@ -42,7 +42,12 @@ async function criarObra(overrides = {}) {
   n += 1;
   const dono = await User.create({ email: `dono-${n}-${Date.now()}@lorflux.test`, passwordHash: 'x', nome: 'Dono', role: 'user' });
   const canal = await Channel.create({ ownerId: dono._id, name: `Canal ${n} ${Date.now()}` });
-  const serie = await Series.create({ title: 'Obra Sinalizavel 9', genre: 'Aventura', content_type: 'hiqua', isPublished: true, content_rating: 'young', tags: [], channelId: canal._id, ...overrides });
+  // Fase 6 (06/10/2026): conta NOVA nasce 'teen' (models/User.js), então obra
+  // 'young' ficaria invisível pro leitor desta fixture e toda sinalização
+  // daria 404 por classificação, não pela regra em teste. A obra padrão passa
+  // a ser 'teen' — espelha o acervo depois de o cliente classificar. Os testes
+  // que PRECISAM de 'young' continuam passando o override.
+  const serie = await Series.create({ title: 'Obra Sinalizavel 9', genre: 'Aventura', content_type: 'hiqua', isPublished: true, content_rating: 'teen', tags: [], channelId: canal._id, ...overrides });
   const ep = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap 1', status: 'published', panels: [{ image_url: 'https://cdn.exemplo/p.jpg', order: 0 }] });
   return { serie, ep, canal, dono };
 }

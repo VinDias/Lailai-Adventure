@@ -1259,20 +1259,26 @@ describe('GET /api/content/agenda', () => {
     Series = require('../../models/Series');
   });
 
+  // Fase 6 (06/10/2026): a agenda é pública e o VISITANTE deixou de ser isento
+  // do filtro etário (utils/parentalFilter.js) — ele enxerga só 'kids'/'teen',
+  // e obra sem content_rating conta como 'young'. Todas as séries daqui são
+  // classificadas 'teen', INCLUSIVE as duas que o teste exige que NÃO apareçam:
+  // sem classificação elas sumiriam pelo filtro e o teste passaria pelo motivo
+  // errado, deixando releaseDay/isPublished sem prova.
   it('agrupa séries publicadas por releaseDay e traz os 7 grupos sempre presentes', async () => {
     const quinta = await Series.create({
-      title: 'Serie Agenda Quinta', genre: 'Teste', content_type: 'hiqua', isPublished: true, releaseDay: 4,
+      title: 'Serie Agenda Quinta', genre: 'Teste', content_type: 'hiqua', isPublished: true, releaseDay: 4, content_rating: 'teen',
     });
     const segunda = await Series.create({
-      title: 'Serie Agenda Segunda', genre: 'Teste', content_type: 'vcine', isPublished: true, releaseDay: 1,
+      title: 'Serie Agenda Segunda', genre: 'Teste', content_type: 'vcine', isPublished: true, releaseDay: 1, content_rating: 'teen',
     });
     // Sem releaseDay: fica fora de todos os grupos.
     await Series.create({
-      title: 'Serie Agenda Sem Dia', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+      title: 'Serie Agenda Sem Dia', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen',
     });
     // Não publicada: fica fora mesmo com releaseDay.
     await Series.create({
-      title: 'Serie Agenda Despublicada', genre: 'Teste', content_type: 'hiqua', isPublished: false, releaseDay: 4,
+      title: 'Serie Agenda Despublicada', genre: 'Teste', content_type: 'hiqua', isPublished: false, releaseDay: 4, content_rating: 'teen',
     });
 
     const res = await request(app).get('/api/content/agenda');
@@ -1312,8 +1318,10 @@ describe('GET /api/content/agenda', () => {
   });
 
   it('série publicada com releaseDay: 0 (domingo) aparece no grupo "0" — não é descartada por truthiness', async () => {
+    // Fase 6 (06/10/2026): 'teen' para a obra continuar visível ao visitante
+    // da rota pública (sem classificação ela valeria 'young' e sumiria).
     const domingo = await Series.create({
-      title: 'Serie Agenda Domingo', genre: 'Teste', content_type: 'hiqua', isPublished: true, releaseDay: 0,
+      title: 'Serie Agenda Domingo', genre: 'Teste', content_type: 'hiqua', isPublished: true, releaseDay: 0, content_rating: 'teen',
     });
 
     const res = await request(app).get('/api/content/agenda');

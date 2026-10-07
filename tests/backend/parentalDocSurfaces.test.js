@@ -426,7 +426,11 @@ describe('GET /api/content/search — ramo EPISÓDIOS (filtro parental)', () => 
   // genuinamente ausente) pegava ele também, 500 pra QUALQUER UM. O filtro
   // query-side nunca lê content_rating/tags do documento — imune por
   // desenho, sem depender do backfill ter rodado.
-  it('anônimo × episódio de série LEGADA (sem content_rating/tags no doc) → 200, episódio aparece (não lança)', async () => {
+  // Fase 6 (06/10/2026): a obra legada (campo nunca gravado) vale como Young,
+  // e o visitante agora enxerga só até Teen. A rota continua respondendo 200 e
+  // sem lançar — o que muda é que o episódio dessa obra não aparece mais para
+  // quem não tem conta.
+  it('visitante × episódio de série LEGADA (sem content_rating/tags no doc) → 200 sem lançar, mas o episódio NÃO aparece', async () => {
     const termo = unico('BuscaEpDocLegado');
     const serieLegada = await criarSerie(termo, {});
     // insertOne CRU: bypassa o setter/default do Mongoose — reproduz um doc
@@ -439,7 +443,12 @@ describe('GET /api/content/search — ramo EPISÓDIOS (filtro parental)', () => 
 
     const res = await request(app).get(`/api/content/search?q=${termo}`);
     expect(res.status).toBe(200);
-    expect(res.body.episodes.some(e => e._id === String(ep._id))).toBe(true);
+    expect(res.body.episodes.some(e => e._id === String(ep._id))).toBe(false);
+
+    // Com conta Young (escolha explícita do usuário) a obra legada volta.
+    const young = await criarPerfil({ classificacaoEtaria: 'young' });
+    const comConta = await authed(request(app).get(`/api/content/search?q=${termo}`), young);
+    expect(comConta.body.episodes.some(e => e._id === String(ep._id))).toBe(true);
   });
 });
 
@@ -713,7 +722,7 @@ describe('Backfill de campos parentais — doc legado', () => {
     expect(segunda).toEqual({ contentRatingAtualizados: 0, tagsAtualizados: 0 });
   });
 
-  it('DEPOIS do backfill: young → 200 em detalhe/episódios/episódio/signed-url/favoritar e o episódio aparece na busca; kids → 404/[] (ausente virou null = young); anônimo → 200 em tudo incl. busca; admin → 200', async () => {
+  it('DEPOIS do backfill: young → 200 em detalhe/episódios/episódio/signed-url/favoritar e o episódio aparece na busca; kids e VISITANTE → 404/[] (ausente virou null = young); admin → 200', async () => {
     const termo = unico('BackfillDepois');
     const serieCrua = await criarSerieLegadaCrua(termo);
     const ep = await criarEpisodioPublicado(serieCrua._id, { title: `${termo} Cap`, bunnyVideoId: unico('bunny-backfill') });
@@ -738,7 +747,11 @@ describe('Backfill de campos parentais — doc legado', () => {
     const favYoung = await authed(request(app).post(`/api/favorites/${serieCrua._id}`), young);
     expect(favYoung.status).toBe(200);
 
-    const buscaYoung = await request(app).get(`/api/content/search?q=${encodeURIComponent(termo)}`);
+    // A busca aqui é a do perfil YOUNG (o nome do teste diz isso) — antes da
+    // Fase 6 ela passava sem token porque o visitante via tudo; agora
+    // visitante é Teen, então a chamada precisa levar o token de quem o
+    // teste está medindo.
+    const buscaYoung = await authed(request(app).get(`/api/content/search?q=${encodeURIComponent(termo)}`), young);
     expect(buscaYoung.status).toBe(200);
     expect(buscaYoung.body.episodes.some(e => e._id === String(ep._id))).toBe(true);
 
@@ -749,11 +762,13 @@ describe('Backfill de campos parentais — doc legado', () => {
     const episodiosKids = await authed(request(app).get(`/api/content/series/${serieCrua._id}/episodes`), kids);
     expect(episodiosKids.body).toEqual([]);
 
-    // anônimo: 200 em tudo, incluindo a busca.
+    // visitante: desde a Fase 6 ele vale como Teen, e o backfill deixou a obra
+    // legada em `null` (= young). Logo, o que antes era "anônimo vê 200 em
+    // tudo" virou 404 — mesmo desfecho do kids, por motivo de classificação.
     const detalheAnon = await request(app).get(`/api/content/series/${serieCrua._id}`);
-    expect(detalheAnon.status).toBe(200);
+    expect(detalheAnon.status).toBe(404);
     const signedAnon = await request(app).get(`/api/bunny/signed-url?videoId=${ep.bunnyVideoId}`);
-    expect(signedAnon.status).toBe(200);
+    expect(signedAnon.status).toBe(404);
 
     // admin: 200.
     const detalheAdmin = await authed(request(app).get(`/api/content/series/${serieCrua._id}`), adminRestritivo);

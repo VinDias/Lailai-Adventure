@@ -225,7 +225,11 @@ describe('GET /api/me/continue', () => {
     const r = await request(app)
       .post('/api/content/series')
       .set('Authorization', `Bearer ${auth.getToken('admin')}`)
-      .send({ title: titulo, genre: 'Teste', content_type: tipo, isPublished: true });
+      // Fase 6 (06/10/2026): obra sem content_rating conta como 'young' e,
+      // com a conta nova nascendo 'teen', sumiria do carrossel. A massa daqui
+      // e sobre progresso, nao sobre classificacao — entao classifica como
+      // 'teen' (visivel pra todo mundo), igual ao acervo depois da curadoria.
+      .send({ title: titulo, genre: 'Teste', content_type: tipo, isPublished: true, content_rating: 'teen' });
     return r.body._id || r.body.id;
   }
 
@@ -419,10 +423,13 @@ describe('GET /api/me/continue — regras de escala (regressão da revisão)', (
     const QTD = 210; // mais que o antigo `.limit(200)` sobre linhas brutas
 
     const serieCheia = await Series.create({
-      title: 'Obra Relida Muitas Vezes', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+      // content_rating 'teen' (Fase 6, 06/10/2026): sem classificacao a obra
+      // vale como 'young' e o visitante — agora tratado como conta Teen —
+      // nao a enxergaria. O teste aqui e de agrupamento/corte, nao de filtro.
+      title: 'Obra Relida Muitas Vezes', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen',
     });
     const serieRara = await Series.create({
-      title: 'Obra Rara', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+      title: 'Obra Rara', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen',
     });
 
     const episodios = Array.from({ length: QTD }, (_, i) => ({
@@ -479,6 +486,7 @@ describe('GET /api/me/continue — regras de escala (regressão da revisão)', (
       genre: 'Teste',
       content_type: 'hiqua',
       isPublished: true,
+      content_rating: 'teen', // Fase 6 (06/10/2026): nao classificada sumiria pro visitante (= Teen)
     }));
     await Series.insertMany(series);
 
@@ -522,6 +530,7 @@ describe('GET /api/me/continue — regras de escala (regressão da revisão)', (
       genre: 'Teste',
       content_type: 'hiqua',
       isPublished: true,
+      content_rating: 'teen', // Fase 6 (06/10/2026): nao classificada sumiria pro visitante (= Teen)
     }));
     await Series.insertMany(seriesHiqua);
     const episodiosHiqua = seriesHiqua.map(s => ({
@@ -530,7 +539,7 @@ describe('GET /api/me/continue — regras de escala (regressão da revisão)', (
     await Episode.insertMany(episodiosHiqua);
 
     const serieVcine = await Series.create({
-      title: 'Obra Aba VCine', genre: 'Teste', content_type: 'vcine', isPublished: true,
+      title: 'Obra Aba VCine', genre: 'Teste', content_type: 'vcine', isPublished: true, content_rating: 'teen',
     });
     const epVcine = await Episode.create({ seriesId: serieVcine._id, episode_number: 1, title: 'Cap 1' });
 
@@ -590,11 +599,14 @@ describe('GET /api/me/continue — contentType validado contra injecao (regressa
 
   beforeAll(async () => {
     serieHiqua = await Series.create({
-      title: 'Obra Injecao Hiqua', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+      // content_rating 'teen' (Fase 6, 06/10/2026): o visitante agora passa
+      // pelo filtro parental como conta Teen, e obra sem classificacao vale
+      // como 'young'. O que se testa aqui e a sanitizacao da query.
+      title: 'Obra Injecao Hiqua', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen',
     });
     epHiqua = await Episode.create({ seriesId: serieHiqua._id, episode_number: 1, title: 'Cap 1' });
     serieVcine = await Series.create({
-      title: 'Obra Injecao Vcine', genre: 'Teste', content_type: 'vcine', isPublished: true,
+      title: 'Obra Injecao Vcine', genre: 'Teste', content_type: 'vcine', isPublished: true, content_rating: 'teen',
     });
     epVcine = await Episode.create({ seriesId: serieVcine._id, episode_number: 1, title: 'Cap 1' });
 

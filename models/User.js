@@ -44,7 +44,12 @@ const userSchema = new mongoose.Schema({
   // persistido no próprio usuário (T3) — não em memória, sobrevive a
   // restart do processo.
   parental: {
-    classificacaoEtaria: { type: String, enum: ['kids', 'teen', 'young'], default: 'young' },
+    // Fase 6 (PDF do cliente de 25/09, seção 6): conta NOVA nasce 'teen'.
+    // Criar conta não libera o catálogo inteiro; subir para 'young' é
+    // escolha explícita do usuário na Conta, protegida pelo PIN quando
+    // houver. Contas JÁ existentes não foram migradas (decisão do Fellipe
+    // em 06/10): ninguém perde acesso de um dia para o outro.
+    classificacaoEtaria: { type: String, enum: ['kids', 'teen', 'young'], default: 'teen' },
     tagsBloqueadas: { type: [String], default: [] },
     pinHash: { type: String, default: null, select: false },
     pinTentativas: { type: Number, default: 0 },

@@ -29,6 +29,16 @@ const ESCADA_VISIBILIDADE = {
   young: ['kids', 'teen', 'young'],
 };
 
+// Fase 6 (06/10/2026 — PDF "Nova Estrategia de Compartilhamento", seção 5):
+// quem NÃO tem conta passa a enxergar somente obra Teen. Antes o visitante
+// era isento do filtro (getFiltroParental devolvia {} e serieVisivelPara
+// devolvia true), o que agora contraria a regra do cliente e deixaria o link
+// compartilhado abrir conteúdo que a conta nenhuma abriria. Obra SEM
+// classificação continua valendo como 'young' e, portanto, some para o
+// visitante — por isso classificar o acervo é pré-requisito da regra no ar.
+const CLASSIFICACAO_VISITANTE = 'teen';
+const PARENTAL_VISITANTE = { classificacaoEtaria: CLASSIFICACAO_VISITANTE, tagsBloqueadas: [] };
+
 // Valor fora do enum (só chega por escrita bruta/migração — o schema barra o
 // resto) cai no degrau MAIS restritivo, nunca em young: falhar aberto aqui
 // mostraria tudo a uma conta cuja restrição ficou corrompida (achado da
@@ -81,14 +91,16 @@ function passaFiltroParental(parental, serie) {
  * tagsBloqueadas vira `tags: { $nin: [...] }` só quando há alguma —
  * cláusula ausente (não `$nin: []`) quando a lista está vazia.
  *
- * `{}` para anônimo (sem `user`) e para ADMIN (`isAdminUser` — exceção P5:
- * as listas compartilhadas do painel admin não podem sumir com obras).
+ * `{}` só para ADMIN (exceção P5: as listas compartilhadas do painel admin
+ * não podem sumir com obras). O anônimo deixou de ser isento na Fase 6: ele
+ * recebe a MESMA cláusula de uma conta Teen.
  * Nenhuma exceção de "dono" aqui — essa é só de `serieVisivelPara` (doc
  * único); nas listas o filtro vale para todo mundo, inclusive pro próprio
  * dono da obra (ledger: "autoinfligido, aceito e registrado").
  *
  * Shape devolvido (exemplos):
- *   anônimo/admin        → {}
+ *   admin                 → {}
+ *   anônimo (visitante)   → { content_rating: { $in: ['kids','teen'] } }
  *   kids sem tags         → { content_rating: 'kids' }
  *   kids com tags         → { content_rating: 'kids', tags: { $nin: [...] } }
  *   teen sem tags          → { content_rating: { $in: ['kids','teen'] } }
@@ -97,10 +109,11 @@ function passaFiltroParental(parental, serie) {
  *   young com tags           → { tags: { $nin: [...] } }
  */
 async function getFiltroParental(user) {
-  if (!user || isAdminUser(user)) return {};
+  if (isAdminUser(user)) return {};
 
-  const doc = await User.findById(user.id).select('parental').lean();
-  const parental = doc?.parental;
+  const parental = user
+    ? (await User.findById(user.id).select('parental').lean())?.parental
+    : PARENTAL_VISITANTE;
   const classificacaoEtaria = classificacaoEfetiva(parental?.classificacaoEtaria);
   const tagsBloqueadas = parental?.tagsBloqueadas || [];
 
@@ -124,7 +137,7 @@ async function getFiltroParental(user) {
  * spec, "Fonte única do filtro"). Ordem de checagem:
  *   1. admin → true (senão o AdminDashboard quebra ao gerenciar episódios
  *      de uma obra "bloqueada" pela própria preferência dele).
- *   2. anônimo (sem `user`) → true — guest não tem parental, sem filtro.
+ *   2. anônimo (sem `user`) → regra de VISITANTE (Teen), não mais "vê tudo".
  *   3. dono do canal da série (`serie.channelId` → `Channel.ownerId` ===
  *      `user.id`) → true, mesmo com a tag da PRÓPRIA obra bloqueada.
  *      `channelId` ausente/null é OPCIONAL: o dono-check simplesmente dá
@@ -136,7 +149,7 @@ async function getFiltroParental(user) {
  */
 async function serieVisivelPara(user, serie) {
   if (isAdminUser(user)) return true;
-  if (!user) return true;
+  if (!user) return passaFiltroParental(PARENTAL_VISITANTE, serie);
 
   if (serie.channelId) {
     const canal = await Channel.findById(serie.channelId).select('ownerId').lean();
@@ -147,4 +160,10 @@ async function serieVisivelPara(user, serie) {
   return passaFiltroParental(doc?.parental, serie);
 }
 
-module.exports = { passaFiltroParental, getFiltroParental, serieVisivelPara };
+module.exports = {
+  passaFiltroParental,
+  getFiltroParental,
+  serieVisivelPara,
+  CLASSIFICACAO_VISITANTE,
+  PARENTAL_VISITANTE,
+};

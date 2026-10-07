@@ -9,6 +9,7 @@ const fs = require('fs');
 const axios = require('axios');
 const { podeVerRascunho, isAdminUser, temCanalAtivo, serieDeCanalAtivoDoUsuario } = require('../utils/ownership');
 const { serieVisivelPara } = require('../utils/parentalFilter');
+const { autorizarConteudo, responderBloqueio } = require('../utils/autorizacaoConteudo');
 
 function toSlug(str) {
   return (str || '').toLowerCase()
@@ -588,7 +589,7 @@ router.get('/signed-url', (req, res) => {
       // LANÇA sem os dois — fail-closed).
       const episode = await Episode.findOne({ bunnyVideoId: videoId })
         .select('isPremium status seriesId')
-        .populate('seriesId', 'isPublished channelId content_rating tags')
+        .populate('seriesId', 'title cover_image isPublished channelId content_rating tags isPremium')
         .lean();
       if (!episode) return res.status(404).json({ error: 'Vídeo não encontrado.' });
 
@@ -596,10 +597,17 @@ router.get('/signed-url', (req, res) => {
       if (!publicado) {
         const podeVer = episode.seriesId && await podeVerRascunho(req.user, episode.seriesId.channelId);
         if (!podeVer) return res.status(404).json({ error: 'Vídeo não encontrado.' });
-      } else if (!(await serieVisivelPara(req.user, episode.seriesId))) {
-        // Vídeo PUBLICADO de série que o filtro parental esconde: mesmo 404
-        // dos drafts, antes de assinar qualquer URL.
-        return res.status(404).json({ error: 'Vídeo não encontrado.' });
+      } else {
+        // Fase 6, T1: assinar a URL é ENTREGAR o vídeo — a mesma porta do
+        // detalhe do episódio decide aqui, senão o Premium cairia por fora
+        // (bastava pedir a URL assinada direto).
+        const autorizacao = await autorizarConteudo(req.user, { serie: episode.seriesId, episodio: episode });
+        if (!autorizacao.ok) {
+          if (autorizacao.motivo === 'classificacao') {
+            return res.status(404).json({ error: 'Vídeo não encontrado.' });
+          }
+          return responderBloqueio(res, autorizacao.motivo, episode.seriesId);
+        }
       }
     } catch (err) {
       logger.error('[Bunny] Erro ao verificar acesso ao vídeo', err);

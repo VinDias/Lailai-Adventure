@@ -102,10 +102,14 @@ describe('Tradução de séries', () => {
   it('GET /series devolve o campo translations para o frontend', async () => {
     translationService.__setTranslatorForTests(fakeTranslator);
 
+    // Fase 6 (06/10/2026): o GET abaixo é feito SEM token (visitante) e o
+    // visitante deixou de ser isento do filtro etário — obra sem
+    // content_rating vale 'young' e não apareceria na lista. 'teen' deixa a
+    // obra visível a todos, como o acervo já classificado em produção.
     await request(app)
       .post('/api/content/series')
       .set('Authorization', `Bearer ${auth.getToken('admin')}`)
-      .send({ ...validSeries, isPublished: true });
+      .send({ ...validSeries, isPublished: true, content_rating: 'teen' });
 
     const res = await request(app).get('/api/content/series?type=hiqua');
     expect(res.status).toBe(200);

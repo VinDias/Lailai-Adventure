@@ -12,6 +12,7 @@ const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 const { podeVerRascunho } = require('../utils/ownership');
 const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
+const { autorizarConteudo, responderBloqueio } = require('../utils/autorizacaoConteudo');
 const { addPanels, setTranslationLayer } = require('../services/episodePanelService');
 const { responderCastError } = require('../utils/routeErrors');
 
@@ -410,7 +411,7 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
     // Fase 5, Bloco 2, Task 5: populate += content_rating tags (o helper
     // serieVisivelPara LANÇA sem os dois — fail-closed).
     const episode = await Episode.findById(req.params.id)
-      .populate('seriesId', 'title content_type isPublished channelId content_rating tags')
+      .populate('seriesId', 'title cover_image content_type isPublished channelId content_rating tags isPremium')
       .lean();
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
 
@@ -420,15 +421,23 @@ router.get('/episodes/:id', optionalAuth, async (req, res) => {
     if (!publicado) {
       const podeVer = serieDoEpisodio && await podeVerRascunho(req.user, serieDoEpisodio.channelId);
       if (!podeVer) return res.status(404).json({ error: 'Episódio não encontrado.' });
-    } else if (!(await serieVisivelPara(req.user, serieDoEpisodio))) {
-      // Episódio PUBLICADO de série que o filtro parental esconde: 404 SEM
-      // nenhum dos efeitos abaixo (increment de views, EngagementEvent) — a
-      // checagem entra ANTES do `if (publicado)` de telemetria, nunca depois.
-      return res.status(404).json({ error: 'Episódio não encontrado.' });
+    } else {
+      // Fase 6, T1: uma porta só decide classificação E Premium, nesta ordem
+      // (PDF do cliente de 25/09). Antes daqui o Premium não existia no
+      // servidor: painéis e vídeo de conteúdo pago saíam para qualquer um,
+      // inclusive visitante, e só o cliente exibia anúncio. Os dois desfechos
+      // continuam ANTES da telemetria abaixo — obra escondida não incrementa
+      // view nem gera EngagementEvent.
+      const autorizacao = await autorizarConteudo(req.user, { serie: serieDoEpisodio, episodio: episode });
+      if (!autorizacao.ok) {
+        // Classificação ESCONDE (404, não confirma que existe); Premium
+        // CONVIDA (403 com código, para a tela oferecer conta ou assinatura).
+        if (autorizacao.motivo === 'classificacao') {
+          return res.status(404).json({ error: 'Episódio não encontrado.' });
+        }
+        return responderBloqueio(res, autorizacao.motivo, serieDoEpisodio);
+      }
     }
-
-    // Conteúdo premium é entregue completo para qualquer usuário — quem decide
-    // exibir anúncio antes é o cliente, com base em user.isPremium.
 
     if (publicado) {
       // Incrementa views de forma não bloqueante

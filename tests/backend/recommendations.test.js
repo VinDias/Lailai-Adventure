@@ -222,8 +222,14 @@ describe('tags', () => {
       const criada = await request(app)
         .post('/api/content/series')
         .set('Authorization', `Bearer ${auth.getToken('admin')}`)
+        // content_rating 'teen' (Fase 6, 06/10/2026): a leitura aqui e
+        // ANONIMA e o visitante passou a ser filtrado como conta Teen — obra
+        // sem classificacao vale 'young' e sumiria. O assunto deste describe
+        // sao as tags no JSON, nao a classificacao; 'teen' mantem a obra
+        // visivel pra todo mundo, como o acervo depois da curadoria.
         .send({
           title: 'Serie Leitura Tags', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+          content_rating: 'teen',
           tags: ['aventura', 'drama', 'comedia', 'romance', 'acao'],
         });
       seriesId = criada.body._id;
@@ -2397,9 +2403,16 @@ describe('recomendacoes', () => {
   // validado pelo describe "gatilhos" logo acima, que roda depois de
   // "composicao" limpar o banco do mesmo jeito).
 
+  // content_rating 'teen' (Fase 6, 06/10/2026): os testes de ROTA deste
+  // describe batem em GET /api/content/recommendations sem token, e o
+  // visitante agora passa pelo filtro parental como conta Teen. Obra sem
+  // classificacao vale 'young' e desapareceria da lista — o que se mede aqui
+  // e score/afinidade/diversidade, nao classificacao. Quem precisa de outro
+  // rating sobrescreve pelo `overrides`.
   function criarSerie(overrides = {}) {
     return Series.create({
-      title: 'Serie Recomendacao', genre: 'Teste', content_type: 'hiqua', isPublished: true, ...overrides,
+      title: 'Serie Recomendacao', genre: 'Teste', content_type: 'hiqua', isPublished: true,
+      content_rating: 'teen', ...overrides,
     });
   }
 

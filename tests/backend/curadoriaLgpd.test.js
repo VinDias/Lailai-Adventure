@@ -35,7 +35,10 @@ async function criarConta(role = 'user') {
 }
 async function criarObraDe(dono, title = 'Obra LGPD 8') {
   const canal = await Channel.create({ ownerId: dono.user._id, name: `Canal ${n} ${Date.now()}` });
-  const serie = await Series.create({ title, genre: 'Aventura', content_type: 'hiqua', isPublished: true, content_rating: 'young', channelId: canal._id });
+  // Fase 6 (06/10/2026): conta NOVA nasce 'teen', então a obra da fixture
+  // precisa ser 'teen' para o leitor ainda conseguir sinalizá-la (obra 'young'
+  // daria 404 por classificação antes de chegar na regra LGPD em teste).
+  const serie = await Series.create({ title, genre: 'Aventura', content_type: 'hiqua', isPublished: true, content_rating: 'teen', channelId: canal._id });
   await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap', status: 'published', panels: [{ image_url: 'https://cdn.exemplo/p.jpg', order: 0 }] });
   return { serie, canal };
 }

@@ -48,7 +48,10 @@ afterEach(() => {
 });
 
 async function criarSerie({ isPublished = true, channelId = new mongoose.Types.ObjectId(), title = 'Obra Super Reader' } = {}) {
-  const dados = { title, genre: 'Teste', content_type: 'hiqua', isPublished };
+  // Fase 6 (06/10/2026): conta NOVA nasce 'teen' (models/User.js) e obra sem
+  // content_rating conta como 'young' — o token 'user' das rotas receberia 404
+  // por classificação antes das validações de publicação/canal/moeda em teste.
+  const dados = { title, genre: 'Teste', content_type: 'hiqua', isPublished, content_rating: 'teen' };
   if (channelId !== null) dados.channelId = channelId;
   return Series.create(dados);
 }

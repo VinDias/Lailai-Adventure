@@ -49,7 +49,7 @@ describe('GET /api/bunny/signed-url', () => {
   });
 
   it('episódio publicado em série publicada: assina para anônimo', async () => {
-    const serie = await Series.create({ title: 'Serie SignedUrl Publicada', genre: 'Teste', content_type: 'vcine', isPublished: true });
+    const serie = await Series.create({ title: 'Serie SignedUrl Publicada', genre: 'Teste', content_type: 'vcine', isPublished: true, content_rating: 'teen' });
     const episodio = await Episode.create({
       seriesId: serie._id, episode_number: 1, title: 'Ep Publicado SignedUrl', status: 'published', bunnyVideoId: 'bunny-signed-pub-1',
     });
@@ -59,9 +59,37 @@ describe('GET /api/bunny/signed-url', () => {
     expect(res.body.signedUrl).toContain('cdn-teste-signed.b-cdn.net');
   });
 
+  // Fase 6 (06/10/2026): assinar a URL é entregar o vídeo. Se o Premium só
+  // fechasse o detalhe do episódio, bastava pedir a URL assinada direto para
+  // assistir de graça — por isso a mesma porta de autorização vale aqui.
+  it('episódio PREMIUM: anônimo e logado sem assinatura levam 403; assinante recebe a URL', async () => {
+    const serie = await Series.create({
+      title: 'Serie SignedUrl Premium', genre: 'Teste', content_type: 'vcine',
+      isPublished: true, content_rating: 'teen', isPremium: true,
+    });
+    const episodio = await Episode.create({
+      seriesId: serie._id, episode_number: 1, title: 'Ep Premium SignedUrl',
+      status: 'published', bunnyVideoId: 'bunny-signed-premium-1', isPremium: true,
+    });
+    const url = `/api/bunny/signed-url?videoId=${episodio.bunnyVideoId}`;
+
+    const anon = await request(app).get(url);
+    expect(anon.status).toBe(403);
+    expect(anon.body.code).toBe('login_necessario');
+    expect(anon.body.signedUrl).toBeUndefined();
+
+    const semAssinatura = await request(app).get(url).set('Authorization', `Bearer ${getToken('user')}`);
+    expect(semAssinatura.status).toBe(403);
+    expect(semAssinatura.body.code).toBe('assinatura_necessaria');
+
+    const assinante = await request(app).get(url).set('Authorization', `Bearer ${getToken('premium')}`);
+    expect(assinante.status).toBe(200);
+    expect(assinante.body.signedUrl).toContain('cdn-teste-signed.b-cdn.net');
+  });
+
   it('episódio draft → 404 para anônimo e para logado não-dono', async () => {
     const canal = await criarCanalDoDono();
-    const serie = await Series.create({ title: 'Serie SignedUrl Draft', genre: 'Teste', content_type: 'vcine', isPublished: true, channelId: canal._id });
+    const serie = await Series.create({ title: 'Serie SignedUrl Draft', genre: 'Teste', content_type: 'vcine', isPublished: true, content_rating: 'teen', channelId: canal._id });
     const episodio = await Episode.create({
       seriesId: serie._id, episode_number: 1, title: 'Ep Draft SignedUrl', status: 'draft', bunnyVideoId: 'bunny-signed-draft-1',
     });
@@ -76,7 +104,7 @@ describe('GET /api/bunny/signed-url', () => {
   });
 
   it('episódio draft → 200 para admin', async () => {
-    const serie = await Series.create({ title: 'Serie SignedUrl Draft Admin', genre: 'Teste', content_type: 'vcine', isPublished: true });
+    const serie = await Series.create({ title: 'Serie SignedUrl Draft Admin', genre: 'Teste', content_type: 'vcine', isPublished: true, content_rating: 'teen' });
     const episodio = await Episode.create({
       seriesId: serie._id, episode_number: 1, title: 'Ep Draft Admin SignedUrl', status: 'draft', bunnyVideoId: 'bunny-signed-draft-admin',
     });
@@ -89,7 +117,7 @@ describe('GET /api/bunny/signed-url', () => {
 
   it('episódio draft → 200 para o dono do canal da série', async () => {
     const canal = await criarCanalDoDono();
-    const serie = await Series.create({ title: 'Serie SignedUrl Draft Dono', genre: 'Teste', content_type: 'vcine', isPublished: true, channelId: canal._id });
+    const serie = await Series.create({ title: 'Serie SignedUrl Draft Dono', genre: 'Teste', content_type: 'vcine', isPublished: true, content_rating: 'teen', channelId: canal._id });
     const episodio = await Episode.create({
       seriesId: serie._id, episode_number: 1, title: 'Ep Draft Dono SignedUrl', status: 'draft', bunnyVideoId: 'bunny-signed-draft-dono',
     });

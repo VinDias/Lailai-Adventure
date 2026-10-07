@@ -109,7 +109,8 @@ describe('GET /api/parental — shape', () => {
     const dono = await criarUsuarioLocal('Shape Get Sem Pin');
     const res = await getParental(dono.token);
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ classificacaoEtaria: 'young', tagsBloqueadas: [], temPin: false });
+    // Fase 6: conta nova nasce 'teen' (default do schema mudou).
+    expect(res.body).toMatchObject({ classificacaoEtaria: 'teen', tagsBloqueadas: [], temPin: false });
   });
 
   it('sem token -> 401', async () => {
@@ -136,7 +137,7 @@ describe('PUT /api/parental — sem PIN definido (livre)', () => {
     const res = await putParental(dono.token, { classificacaoEtaria: 'adulto' });
     expect(res.status).toBe(400);
     const doBanco = await User.findById(dono.id);
-    expect(doBanco.parental.classificacaoEtaria).toBe('young'); // não mudou
+    expect(doBanco.parental.classificacaoEtaria).toBe('teen'); // não mudou (default novo da Fase 6)
   });
 
   it('slug fora do vocabulário -> 400 NOMEANDO o ofensor', async () => {
@@ -193,7 +194,7 @@ describe('PUT /api/parental — com PIN definido (gate)', () => {
 
     const atual = await User.findById(dono.id).select('+parental.pinHash');
     expect(atual.parental.pinTentativas).toBe(0);
-    expect(atual.parental.classificacaoEtaria).toBe('young'); // não mudou
+    expect(atual.parental.classificacaoEtaria).toBe('teen'); // não mudou (default novo da Fase 6)
   });
 
   it('pin ERRADO -> 401 com tentativasRestantes, sem aplicar a mudança', async () => {
@@ -206,7 +207,7 @@ describe('PUT /api/parental — com PIN definido (gate)', () => {
 
     const atual = await User.findById(dono.id).select('+parental.pinHash');
     expect(atual.parental.pinTentativas).toBe(1);
-    expect(atual.parental.classificacaoEtaria).toBe('young');
+    expect(atual.parental.classificacaoEtaria).toBe('teen');
   });
 
   it('pin CERTO aplica a mudança e ZERA tentativas anteriores', async () => {

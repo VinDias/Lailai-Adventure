@@ -20,19 +20,24 @@ afterAll(() => db.closeDatabase());
 let seriesId, otherSeriesId;
 const NONEXISTENT_ID = '000000000000000000000000';
 
+// Fase 6 (06/10/2026): obra sem content_rating conta como 'young', e tanto a
+// conta nova (default 'teen') quanto o visitante (agora filtrado como Teen)
+// deixam de ve-la. A massa deste arquivo e sobre favorito e voto, nao sobre
+// classificacao — por isso as duas obras nascem classificadas 'teen', como o
+// acervo de producao fica depois da curadoria do cliente.
 beforeAll(async () => {
   const admin = getToken('admin');
 
   const s1 = await request(app)
     .post('/api/content/series')
     .set('Authorization', `Bearer ${admin}`)
-    .send({ title: 'Série Favorita', genre: 'Ação', content_type: 'hqcine', isPublished: true });
+    .send({ title: 'Série Favorita', genre: 'Ação', content_type: 'hqcine', isPublished: true, content_rating: 'teen' });
   seriesId = s1.body._id;
 
   const s2 = await request(app)
     .post('/api/content/series')
     .set('Authorization', `Bearer ${admin}`)
-    .send({ title: 'Outra Série', genre: 'Drama', content_type: 'hiqua', isPublished: true });
+    .send({ title: 'Outra Série', genre: 'Drama', content_type: 'hiqua', isPublished: true, content_rating: 'teen' });
   otherSeriesId = s2.body._id;
 });
 

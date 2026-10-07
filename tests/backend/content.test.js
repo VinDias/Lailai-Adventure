@@ -27,14 +27,19 @@ beforeAll(async () => {
   const s1 = await request(app)
     .post('/api/content/series')
     .set('Authorization', `Bearer ${admin}`)
-    .send({ title: 'Série Gratuita', genre: 'Ação', content_type: 'hqcine', isPublished: true });
+    // content_rating 'teen' nas fixtures compartilhadas: desde a Fase 6
+    // (06/10/2026) visitante e conta nova veem somente Kids/Teen, e obra sem
+    // classificação conta como Young. Sem isto, testes que NÃO são sobre
+    // classificação (listagem, premium, views, voto) quebrariam por um motivo
+    // que não é o deles.
+    .send({ title: 'Série Gratuita', genre: 'Ação', content_type: 'hqcine', isPublished: true, content_rating: 'teen' });
   seriesId = s1.body._id;
 
   // Série premium
   const s2 = await request(app)
     .post('/api/content/series')
     .set('Authorization', `Bearer ${admin}`)
-    .send({ title: 'Série Premium', genre: 'Drama', content_type: 'hiqua', isPremium: true, isPublished: true });
+    .send({ title: 'Série Premium', genre: 'Drama', content_type: 'hiqua', isPremium: true, isPublished: true, content_rating: 'teen' });
   premiumSeriesId = s2.body._id;
 
   // Episódio gratuito — status: 'published' explícito (Fase 5 Bloco 1, Task 2:
@@ -373,7 +378,11 @@ describe('GET /api/content/episodes/:id — detalhes de episódio', () => {
     expect(res.status).toBe(404);
   });
 
-  it('episódio premium vem completo (panels e mídia) para usuário free', async () => {
+  // Fase 6 (06/10/2026): o Premium passou a BARRAR no servidor. Antes estes
+  // dois testes fixavam o contrário — conteúdo pago saía completo para
+  // qualquer um e o cliente só exibia anúncio antes. A regra do cliente (PDF
+  // de 25/09) é que nem uma URL direta contorna o Premium.
+  it('episódio premium NÃO sai para usuário logado sem assinatura: 403 com código e convite', async () => {
     const admin = getToken('admin');
     const create = await request(app)
       .post('/api/content/episodes')
@@ -390,19 +399,39 @@ describe('GET /api/content/episodes/:id — detalhes de episódio', () => {
     const res = await request(app)
       .get(`/api/content/episodes/${create.body._id}`)
       .set('Authorization', `Bearer ${getToken('user')}`);
-    expect(res.status).toBe(200);
-    expect(res.body.isPremium).toBe(true);
-    expect(res.body.panels.length).toBe(1);
-    expect(res.body.video_url).toBe('https://cdn.example.com/premium/playlist.m3u8');
-    expect(res.body.bunnyVideoId).toBe('bunny-premium-123');
-    expect(res.body.locked).toBeUndefined();
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('assinatura_necessaria');
+    // Nada do conteúdo pago vaza no bloqueio: só o que a tela precisa para
+    // convidar a assinar (título e capa da obra).
+    expect(res.body.panels).toBeUndefined();
+    expect(res.body.video_url).toBeUndefined();
+    expect(res.body.bunnyVideoId).toBeUndefined();
+    // O título em si varia (outro teste renomeia a série); o que importa é
+    // que o bloqueio identifica a obra para a tela de convite.
+    expect(typeof res.body.obra.title).toBe('string');
+    expect(res.body.obra.title.length).toBeGreaterThan(0);
   });
 
-  it('episódio premium vem completo até sem autenticação', async () => {
-    const res = await request(app).get(`/api/content/episodes/${premiumEpisodeId}`);
+  it('episódio premium SAI completo para assinante ativo', async () => {
+    const res = await request(app)
+      .get(`/api/content/episodes/${premiumEpisodeId}`)
+      .set('Authorization', `Bearer ${getToken('premium')}`);
     expect(res.status).toBe(200);
     expect(res.body.isPremium).toBe(true);
-    expect(res.body.locked).toBeUndefined();
+  });
+
+  it('episódio premium sai completo para o admin (precisa revisar o catálogo)', async () => {
+    const res = await request(app)
+      .get(`/api/content/episodes/${premiumEpisodeId}`)
+      .set('Authorization', `Bearer ${getToken('admin')}`);
+    expect(res.status).toBe(200);
+  });
+
+  it('episódio premium sem autenticação: 403 convidando a criar conta', async () => {
+    const res = await request(app).get(`/api/content/episodes/${premiumEpisodeId}`);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('login_necessario');
+    expect(res.body.panels).toBeUndefined();
   });
 
   it('incrementa views a cada acesso', async () => {
@@ -843,7 +872,7 @@ describe('Drafts invisíveis ao público', () => {
     });
 
     it('série publicada continua 200 pra qualquer um (controle de regressão)', async () => {
-      const publicada = await Series.create({ title: 'Serie Publicada Controle Draft', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+      const publicada = await Series.create({ title: 'Serie Publicada Controle Draft', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen' });
       const res = await request(app).get(`/api/content/series/${publicada._id}`);
       expect(res.status).toBe(200);
     });
@@ -852,7 +881,7 @@ describe('Drafts invisíveis ao público', () => {
   describe('GET /api/content/series/:id/episodes — capítulo draft', () => {
     it('capítulo draft em série JÁ publicada não aparece pro público; dono e admin veem (com status)', async () => {
       const canal = await criarCanalDoDono();
-      const serie = await Series.create({ title: 'Serie Publicada Com Draft', genre: 'Teste', content_type: 'hiqua', isPublished: true, channelId: canal._id });
+      const serie = await Series.create({ title: 'Serie Publicada Com Draft', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen', channelId: canal._id });
       const publicado = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Publicado', status: 'published' });
       const draft = await Episode.create({ seriesId: serie._id, episode_number: 2, title: 'Cap Draft', status: 'draft' });
 
@@ -899,7 +928,7 @@ describe('Drafts invisíveis ao público', () => {
   describe('GET /api/content/episodes/:id — episódio draft', () => {
     it('404 para anônimo e para logado não-dono; sem incrementar views nem gerar EngagementEvent', async () => {
       const canal = await criarCanalDoDono();
-      const serie = await Series.create({ title: 'Serie Cap Draft Detalhe', genre: 'Teste', content_type: 'hiqua', isPublished: true, channelId: canal._id });
+      const serie = await Series.create({ title: 'Serie Cap Draft Detalhe', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen', channelId: canal._id });
       const draft = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Draft Detalhe', status: 'draft', views: 0 });
 
       const anon = await request(app).get(`/api/content/episodes/${draft._id}`);
@@ -919,7 +948,7 @@ describe('Drafts invisíveis ao público', () => {
 
     it('200 para o dono do canal e para admin, sem incrementar views (draft é QA, não view real)', async () => {
       const canal = await criarCanalDoDono();
-      const serie = await Series.create({ title: 'Serie Cap Draft Dono Admin', genre: 'Teste', content_type: 'hiqua', isPublished: true, channelId: canal._id });
+      const serie = await Series.create({ title: 'Serie Cap Draft Dono Admin', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen', channelId: canal._id });
       const draft = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Draft Dono Admin', status: 'draft', views: 0 });
 
       const dono = await request(app)
@@ -948,7 +977,7 @@ describe('Drafts invisíveis ao público', () => {
     });
 
     it('episódio publicado em série publicada continua incrementando views (controle de regressão)', async () => {
-      const serie = await Series.create({ title: 'Serie Controle Views Draft', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+      const serie = await Series.create({ title: 'Serie Controle Views Draft', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen' });
       const episodio = await Episode.create({ seriesId: serie._id, episode_number: 1, title: 'Cap Controle Views Draft', status: 'published', views: 0 });
 
       const before = (await request(app).get(`/api/content/episodes/${episodio._id}`)).body.views;
@@ -970,7 +999,7 @@ describe('Drafts invisíveis ao público', () => {
 
     it('capítulo draft de série publicada não aparece na busca por título do capítulo', async () => {
       const termo = `TermoBuscaCapDraft${Date.now()}`;
-      const serie = await Series.create({ title: 'Serie Para Busca De Capitulo', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+      const serie = await Series.create({ title: 'Serie Para Busca De Capitulo', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen' });
       await Episode.create({ seriesId: serie._id, episode_number: 1, title: `${termo} Capitulo`, status: 'draft' });
 
       const res = await request(app).get(`/api/content/search?q=${termo}`);
@@ -980,7 +1009,7 @@ describe('Drafts invisíveis ao público', () => {
 
     it('capítulo PUBLICADO de série publicada aparece na busca (controle de regressão)', async () => {
       const termo = `TermoBuscaCapPub${Date.now()}`;
-      const serie = await Series.create({ title: 'Serie Para Busca De Capitulo Publicado', genre: 'Teste', content_type: 'hiqua', isPublished: true });
+      const serie = await Series.create({ title: 'Serie Para Busca De Capitulo Publicado', genre: 'Teste', content_type: 'hiqua', isPublished: true, content_rating: 'teen' });
       await Episode.create({ seriesId: serie._id, episode_number: 1, title: `${termo} Capitulo`, status: 'published' });
 
       const res = await request(app).get(`/api/content/search?q=${termo}`);
