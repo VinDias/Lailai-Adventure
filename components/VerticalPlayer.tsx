@@ -4,6 +4,7 @@ import Hls from 'hls.js';
 import { Video, User } from '../types';
 import { X, ThumbsUp, ThumbsDown, Play, Pause, Volume2, VolumeX, Maximize, Settings, RotateCcw, RotateCw } from 'lucide-react';
 import AdComponent from './AdComponent';
+import ConteudoBloqueado, { MotivoBloqueio } from './ConteudoBloqueado';
 import { api } from '../services/api';
 import { isPremiumActive } from '../utils/premium';
 import { useT } from '../contexts/I18nContext';
@@ -13,6 +14,10 @@ interface PlayerProps {
   video: Video;
   user: User | null;
   onClose: () => void;
+  // Fase 6: a URL assinada passou a ser recusada (403) para vídeo pago sem
+  // assinatura ativa — os convites saem daqui.
+  onCriarConta?: () => void;
+  onAssinar?: () => void;
 }
 
 const fmt = (s: number) => {
@@ -32,7 +37,7 @@ const LANG_LABELS: Record<string, string> = {
 // usado para decidir se ainda vale a pena pular para o segundo salvo.
 const LIMIAR_SEGUNDOS_PROPRIO = 2;
 
-const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
+const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarConta, onAssinar }) => {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -42,6 +47,9 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
   const [showAd, setShowAd] = useState(!isPremiumActive(user));
   const [signedSrc, setSignedSrc] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState(false);
+  // 403 do servidor: conteúdo pago. É oferta, não falha de reprodução — por
+  // isso não entra em playbackError ("vídeo indisponível").
+  const [bloqueio, setBloqueio] = useState<{ motivo: MotivoBloqueio; obra?: any } | null>(null);
 
   const [qualityLevels, setQualityLevels] = useState<any[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
@@ -117,9 +125,16 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
     if (showAd) return;
     if (video.bunnyVideoId) {
       setPlaybackError(false);
+      setBloqueio(null);
       api.getSignedVideoUrl(video.bunnyVideoId)
         .then(url => setSignedSrc(url))
-        .catch(() => setPlaybackError(true));
+        .catch((e: any) => {
+          if (e?.status === 403 && (e.code === 'login_necessario' || e.code === 'assinatura_necessaria')) {
+            setBloqueio({ motivo: e.code, obra: e.obra });
+            return;
+          }
+          setPlaybackError(true);
+        });
     } else {
       setSignedSrc(video.arquivoUrl);
     }
@@ -313,6 +328,19 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose }) => {
       else { await api.vote(video.id, type); setMyVote(type); }
     } catch {}
   };
+
+  // Antes do anúncio: quem não pode assistir não deve ver publicidade primeiro.
+  if (bloqueio) {
+    return (
+      <ConteudoBloqueado
+        motivo={bloqueio.motivo}
+        obra={bloqueio.obra ?? { title: video.titulo, cover_image: video.thumbnailUrl }}
+        onCriarConta={() => (onCriarConta ? onCriarConta() : onClose())}
+        onAssinar={() => (onAssinar ? onAssinar() : onClose())}
+        onClose={onClose}
+      />
+    );
+  }
 
   if (showAd) return <AdComponent onFinish={() => setShowAd(false)} />;
 

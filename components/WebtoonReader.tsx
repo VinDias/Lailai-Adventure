@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Webtoon, User } from '../types';
 import { ThumbsUp, ThumbsDown, ChevronRight, ChevronLeft } from 'lucide-react';
 import AdComponent from './AdComponent';
+import ConteudoBloqueado, { MotivoBloqueio } from './ConteudoBloqueado';
 import { api } from '../services/api';
 import { isPremiumActive } from '../utils/premium';
 import { useI18n, useT } from '../contexts/I18nContext';
@@ -19,6 +20,10 @@ interface ReaderProps {
   prevEpisode?: any | null;
   nextEpisode?: any | null;
   onNavigate?: (ep: any) => void;
+  // Fase 6: capítulo pago passou a ser recusado pelo servidor (403). Quem monta
+  // o leitor decide para onde levam os convites de conta e de assinatura.
+  onCriarConta?: () => void;
+  onAssinar?: () => void;
 }
 
 interface TranslationLayer {
@@ -45,8 +50,11 @@ const DEFAULT_LANG_LABELS: Record<string, string> = {
 // leitura de verdade — usado para decidir se o usuário já começou sozinho.
 const LIMIAR_SCROLL_PROPRIO = 40;
 
-const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate }) => {
+const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate, onCriarConta, onAssinar }) => {
   const [paineis, setPaineis] = useState<PanelItem[]>([]);
+  // 403 do servidor (Fase 6) não é erro, é oferta: guarda motivo e obra para a
+  // tela de convite, em vez de cair no estado vazio de "nenhum painel".
+  const [bloqueio, setBloqueio] = useState<{ motivo: MotivoBloqueio; obra?: any } | null>(null);
   const [loading, setLoading] = useState(true);
   // Usuário free vê um interstitial antes de cada capítulo (assinante não vê)
   const [showAd, setShowAd] = useState(!isPremiumActive(user));
@@ -157,6 +165,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
 
   const loadPanels = async (episodeId: string) => {
     setLoading(true);
+    setBloqueio(null);
     try {
       // Usa o serviço autenticado (Bearer token + cookie httpOnly) em vez de um
       // fetch cru. Sem credenciais, o backend trata a requisição como anônima e
@@ -196,8 +205,15 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
           return;
         }
       }
-    } catch (e) {
-      // empty state
+    } catch (e: any) {
+      // 403 com código = conteúdo pago. Qualquer outro erro segue no estado
+      // vazio de antes.
+      if (e?.status === 403 && (e.code === 'login_necessario' || e.code === 'assinatura_necessaria')) {
+        setBloqueio({ motivo: e.code, obra: e.obra });
+        setPaineis([]);
+        setLoading(false);
+        return;
+      }
     }
     setPaineis([]);
     setLoading(false);
@@ -225,6 +241,20 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
       // silently ignore
     }
   };
+
+  // O bloqueio vem ANTES do anúncio: não faz sentido exibir publicidade para
+  // depois dizer que a pessoa não pode ler.
+  if (bloqueio) {
+    return (
+      <ConteudoBloqueado
+        motivo={bloqueio.motivo}
+        obra={bloqueio.obra ?? { title: webtoon.titulo, cover_image: webtoon.thumbnailUrl }}
+        onCriarConta={() => (onCriarConta ? onCriarConta() : onClose())}
+        onAssinar={() => (onAssinar ? onAssinar() : onClose())}
+        onClose={onClose}
+      />
+    );
+  }
 
   if (showAd) return <AdComponent onFinish={() => setShowAd(false)} />;
 

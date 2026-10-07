@@ -108,7 +108,10 @@ describe('WebtoonReader — Anúncio', () => {
     expect(screen.getByAltText('Página 2')).toBeInTheDocument();
   });
 
-  it('usuário free lê conteúdo premium após o anúncio (sem parede premium)', async () => {
+  // Fase 6 (06/10/2026): a parede do Premium passou a ser do SERVIDOR. Aqui a
+  // API devolve os painéis, então o leitor mostra o capítulo — o bloqueio tem
+  // testes próprios logo abaixo, onde a API responde 403.
+  it('leitor exibe o que a API entregou, depois do anúncio', async () => {
     const user = makeUser({ isPremium: false });
     render(<WebtoonReader webtoon={makeWebtoon({ isPremium: true })} user={user} onClose={vi.fn()} />);
     expect(screen.getByTestId('ad-component')).toBeInTheDocument();
@@ -289,5 +292,59 @@ describe('WebtoonReader — Restauração de progresso', () => {
 
     // O scroll do capítulo 2 não foi mexido pela resposta do capítulo 1.
     expect(el.scrollTop).toBe(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Conteúdo bloqueado (Fase 6): o servidor recusa capítulo pago com 403 e um
+// código. O leitor precisa transformar isso em convite, nunca em "nenhum
+// painel disponível" (que era o estado vazio para qualquer erro).
+// ═══════════════════════════════════════════════════════════════════════════
+
+function erro403(code: string, obra?: any) {
+  const e: any = new Error('bloqueado');
+  e.status = 403;
+  e.code = code;
+  e.obra = obra;
+  return e;
+}
+
+describe('WebtoonReader — conteúdo bloqueado', () => {
+  it('403 login_necessario: mostra convite para criar conta, sem painéis e sem anúncio', async () => {
+    vi.mocked(api.getEpisode).mockRejectedValue(erro403('login_necessario', { title: 'Obra Fechada', cover_image: 'https://cdn/capa.jpg' }));
+    render(<WebtoonReader webtoon={makeWebtoon({ isPremium: true })} user={null} onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/Crie uma conta gratuita/i)).toBeInTheDocument();
+    expect(screen.getByText('Obra Fechada')).toBeInTheDocument();
+    expect(screen.queryByAltText('Página 1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ad-component')).not.toBeInTheDocument();
+  });
+
+  it('403 assinatura_necessaria: mostra convite para assinar e chama onAssinar no clique', async () => {
+    const onAssinar = vi.fn();
+    vi.mocked(api.getEpisode).mockRejectedValue(erro403('assinatura_necessaria'));
+    render(
+      <WebtoonReader
+        webtoon={makeWebtoon({ isPremium: true })}
+        user={makeUser({ isPremium: false })}
+        onClose={vi.fn()}
+        onAssinar={onAssinar}
+      />
+    );
+
+    const botao = await screen.findByRole('button', { name: /Quero assinar/i });
+    fireEvent.click(botao);
+    expect(onAssinar).toHaveBeenCalledTimes(1);
+  });
+
+  it('erro comum (500) continua caindo no estado vazio, não na tela de bloqueio', async () => {
+    const e: any = new Error('falhou');
+    e.status = 500;
+    vi.mocked(api.getEpisode).mockRejectedValue(e);
+    render(<WebtoonReader webtoon={makeWebtoon()} user={makeUser({ isPremium: true })} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(api.getEpisode).toHaveBeenCalled());
+    expect(screen.queryByText(/Crie uma conta gratuita/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Quero assinar/i })).not.toBeInTheDocument();
   });
 });

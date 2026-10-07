@@ -401,3 +401,61 @@ describe('VerticalPlayer — Restauração de progresso', () => {
     liberar(null); // libera a promise pendente para não vazar entre testes
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Conteúdo bloqueado (Fase 6): assinar a URL do vídeo é entregar o vídeo, e o
+// servidor passou a recusar isso com 403 para vídeo pago sem assinatura ativa.
+// O player precisa oferecer, não dizer "vídeo indisponível".
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('VerticalPlayer — conteúdo bloqueado', () => {
+  function erro403(code: string, obra?: any) {
+    const e: any = new Error('bloqueado');
+    e.status = 403;
+    e.code = code;
+    e.obra = obra;
+    return e;
+  }
+
+  it('403 login_necessario: convida a criar conta e NÃO mostra "indisponível"', async () => {
+    vi.mocked(api.getSignedVideoUrl).mockRejectedValue(erro403('login_necessario', { title: 'Novela Fechada' }));
+    render(<VerticalPlayer video={makeVideo({ bunnyVideoId: 'bunny-1', isPremium: true })} user={null} onClose={vi.fn()} />);
+
+    // O anúncio do visitante aparece primeiro; o bloqueio vem depois dele.
+    fireEvent.click(screen.getByText('Fechar Anúncio'));
+    expect(await screen.findByText(/Crie uma conta gratuita/i)).toBeInTheDocument();
+    expect(screen.getByText('Novela Fechada')).toBeInTheDocument();
+    expect(screen.queryByText(/indisponível/i)).not.toBeInTheDocument();
+  });
+
+  it('403 assinatura_necessaria: botão de assinar chama onAssinar', async () => {
+    const onAssinar = vi.fn();
+    vi.mocked(api.getSignedVideoUrl).mockRejectedValue(erro403('assinatura_necessaria'));
+    render(
+      <VerticalPlayer
+        video={makeVideo({ bunnyVideoId: 'bunny-2', isPremium: true })}
+        user={makeUser({ isPremium: false })}
+        onClose={vi.fn()}
+        onAssinar={onAssinar}
+      />
+    );
+
+    fireEvent.click(screen.getByText('Fechar Anúncio'));
+    fireEvent.click(await screen.findByRole('button', { name: /Quero assinar/i }));
+    expect(onAssinar).toHaveBeenCalledTimes(1);
+  });
+
+  it('falha comum da URL assinada continua virando "vídeo indisponível"', async () => {
+    vi.mocked(api.getSignedVideoUrl).mockRejectedValue(new Error('sem token'));
+    render(
+      <VerticalPlayer
+        video={makeVideo({ bunnyVideoId: 'bunny-3' })}
+        user={makeUser({ isPremium: true })}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText(/indisponível/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Quero assinar/i })).not.toBeInTheDocument();
+  });
+});

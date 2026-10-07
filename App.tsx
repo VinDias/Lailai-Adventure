@@ -335,6 +335,28 @@ const App: React.FC = () => {
     if (!hasSeenOnboarding()) setShowOnboarding(true);
   };
 
+  /**
+   * Convites da tela de bloqueio (Fase 6). O visitante que esbarra em conteúdo
+   * acima do Teen volta para a tela de login/cadastro: sair do modo visitante
+   * é o que faz o guard do App mostrar o Auth de novo.
+   */
+  const irParaCadastro = () => {
+    leaveGuestMode();
+    setActiveWebtoon(null);
+    setActiveVideo(null);
+    setUser(null);
+    setView(ViewMode.AUTH);
+  };
+
+  const irParaAssinatura = async () => {
+    try {
+      const { url } = await api.createCheckoutSession();
+      window.location.href = url;
+    } catch {
+      alert('Erro ao iniciar checkout. Tente novamente.');
+    }
+  };
+
   const handleLogout = () => {
     api.logout();
     purgeLegacyTokens();
@@ -643,7 +665,13 @@ const App: React.FC = () => {
         )}
 
         {view === ViewMode.PLAYER && activeVideo && (
-          <VerticalPlayer video={activeVideo} user={user} onClose={handleClosePlayer} />
+          <VerticalPlayer
+            video={activeVideo}
+            user={user}
+            onClose={handleClosePlayer}
+            onCriarConta={irParaCadastro}
+            onAssinar={irParaAssinatura}
+          />
         )}
 
         {view === ViewMode.READER && activeWebtoon && (() => {
@@ -658,6 +686,8 @@ const App: React.FC = () => {
               prevEpisode={prevEp}
               nextEpisode={nextEp}
               onNavigate={(ep) => openWebtoonEpisode(ep, activeSeries)}
+              onCriarConta={irParaCadastro}
+              onAssinar={irParaAssinatura}
             />
           );
         })()}
