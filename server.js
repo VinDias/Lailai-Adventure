@@ -35,11 +35,17 @@ conexaoMongo
       .catch(err => console.error('[Algoritmo] Falha ao iniciar varredura periodica', err));
     // Fase 5 Bloco 3: reavaliação diária das sinalizações pendentes (contas
     // que completaram a idade mínima) — mesmas guardas da varredura acima.
-    require('./services/curadoriaService').iniciarReavaliacaoPeriodica();
+    require('./services/curadoriaService').iniciarReavaliacaoPeriodica();
+
     // Fase 6: assinatura vencida deixa de ser Premium mesmo se o aviso do
     // Stripe ou da Play se perder — com o Premium barrando conteudo, estado
     // pendurado no banco viraria acesso pago de graca.
     require('./services/assinaturaExpiracaoService').iniciarVarreduraDeAssinaturas();
+    // Fase 6 T6: resumo semanal de novidades para quem aceitou receber. A
+    // varredura e de hora em hora e so age na segunda de manha (UTC) — o
+    // processo reinicia a cada deploy, entao um timer de 7 dias nunca
+    // disparava; a idempotencia vem do indice unico de EnvioNovidades.
+    require('./services/novidadesService').iniciarResumoSemanal();
   })
   .catch(err => {
     console.error('❌ Erro ao conectar MongoDB:', err);

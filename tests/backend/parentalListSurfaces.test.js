@@ -635,3 +635,43 @@ describe('GET /api/me/continue — filtro parental', () => {
     [kidsS, teenS, youngS, nuloS, ausenteS].forEach((s) => expect(ids).toContain(String(s._id)));
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7) Página pública do canal (Fase 6, T3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * O levantamento de 06/10 apontou `routes/channels.js:58` como "página do
+ * canal sem filtro parental". A conferência mostrou que a rota não devolve
+ * obra NENHUMA (só nome, descrição, avatar, banner e dono): a grade do canal
+ * é montada no cliente a partir de `GET /content/series`
+ * (components/CanalPublico.tsx:55-61), que já passa pelo filtro. Ou seja, não
+ * havia vazamento — e estes testes existem para que não passe a haver:
+ *
+ *   1. se alguém acrescentar `series` ao shape da rota do canal, o primeiro
+ *      teste quebra e obriga a aplicar o filtro ali também;
+ *   2. o segundo prova o caminho que o app realmente usa — obra Young de um
+ *      canal não aparece para visitante nem com o canal sendo público.
+ */
+describe('GET /api/channels/:id — página pública do canal não entrega catálogo', () => {
+  it('não devolve lista de obras no shape (quem lista é /content/series, filtrado)', async () => {
+    const canal = await Channel.create({ ownerId: young.id, name: unico('Canal T3'), isActive: true });
+    await criarSerie('CanalT3 Young', { content_rating: 'young', channelId: canal._id });
+
+    const res = await request(app).get(`/api/channels/${canal._id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.series).toBeUndefined();
+    expect(res.body.obras).toBeUndefined();
+  });
+
+  it('visitante no canal só alcança Kids e Teen pela lista que a tela usa', async () => {
+    const canal = await Channel.create({ ownerId: young.id, name: unico('Canal T3'), isActive: true });
+    const teenS = await criarSerie('CanalT3 Teen', { content_rating: 'teen', channelId: canal._id });
+    const youngS = await criarSerie('CanalT3 Young', { content_rating: 'young', channelId: canal._id });
+
+    const res = await request(app).get('/api/content/series?type=hiqua');
+    const doCanal = idsOf(res.body.filter((s) => String(s.channelId) === String(canal._id)));
+    expect(doCanal).toContain(String(teenS._id));
+    expect(doCanal).not.toContain(String(youngS._id));
+  });
+});

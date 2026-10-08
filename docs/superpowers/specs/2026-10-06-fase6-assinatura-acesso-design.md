@@ -117,15 +117,52 @@ ficam como estão (decisão do Fellipe). O cadastro (`server.js:376-445`) não g
 
 ## 5. Tarefas
 
-| # | Tarefa | Depende de |
-|---|---|---|
-| T1 | `autorizarConteudo` + `assinaturaAtiva` + aplicação nas rotas de lista e de documento | — |
-| T2 | 403 com código e convite na UI (criar conta / assinar), telas do leitor | T1 |
-| T3 | Conta nova em Teen + canal público entrando no filtro (`channels.js:58`) | T1 |
-| T4 | Rotina diária de expiração + unificação do conceito de assinante | T1 |
-| T5 | Play Billing no app e no servidor (produto, confirmação, vínculo, RTDN) | Play Console |
-| T6 | Resumo semanal + descadastro | — |
-| T7 | Re-pinagem dos testes antigos + E2E no app real | T1..T6 |
+| # | Tarefa | Depende de | Estado |
+|---|---|---|---|
+| T1 | `autorizarConteudo` + `assinaturaAtiva` + aplicação nas rotas de lista e de documento | — | **feita** (`363af62`) |
+| T2 | 403 com código e convite na UI (criar conta / assinar), telas do leitor | T1 | **feita** (`6e0f19c`) |
+| T3 | Conta nova em Teen + canal público entrando no filtro (`channels.js:58`) | T1 | **feita** — ver 5.1 |
+| T4 | Rotina diária de expiração + unificação do conceito de assinante | T1 | **feita** (`c2cf3ed`) |
+| T5 | Play Billing no app e no servidor (produto, confirmação, vínculo, RTDN) | Play Console | **bloqueada** (acesso externo) |
+| T6 | Resumo semanal + descadastro | — | **feita** |
+| T7 | Re-pinagem dos testes antigos + E2E no app real | T1..T6 | re-pinagem feita; E2E pendente |
+
+### 5.1 T3 — o que a conferência achou
+
+O levantamento marcou `routes/channels.js:58` como "página do canal sem filtro
+parental". Conferido: a rota **não devolve obra nenhuma** — só nome, descrição,
+avatar, banner e dono. A grade do canal é montada no cliente a partir de
+`GET /content/series` (`components/CanalPublico.tsx:55-61`), que já passa pelo
+filtro desde a T1, e nenhuma rota pública lista série por canal no servidor.
+Não havia vazamento, então **não houve mudança de código**; o que entrou foram
+duas asserções em `tests/backend/parentalListSurfaces.test.js` que quebram se
+alguém acrescentar um catálogo ao shape do canal.
+
+### 5.2 T6 — como o resumo semanal ficou
+
+- **Quando:** varredura de hora em hora (molde da T4), agindo só na segunda
+  12h UTC. Um `setInterval` de 7 dias nunca dispararia, porque o processo
+  reinicia a cada deploy. Não há cron na VPS para o Fellipe manter à parte.
+- **Não repete:** índice único `(userId, periodo)` em `models/EnvioNovidades.js`,
+  com o registro criado ANTES do envio (molde do `notificationSentAt` do push).
+  Falha de SMTP apaga o registro e devolve a vez ao próximo tique.
+- **Período** é a semana ISO (`2026-W41`), não uma data: qualquer tique da mesma
+  semana reconhece o mesmo período.
+- **Recorte etário** pelo predicado puro `passaFiltroParental`, sem exceção de
+  admin nem de dono (mesma escolha do push, ledger P5). Obra que chega com
+  `content_rating`/`tags` ausentes do documento fica fora e o lote continua.
+- **O que conta como novidade:** episódio `published`, obra publicada e conteúdo
+  presente (painéis ou vídeo) — mesma definição de "consumível" do push. A data
+  é `createdAt`, o proxy de recência já usado em
+  `services/recommendationService.js:575`; não existe `publishedAt` e criar um
+  exigiria backfill do acervo para um ganho que o fluxo real não tem.
+- **Descadastro** por HMAC do id da conta (`NEWSLETTER_SECRET`, ou `JWT_SECRET`),
+  não por token guardado: o e-mail fica anos na caixa de entrada, e um token com
+  prazo deixaria de funcionar justamente quando a pessoa quisesse sair. Rota sem
+  login, GET (página) e POST (One-Click do RFC 8058), mais os cabeçalhos
+  `List-Unsubscribe` e `List-Unsubscribe-Post`.
+- **Consentimento informado:** o botão em `components/PrivacyCenter.tsx` já
+  existia e não fazia nada; passou a dizer o que chega e com que frequência.
 
 ## 6. Riscos registrados
 
@@ -142,3 +179,12 @@ ficam como estão (decisão do Fellipe). O cadastro (`server.js:376-445`) não g
 4. **Catálogo sem classificação some para visitante.** Pré-requisito do cliente; sem isso a
    home fica vazia para quem não tem conta.
 5. **Play Console e keystore** são bloqueios externos para a T5.
+6. **O resumo semanal carrega todos os destinatários em memória** e envia em
+   série (`User.find({'consent.marketing': true})`). Proposital enquanto a base é
+   pequena — o SMTP da Hostinger tem limite por minuto e o resumo não tem pressa.
+   Quando a base crescer, paginar por cursor e lotear o envio.
+7. **`createdAt` é imutável no Mongoose** quando o schema tem `timestamps`: um
+   `$set` pelo model é descartado em silêncio, mesmo com `{timestamps: false}`.
+   Datar episódio no passado (testes da janela semanal) exige a coleção nativa.
+   Achado ao escrever `tests/backend/novidadesSemanais.test.js`, onde isso tinha
+   passado como teste verde pelo motivo errado.

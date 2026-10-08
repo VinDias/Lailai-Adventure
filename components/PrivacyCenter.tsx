@@ -62,10 +62,18 @@ const PrivacyCenter: React.FC<PrivacyCenterProps> = ({ user, onOpenPolicy, onDel
           Baixar meus dados (JSON)
         </button>
 
-        <div className="w-full py-4 px-5 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between">
-          <span className="text-sm text-zinc-300">Receber novidades por e-mail</span>
+        {/* Fase 6, T6: este botão passou a ter efeito de verdade — liga o resumo
+            semanal de services/novidadesService.js. A finalidade fica escrita
+            aqui porque consentimento genérico ("novidades") não é consentimento
+            informado (LGPD, Art. 8º): a pessoa precisa saber o que chega, com
+            que frequência, e que pode sair pelo próprio e-mail. */}
+        <div className="w-full py-4 px-5 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <span className="text-sm text-zinc-300">Receber novidades por e-mail</span>
+            <p className="text-[11px] text-zinc-500 mt-1 leading-snug">Um resumo por semana dos capítulos novos. Dá para sair por um link no próprio e-mail.</p>
+          </div>
           <button onClick={toggleMarketing} aria-label="Alternar consentimento de marketing"
-            className={`relative w-12 h-7 rounded-full transition-colors ${marketing ? 'bg-rose-600' : 'bg-zinc-700'}`}>
+            className={`relative w-12 h-7 shrink-0 rounded-full transition-colors ${marketing ? 'bg-rose-600' : 'bg-zinc-700'}`}>
             <span className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${marketing ? 'translate-x-5' : ''}`} />
           </button>
         </div>

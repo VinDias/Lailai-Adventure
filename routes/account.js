@@ -240,6 +240,76 @@ router.put('/me/consent', verifyToken, async (req, res) => {
   }
 });
 
+// ─── DESCADASTRO DO RESUMO SEMANAL (Fase 6, T6) ──────────────────────────────
+// SEM autenticação, de propósito: o link é clicado dentro do cliente de e-mail,
+// anos depois, por alguém que provavelmente não está logado — exigir login para
+// parar de receber é exatamente o que a LGPD (Art. 8º, §5º) não aceita. A
+// autorização vem do HMAC do id da conta (services/novidadesService.js), que
+// não tem prazo e não é adivinhável.
+//
+// GET  responde uma página simples (é um clique de navegador, não uma chamada
+//      de API — devolver JSON cru deixaria a pessoa sem confirmação nenhuma).
+// POST responde 200 vazio: é o "One-Click" do RFC 8058, que o Gmail e o Outlook
+//      chamam sozinhos quando o usuário aperta o botão nativo de descadastro.
+const { validarTokenDescadastro } = require('../services/novidadesService');
+
+function paginaDescadastro({ titulo, mensagem }) {
+  return `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${titulo} — Lorflux</title></head>
+<body style="margin:0;background:#0a0a0b;color:#fff;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh">
+  <div style="max-width:420px;padding:32px;text-align:center">
+    <h1 style="font-size:20px;font-weight:800;margin:0 0 12px">${titulo}</h1>
+    <p style="color:#a1a1aa;line-height:1.6;margin:0 0 24px">${mensagem}</p>
+    <a href="${process.env.FRONTEND_URL || '/'}" style="display:inline-block;padding:12px 28px;background:#e11d48;color:#fff;border-radius:12px;font-weight:700;text-decoration:none">Voltar para a Lorflux</a>
+  </div>
+</body></html>`;
+}
+
+async function descadastrar(req, res) {
+  const userId = req.query.u || (req.body && req.body.u);
+  const token = req.query.t || (req.body && req.body.t);
+  const umClique = req.method === 'POST';
+
+  try {
+    if (!userId || !validarTokenDescadastro(userId, token)) {
+      // Link inválido não revela se a conta existe.
+      if (umClique) return res.status(400).end();
+      return res.status(400).send(paginaDescadastro({
+        titulo: 'Link inválido',
+        mensagem: 'Este link de descadastro não é válido. Você também pode desligar o resumo em Conta, nas preferências.',
+      }));
+    }
+
+    // Idempotente: clicar duas vezes (ou o cliente de e-mail chamar o
+    // One-Click junto com a pessoa clicando no link) dá o mesmo resultado.
+    const resultado = await User.updateOne({ _id: userId }, { $set: { 'consent.marketing': false } });
+    if (resultado.matchedCount === 0 && resultado.n === 0) {
+      // Conta já excluída: do ponto de vista de quem clicou, está resolvido.
+      logger.info('[Novidades] Descadastro de conta inexistente (já excluída).');
+    } else {
+      logger.info(`[Novidades] Descadastro efetuado para userId ${userId}.`);
+    }
+
+    if (umClique) return res.status(200).end();
+    return res.send(paginaDescadastro({
+      titulo: 'Pronto, você saiu da lista',
+      mensagem: 'Não vamos mais enviar o resumo semanal de novidades. Os e-mails da sua conta (senha, assinatura) continuam normais.',
+    }));
+  } catch (err) {
+    logger.error('[Novidades] Falha no descadastro', err);
+    if (umClique) return res.status(500).end();
+    return res.status(500).send(paginaDescadastro({
+      titulo: 'Não conseguimos concluir',
+      mensagem: 'Tente novamente em alguns minutos, ou desligue o resumo em Conta, nas preferências.',
+    }));
+  }
+}
+
+router.get('/novidades/descadastrar', descadastrar);
+router.post('/novidades/descadastrar', descadastrar);
+
 // ─── EXCLUSÃO DE CONTA (DIREITO AO ESQUECIMENTO) ─────────────────────────────
 router.delete('/me', verifyToken, async (req, res) => {
   try {
@@ -359,6 +429,10 @@ router.delete('/me', verifyToken, async (req, res) => {
       // Fase 5 Bloco 3 (LGPD): sinalizações são dado do leitor — apagadas com
       // a conta (descrição junto). S da obra recalcula na próxima avaliação.
       Sinalizacao.deleteMany({ userId }),
+      // Fase 6 T6 (LGPD): o registro de "resumo semanal já enviado" é dado da
+      // conta — some com ela, senão ficaria órfão para sempre (a coleção não
+      // tem TTL: a chave de período precisa durar a semana inteira).
+      require('../models/EnvioNovidades').deleteMany({ userId }),
     ]);
 
     await User.findByIdAndDelete(userId);
