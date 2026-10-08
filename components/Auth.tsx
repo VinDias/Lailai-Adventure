@@ -19,16 +19,20 @@ interface AuthProps {
   // próprio Auth só a mostra no modo login (ver JSX abaixo) — cadastro e
   // recuperação de senha já são fluxos de quem decidiu criar/ter conta.
   onGuest?: () => void;
+  // Fase 6, T7: a tela de bloqueio promete "Criar minha conta" — cair no
+  // formulário de LOGIN obrigava um clique a mais logo depois do convite.
+  // Padrão 'login': todo o resto do app continua abrindo como antes.
+  modoInicial?: Mode;
 }
 
 type Mode = 'login' | 'register' | 'forgot' | 'reset';
 
 const inputClass = "w-full bg-[rgba(128,128,128,0.1)] border border-[rgba(128,128,128,0.1)] rounded-2xl px-5 py-4 focus:outline-none focus:border-rose-500 transition-all text-[var(--text-color)] placeholder-zinc-600";
 
-const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy, onGuest }) => {
+const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPolicy, onGuest, modoInicial = 'login' }) => {
   const t = useT();
   const { platform_tagline, google_client_id } = useSettings();
-  const [mode, setMode] = useState<Mode>('login');
+  const [mode, setMode] = useState<Mode>(modoInicial);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [nome, setNome] = useState('');

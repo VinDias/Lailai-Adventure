@@ -314,7 +314,14 @@ describe('WebtoonReader — conteúdo bloqueado', () => {
     vi.mocked(api.getEpisode).mockRejectedValue(erro403('login_necessario', { title: 'Obra Fechada', cover_image: 'https://cdn/capa.jpg' }));
     render(<WebtoonReader webtoon={makeWebtoon({ isPremium: true })} user={null} onClose={vi.fn()} />);
 
-    expect(await screen.findByText(/Crie uma conta gratuita/i)).toBeInTheDocument();
+    // A frase foi reescrita na T7: `login_necessario` só acontece em conteúdo
+    // PAGO (classificação etária responde 404, não 403), e o texto anterior
+    // dizia "Esta obra é para maiores" — descrevia obra paga como obra adulta.
+    // A asserção pina o convite e o botão, não a frase inteira, mas barra
+    // explicitamente a volta do texto de faixa etária.
+    expect(await screen.findByText(/conte[úu]do exclusivo para assinantes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/para maiores/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /criar minha conta/i })).toBeInTheDocument();
     expect(screen.getByText('Obra Fechada')).toBeInTheDocument();
     expect(screen.queryByAltText('Página 1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('ad-component')).not.toBeInTheDocument();
@@ -344,7 +351,7 @@ describe('WebtoonReader — conteúdo bloqueado', () => {
     render(<WebtoonReader webtoon={makeWebtoon()} user={makeUser({ isPremium: true })} onClose={vi.fn()} />);
 
     await waitFor(() => expect(api.getEpisode).toHaveBeenCalled());
-    expect(screen.queryByText(/Crie uma conta gratuita/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /criar minha conta/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Quero assinar/i })).not.toBeInTheDocument();
   });
 });

@@ -237,6 +237,13 @@ class ApiService {
         // Fase 5 Bloco 3: código de negócio (ex.: 'propria_obra') — a UI
         // escolhe a mensagem i18n por ele, não pelo texto PT do servidor.
         if (body.code) error.code = body.code;
+        // Fase 6: no 403 de conteúdo pago, o servidor manda título e capa da
+        // OBRA (utils/autorizacaoConteudo.js, responderBloqueio) justamente
+        // para a tela de convite ter cara de oferta. Sem copiar aqui, o leitor
+        // caía no fallback e mostrava o título do EPISÓDIO sem capa nenhuma —
+        // achado no E2E da T7, invisível para os testes de componente, que
+        // entregam `obra` já pronto.
+        if (body.obra) error.obra = body.obra;
         return error;
       };
 

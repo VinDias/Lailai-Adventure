@@ -63,6 +63,10 @@ const App: React.FC = () => {
   const t = useT();
   const { lang, setLang } = useI18n();
   const [view, setView] = useState<ViewMode>(ViewMode.AUTH);
+  // Em que aba a tela de autenticação abre. Só o convite da Fase 6 muda isto
+  // para 'register'; qualquer outro caminho (logout, sessão expirada, primeiro
+  // acesso) continua caindo no login.
+  const [authModoInicial, setAuthModoInicial] = useState<'login' | 'register'>('login');
   const [user, setUser] = useState<User | null>(null);
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
   const [activeWebtoon, setActiveWebtoon] = useState<Webtoon | null>(null);
@@ -345,6 +349,9 @@ const App: React.FC = () => {
     setActiveWebtoon(null);
     setActiveVideo(null);
     setUser(null);
+    // O convite diz "Criar minha conta": a tela tem de abrir no cadastro, não
+    // no login com um link de cadastro embaixo (achado do E2E da T7).
+    setAuthModoInicial('register');
     setView(ViewMode.AUTH);
   };
 
@@ -428,7 +435,7 @@ const App: React.FC = () => {
       <div className="absolute top-4 right-4 z-50">
         <ThemeToggle />
       </div>
-      <Auth onLogin={handleLogin} onOpenPolicy={openPolicy} onGuest={handleGuest} />
+      <Auth onLogin={handleLogin} onOpenPolicy={openPolicy} onGuest={handleGuest} modoInicial={authModoInicial} />
       <ConsentBanner onOpenPolicy={() => openPolicy('privacy')} />
       <LegalPolicy open={legalOpen} onClose={() => setLegalOpen(false)} initialTab={legalTab} />
     </div>

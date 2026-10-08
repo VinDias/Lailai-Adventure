@@ -125,7 +125,7 @@ ficam como estão (decisão do Fellipe). O cadastro (`server.js:376-445`) não g
 | T4 | Rotina diária de expiração + unificação do conceito de assinante | T1 | **feita** (`c2cf3ed`) |
 | T5 | Play Billing no app e no servidor (produto, confirmação, vínculo, RTDN) | Play Console | **bloqueada** (acesso externo) |
 | T6 | Resumo semanal + descadastro | — | **feita** |
-| T7 | Re-pinagem dos testes antigos + E2E no app real | T1..T6 | re-pinagem feita; E2E pendente |
+| T7 | Re-pinagem dos testes antigos + E2E no app real | T1..T6 | **feita** — ver 5.3 |
 
 ### 5.1 T3 — o que a conferência achou
 
@@ -163,6 +163,37 @@ alguém acrescentar um catálogo ao shape do canal.
   `List-Unsubscribe` e `List-Unsubscribe-Post`.
 - **Consentimento informado:** o botão em `components/PrivacyCenter.tsx` já
   existia e não fazia nada; passou a dizer o que chega e com que frequência.
+
+### 5.3 T7 — o que o E2E no app real achou
+
+Percurso completo no Chrome do projeto, contra a build servida pelo proprio
+Express (mesma topologia da producao, sem proxy do Vite), com acervo semeado:
+obra Teen livre, obra Young e obra Teen Premium.
+
+Confirmado na tela: visitante ve so as duas Teen; obra Young nao aparece;
+obra Premium abre a tela de convite; conta logada sem assinatura ve "Quero
+assinar"; assinante le os paineis. Pela API, a matriz inteira (404 de
+classificacao, 403 com codigo, 200 para assinante e admin) responde como
+desenhado.
+
+**Tres defeitos que so apareciam na tela** e que os testes de componente nao
+pegavam, porque entregam `obra` ja montado ao componente:
+
+1. `services/api.ts` nao copiava `obra` do corpo do 403 para o Error. A tela
+   caia no fallback e mostrava o titulo do EPISODIO, sem capa — o oposto de
+   uma oferta. O servidor sempre mandou certo.
+2. `bloqueio.semConta` dizia "Esta obra e para maiores". `login_necessario` so
+   acontece em conteudo PAGO (classificacao responde 404, nunca 403), entao o
+   texto descrevia obra paga como obra adulta. Reescrito nos quatro idiomas.
+3. O botao "Criar minha conta" abria o formulario de LOGIN, com o cadastro
+   atras de um link. `Auth` ganhou `modoInicial` (padrao 'login', nada mais
+   muda) e o convite abre direto no cadastro.
+
+Nota de ambiente, para quem for repetir: o helmet manda HSTS, entao o Chrome
+passa a forcar https em qualquer HOSTNAME usado uma vez em http e os assets
+morrem com ERR_SSL_PROTOCOL_ERROR. Testar por 127.0.0.1, que o HSTS nao
+alcanca (RFC 6797 nao se aplica a IP), e manter FRONTEND_URL igual a origem
+usada no navegador, senao o CORS devolve 403 ate para os assets.
 
 ## 6. Riscos registrados
 

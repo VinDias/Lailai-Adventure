@@ -423,7 +423,14 @@ describe('VerticalPlayer — conteúdo bloqueado', () => {
 
     // O anúncio do visitante aparece primeiro; o bloqueio vem depois dele.
     fireEvent.click(screen.getByText('Fechar Anúncio'));
-    expect(await screen.findByText(/Crie uma conta gratuita/i)).toBeInTheDocument();
+    // A frase foi reescrita na T7: `login_necessario` só acontece em conteúdo
+    // PAGO (classificação etária responde 404, não 403), e o texto anterior
+    // dizia "Esta obra é para maiores" — descrevia obra paga como obra adulta.
+    // A asserção pina o convite e o botão, não a frase inteira, mas barra
+    // explicitamente a volta do texto de faixa etária.
+    expect(await screen.findByText(/conte[úu]do exclusivo para assinantes/i)).toBeInTheDocument();
+    expect(screen.queryByText(/para maiores/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /criar minha conta/i })).toBeInTheDocument();
     expect(screen.getByText('Novela Fechada')).toBeInTheDocument();
     expect(screen.queryByText(/indisponível/i)).not.toBeInTheDocument();
   });
