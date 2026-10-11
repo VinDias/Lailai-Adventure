@@ -123,7 +123,7 @@ ficam como estão (decisão do Fellipe). O cadastro (`server.js:376-445`) não g
 | T2 | 403 com código e convite na UI (criar conta / assinar), telas do leitor | T1 | **feita** (`6e0f19c`) |
 | T3 | Conta nova em Teen + canal público entrando no filtro (`channels.js:58`) | T1 | **feita** — ver 5.1 |
 | T4 | Rotina diária de expiração + unificação do conceito de assinante | T1 | **feita** (`c2cf3ed`) |
-| T5 | Play Billing no app e no servidor (produto, confirmação, vínculo, RTDN) | Play Console | **bloqueada** (acesso externo) |
+| T5 | Play Billing no app e no servidor (produto, confirmação, vínculo, RTDN) | Play Console | **código feito** — ver 5.4; falta configurar e publicar |
 | T6 | Resumo semanal + descadastro | — | **feita** |
 | T7 | Re-pinagem dos testes antigos + E2E no app real | T1..T6 | **feita** — ver 5.3 |
 
@@ -195,6 +195,77 @@ morrem com ERR_SSL_PROTOCOL_ERROR. Testar por 127.0.0.1, que o HSTS nao
 alcanca (RFC 6797 nao se aplica a IP), e manter FRONTEND_URL igual a origem
 usada no navegador, senao o CORS devolve 403 ate para os assets.
 
+### 5.4 T5 — o que foi escrito sem o Play Console
+
+O acesso externo trava **configurar e publicar**, não escrever. O código foi
+escrito inteiro em 11/10 e está coberto por teste com a API do Google
+injetada (`services/playBillingService.js` → `__setApiPlayForTests`, mesmo
+padrão de `utils/googleTokenVerifier.js`).
+
+**Servidor.** `services/playBillingService.js` substitui
+`verifyGooglePurchase`: consulta `purchases.subscriptionsv2.get` (o modelo
+atual, com `subscriptionState`), **confirma** a compra via
+`purchases.subscriptions.acknowledge` e **lança** quando não consegue
+perguntar — a versão antiga devolvia `{valid:false}` em qualquer erro, então
+uma queda do Google recusava assinante legítimo (agora 502, não 402).
+`models/PlayPurchase.js` amarra o comprovante a uma conta com índice único em
+`purchaseToken`: era o furo mais grave do esqueleto, porque o mesmo
+comprovante liberava quantas contas quisessem. `routes/mobilePayment.js` ganhou
+`POST /notificacoes` (RTDN do Pub/Sub) e saiu de `/mobile` para `/api/mobile`,
+que é o que a põe atrás do limitador de requisições.
+
+**Decisões que nasceram na execução:**
+
+- **O `productId` do corpo da requisição é ignorado.** Ele vem do cliente;
+  confirmar a compra com ele permitiria confirmar o produto errado. Vale o que
+  a Play respondeu.
+- **Falha ao confirmar não tira o acesso de quem pagou.** Fica
+  `confirmada: false` no registro e a próxima notificação tenta de novo —
+  única coisa a fazer dentro dos 3 dias do estorno automático.
+- **A rota de avisos responde 200 quase sempre, de propósito.** O Pub/Sub
+  reentrega o que não for 2xx, e comprovante desconhecido (compra de outro
+  ambiente, teste do painel) seria reentregue para sempre. A exceção é falha de
+  consulta ao Google: aí 503, porque repetir resolve.
+- **Sem `PLAY_RTDN_SECRET` a rota recusa tudo com 503.** Aberta, ela seria um
+  botão de encerrar a assinatura de quem quisessem.
+- **Reconciliação ao abrir o app** (`comprasExistentes` da Digital Goods API):
+  aviso perdido ou reinstalação deixariam o assinante sem acesso até a próxima
+  renovação, e o app pediria para assinar algo já pago.
+- **O preço mostrado dentro do app é o da Play**, não o do Stripe: a Play cobra
+  na moeda e no país da conta Google, que não têm obrigação de combinar com o
+  preço cadastrado no Stripe. Anunciar um e cobrar outro é reclamação na loja.
+- **Dentro do app, erro de compra NÃO cai no Stripe.** Oferecer cartão para
+  conteúdo digital num app Android é motivo de remoção. A única exceção é o app
+  ainda não ter Play Billing no build: aí `temComprasDaPlay()` é falso e o
+  Stripe segue como o caminho de sempre — é exatamente o estado de hoje.
+- **`.env.example` dizia `ANDROID_PACKAGE_NAME=com.lorflux.app`**, pacote que
+  nunca existiu na Play. O certo é `com.lorflux.twa`, o mesmo de
+  `public/.well-known/assetlinks.json`. Com o valor errado toda consulta de
+  compra falharia com 404.
+
+**Defeito achado pelo próprio teste:** a primeira versão de
+`encerrarPremiumDaPlay` mantinha o Premium sempre que o prazo guardado na
+conta fosse maior que o que a Play informava — supondo que prazo maior
+significasse "outra fonte de pagamento". Depois de um estorno o prazo guardado
+é justamente o que aquela compra concedeu, e está no futuro: o acesso
+continuaria liberado de graça até o fim do mês estornado. A pergunta certa é
+se o prazo da conta vai **além de tudo o que aquela compra já concedeu**, e é
+por isso que `sincronizarComprovante` lê `registro.expiraEm` antes de
+atualizar.
+
+**O que ainda depende de acesso externo:** produto de assinatura no Play
+Console, conta de serviço com acesso à Play Developer API
+(`GOOGLE_APPLICATION_CREDENTIALS`), tópico Pub/Sub apontando para
+`/api/mobile/notificacoes?s=<PLAY_RTDN_SECRET>`, e um AAB novo com Play
+Billing habilitado: no `twa-manifest.json` do projeto Bubblewrap entra
+`"features": { "playBilling": { "enabled": true } }`, seguido de
+`bubblewrap update` e `bubblewrap build`. O projeto TWA **não está neste
+servidor** (`~/lorflux-twa` não existe aqui; ficava no Windows formatado),
+então esse passo é na máquina do Fellipe. O keystore de upload perdido **não** é bloqueio
+permanente: `public/.well-known/assetlinks.json` tem duas impressões digitais,
+padrão do Play App Signing, então a chave de assinatura está com o Google e a
+de upload se recupera pedindo reset no Play Console.
+
 ## 6. Riscos registrados
 
 1. **Imagem de painel é URL pública no CDN.** Fechar a rota impede a navegação casual, mas
@@ -209,7 +280,11 @@ usada no navegador, senao o CORS devolve 403 ate para os assets.
    para "ficar verde".
 4. **Catálogo sem classificação some para visitante.** Pré-requisito do cliente; sem isso a
    home fica vazia para quem não tem conta.
-5. **Play Console e keystore** são bloqueios externos para a T5.
+5. **Play Console e keystore** são bloqueios externos para a T5 — para
+   configurar e publicar, não para escrever (ver 5.4). O código está no repo
+   sem nenhum efeito até o produto existir no Play Console: dentro do app,
+   `temComprasDaPlay()` é falso enquanto o AAB não tiver Play Billing, e aí
+   todo mundo segue no Stripe como hoje.
 6. **O resumo semanal carrega todos os destinatários em memória** e envia em
    série (`User.find({'consent.marketing': true})`). Proposital enquanto a base é
    pequena — o SMTP da Hostinger tem limite por minuto e o resumo não tem pressa.

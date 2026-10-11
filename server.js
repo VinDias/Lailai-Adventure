@@ -258,7 +258,12 @@ app.use("/api", async (req, res, next) => {
 
 // 10. DEMAIS ROTAS E ENDPOINTS
 app.use("/api/payment", require("./routes/payment"));
-app.use("/mobile", require("./routes/mobilePayment"));
+// Fase 6 (T5): saiu de /mobile para /api/mobile. Fora do /api, a rota que
+// valida comprovante de pagamento ficava fora do limitador de requisições
+// (o `globalLimiter` é aplicado só em /api). Nada chamava o caminho antigo:
+// o esqueleto nunca foi ligado no app, então a mudança não quebra cliente
+// nenhum em campo.
+app.use("/api/mobile", require("./routes/mobilePayment"));
 app.use("/donation", require("./routes/donation"));
 app.use("/api/admin/management", require("./routes/admin"));
 app.use("/api/admin/users", require("./routes/adminManagement"));

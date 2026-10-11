@@ -299,6 +299,19 @@ class ApiService {
     });
   }
 
+  /**
+   * Valida no servidor um comprovante da Google Play (Fase 6, T5). O
+   * `productId` NÃO é mandado de propósito: o servidor usa o que a própria
+   * Play responder, senão o cliente poderia pedir a confirmação de outro
+   * produto (routes/mobilePayment.js).
+   */
+  async verificarCompraPlay(purchaseToken: string) {
+    return this.request<{ success: boolean; premiumExpiresAt: string | null }>('/mobile/verify-google', {
+      method: 'POST',
+      body: JSON.stringify({ purchaseToken })
+    });
+  }
+
   async login(credentials: any) {
     const data = await this.request<{ user: any; accessToken: string; refreshToken?: string }>('/auth/login', {
       method: 'POST',

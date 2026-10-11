@@ -1,43 +1,11 @@
 
-const { google } = require("googleapis");
 const axios = require("axios");
 const logger = require("../utils/logger");
 
-/**
- * Valida uma assinatura na Google Play Store.
- * Retorna { valid, expiresAt } — só é válida se estiver paga/trial E não expirada.
- */
-async function verifyGooglePurchase(purchaseToken, productId) {
-  try {
-    const auth = new google.auth.GoogleAuth({
-      scopes: ["https://www.googleapis.com/auth/androidpublisher"],
-      // Credenciais via GOOGLE_APPLICATION_CREDENTIALS.
-    });
-
-    const authClient = await auth.getClient();
-    const publisher = google.androidpublisher({ version: "v3", auth: authClient });
-
-    const res = await publisher.purchases.subscriptions.get({
-      packageName: process.env.ANDROID_PACKAGE_NAME,
-      subscriptionId: productId,
-      token: purchaseToken,
-    });
-
-    const data = res.data || {};
-    // paymentState: 1 = recebido, 2 = trial. (0 = pendente, ausente = cancelado)
-    const paid = data.paymentState === 1 || data.paymentState === 2;
-    const expiryMs = Number(data.expiryTimeMillis || 0);
-    const notExpired = expiryMs > Date.now();
-
-    if (paid && notExpired) {
-      return { valid: true, expiresAt: new Date(expiryMs) };
-    }
-    return { valid: false };
-  } catch (err) {
-    logger.error("[Google Billing Error]", err.message);
-    return { valid: false };
-  }
-}
+// A validação da Google Play saiu daqui na Fase 6 (T5) para
+// services/playBillingService.js: passou a usar a API v2, a confirmar a
+// compra e a distinguir "não vale" de "não consegui perguntar". Este arquivo
+// ficou só com a Apple, que segue sem app publicado.
 
 /**
  * Valida um recibo na Apple App Store.
@@ -77,4 +45,4 @@ async function verifyAppleReceipt(receiptData) {
   }
 }
 
-module.exports = { verifyGooglePurchase, verifyAppleReceipt };
+module.exports = { verifyAppleReceipt };

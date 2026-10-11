@@ -24,6 +24,8 @@ import SuperReaderThanks from './components/SuperReaderThanks';
 import SuperReaderBadge from './components/SuperReaderBadge';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search, Heart, Star, Pencil } from 'lucide-react';
 import { getLocalizedPrice, getLocalizedCurrency, formatarPreco } from './utils/localizedPrice';
+import { temComprasDaPlay } from './utils/appAndroid';
+import { comprarAssinatura, comprasExistentes, precoDaAssinatura } from './services/playBilling';
 import { initConsent } from './utils/consent';
 import { useI18n, useT } from './contexts/I18nContext';
 import { LANG_OPTIONS } from './i18n/translations';
@@ -355,7 +357,34 @@ const App: React.FC = () => {
     setView(ViewMode.AUTH);
   };
 
+  /**
+   * Assinar (Fase 6, T5). Dentro do app da Play a compra é PELA Play; no
+   * navegador segue o checkout do Stripe.
+   *
+   * Dentro do app, erro na compra NÃO cai no Stripe: oferecer cartão para
+   * conteúdo digital dentro de um app Android é motivo de remoção da loja.
+   * A única exceção é o app ainda não ter Play Billing no build — aí
+   * `temComprasDaPlay()` é falso, e o Stripe segue sendo o caminho, como
+   * sempre foi.
+   */
   const irParaAssinatura = async () => {
+    if (temComprasDaPlay()) {
+      try {
+        const comprovante = await comprarAssinatura();
+        if (!comprovante) return; // desistiu na folha da Play
+        await api.verificarCompraPlay(comprovante);
+        const atualizado = await api.getMe();
+        if (atualizado) setUser(atualizado);
+      } catch (erro: any) {
+        if (erro?.status === 409) {
+          alert('Esta compra já está vinculada a outra conta. Entre com a conta que fez a assinatura.');
+        } else {
+          alert('Não foi possível concluir a compra agora. Tente novamente em instantes.');
+        }
+      }
+      return;
+    }
+
     try {
       const { url } = await api.createCheckoutSession();
       window.location.href = url;
@@ -401,12 +430,46 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!user || user.isPremium) return;
     let vivo = true;
-    api.getPrecosPremium()
-      .then(({ precos }) => {
+    (async () => {
+      // Dentro do app quem manda no preço é a Play: ela cobra na moeda e no
+      // país da conta Google, que não têm obrigação de combinar com o preço
+      // cadastrado no Stripe. Mostrar o do Stripe ali seria anunciar um valor
+      // e cobrar outro.
+      if (temComprasDaPlay()) {
+        const daPlay = await precoDaAssinatura();
+        if (vivo && daPlay) { setPrecoPremium(daPlay); return; }
+      }
+      try {
+        const { precos } = await api.getPrecosPremium();
         const p = precos?.[getLocalizedCurrency()];
         if (vivo && p) setPrecoPremium(formatarPreco(p.centavos, p.moeda));
-      })
-      .catch(() => {});
+      } catch { /* fica o preço de reserva de utils/localizedPrice.ts */ }
+    })();
+    return () => { vivo = false; };
+  }, [user]);
+
+  /**
+   * Reconciliação da assinatura comprada na Play (Fase 6, T5). Um aviso da
+   * Play pode se perder, e reinstalar o app traz a compra de volta sem que o
+   * servidor saiba. Ao abrir, quem não está Premium mas já tem compra no
+   * aparelho é revalidado ANTES de ver qualquer oferta de assinatura — senão
+   * o app pediria para assinar de novo algo já pago.
+   */
+  useEffect(() => {
+    if (!user || user.isPremium) return;
+    if (!temComprasDaPlay()) return;
+    let vivo = true;
+    (async () => {
+      const comprovantes = await comprasExistentes();
+      for (const comprovante of comprovantes) {
+        try {
+          await api.verificarCompraPlay(comprovante);
+          const atualizado = await api.getMe();
+          if (vivo && atualizado) setUser(atualizado);
+          return;
+        } catch { /* comprovante de outra conta, vencido ou já inválido: tenta o próximo */ }
+      }
+    })();
     return () => { vivo = false; };
   }, [user]);
 
@@ -603,7 +666,7 @@ const App: React.FC = () => {
               {user && (
                 <>
                   {!user.isPremium && (
-                    <button onClick={async () => { try { const { url } = await api.createCheckoutSession(); window.location.href = url; } catch (e) { alert('Erro ao iniciar checkout. Tente novamente.'); } }} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')} ({precoPremium ?? getLocalizedPrice()})</button>
+                    <button onClick={irParaAssinatura} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')} ({precoPremium ?? getLocalizedPrice()})</button>
                   )}
                   <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> {t('account.myFavorites')}</button>
                   <SuperReaderBadge />

@@ -433,6 +433,12 @@ router.delete('/me', verifyToken, async (req, res) => {
       // conta — some com ela, senão ficaria órfão para sempre (a coleção não
       // tem TTL: a chave de período precisa durar a semana inteira).
       require('../models/EnvioNovidades').deleteMany({ userId }),
+      // Fase 6 T5 (LGPD): o comprovante da Play identifica a conta Google de
+      // quem comprou — dado pessoal, sai com a conta. O efeito colateral
+      // aceito é liberar aquele comprovante para um vínculo novo: quem apagar
+      // a conta e criar outra pode reaproveitar a assinatura que já paga. É a
+      // mesma pessoa e uma conta de cada vez, então não abre fraude.
+      require('../models/PlayPurchase').deleteMany({ userId }),
     ]);
 
     await User.findByIdAndDelete(userId);
