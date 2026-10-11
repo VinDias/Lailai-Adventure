@@ -195,8 +195,21 @@ async function buildContinueList(identity, contentType, filtroExtra = {}) {
   const idsDasObras = candidatas.map(l => new mongoose.Types.ObjectId(String(l.seriesId)));
 
   // Último episódio de cada obra, em uma consulta só (evita N+1).
+  //
+  // `status: 'published'` é o que faz a regra de saída funcionar, e faltava.
+  // Bug relatado pelo cliente em 28/09/2026: "mesmo que tenha visto o
+  // capítulo, se estiver outro a ser aprovado, o Continuar não some". Sem o
+  // filtro, um capítulo em rascunho ou na fila de aprovação contava como
+  // "último da obra" — e como o leitor não tem como alcançá-lo (drafts são
+  // invisíveis ao público desde a Fase 5 Bloco 1), `terminouOUltimo` nunca
+  // ficava verdadeiro e o cartão ficava preso no carrossel para sempre,
+  // convidando a continuar um capítulo já terminado.
+  //
+  // "Último" aqui passa a significar o último que o LEITOR pode abrir, que é
+  // a mesma definição usada pelo catálogo (routes/content.js:52) e pelo
+  // resumo semanal (services/novidadesService.js:113).
   const ultimos = await Episode.aggregate([
-    { $match: { seriesId: { $in: idsDasObras } } },
+    { $match: { seriesId: { $in: idsDasObras }, status: 'published' } },
     { $sort: { episode_number: -1 } },
     { $group: { _id: '$seriesId', ultimoId: { $first: '$_id' } } },
   ]);

@@ -233,11 +233,19 @@ describe('GET /api/me/continue', () => {
     return r.body._id || r.body.id;
   }
 
-  async function criarEpisodio(seriesId, n) {
+  /**
+   * `status: 'published'` é explícito aqui porque o padrão do schema é
+   * 'draft' (models/Episode.js:39) e a massa toda nasceu sem informar nada:
+   * o carrossel era testado contra episódios que o leitor nem conseguiria
+   * abrir. Enquanto a regra de saída não olhava o status isso passava, mas
+   * era teste verde pelo motivo errado — e escondia o bug que o cliente
+   * relatou em 28/09/2026 (ver "capitulo na fila de aprovacao" abaixo).
+   */
+  async function criarEpisodio(seriesId, n, status = 'published') {
     const r = await request(app)
       .post('/api/content/episodes')
       .set('Authorization', `Bearer ${auth.getToken('admin')}`)
-      .send({ seriesId, episode_number: n, title: `Capitulo ${n}` });
+      .send({ seriesId, episode_number: n, title: `Capitulo ${n}`, status });
     return r.body._id || r.body.id;
   }
 
@@ -285,7 +293,31 @@ describe('GET /api/me/continue', () => {
     expect(res.body).toHaveLength(0);
   });
 
-  it('traz a obra de volta quando sai capitulo novo', async () => {
+  /**
+   * Bug relatado pelo cliente em 28/09/2026: "mesmo que tenha visto o
+   * capítulo, se estiver outro a ser aprovado, o Continuar não some".
+   *
+   * A regra de saída comparava o episódio terminado com o último episódio da
+   * obra SEM olhar o status, então um capítulo em rascunho ou na fila de
+   * aprovação contava como último. Como drafts são invisíveis ao leitor
+   * (Fase 5 Bloco 1), ele nunca podia terminar aquele capítulo, e o cartão
+   * ficava preso no carrossel convidando a continuar algo já terminado.
+   */
+  it('capitulo na fila de aprovacao NAO segura a obra no carrossel', async () => {
+    const serieFila = await criarSerie('Serie Com Fila', 'hiqua');
+    const epPublicado = await criarEpisodio(serieFila, 1);
+    await criarEpisodio(serieFila, 2, 'draft'); // aguardando aprovação
+
+    await salvar(epPublicado, 0.97, serieFila);
+
+    const res = await request(app)
+      .get('/api/me/continue')
+      .set('Authorization', `Bearer ${auth.getToken('premium')}`);
+
+    expect(res.body.some(r => String(r.seriesId) === String(serieFila))).toBe(false);
+  });
+
+  it('traz a obra de volta quando o capitulo novo e PUBLICADO', async () => {
     await criarEpisodio(serieA, 3);
     const res = await request(app)
       .get('/api/me/continue')
