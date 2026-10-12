@@ -52,7 +52,7 @@ npm run seed:admin
    - `STRIPE_WEBHOOK_SECRET` → `whsec_...`
 4. Crie um **Product** com preço recorrente (R$ 3,99/mês) e copie o `STRIPE_PRICE_ID`
 5. Configure o webhook em produção:
-   - URL: `https://api.lorflux.com/api/payment/webhook`
+   - URL: `https://www.lorflux.com/api/payment/webhook`
    - Eventos: `checkout.session.completed`, `customer.subscription.deleted`
 6. Atualize as variáveis no servidor de produção
 
@@ -70,7 +70,7 @@ Apoio direto do leitor ao autor de uma obra (80% autor / 20% plataforma), separa
 - Valor mínimo de apoio, em **centavos** (500 = R$5,00; Super Reader é BRL apenas — ver seção acima)
 - Chave `superReaderMinCents` na coleção `Setting`, configurável via `PUT /api/settings/:key` com token admin — **não** existe campo para ela no painel de configurações admin (`components/Admin/AdminDashboard.tsx`, formulário hardcoded com as 9 chaves de `PUBLIC_KEYS`); adicionar esse campo ao painel é dívida de produto registrada aqui
   ```bash
-  curl -X PUT https://api.lorflux.com/api/settings/superReaderMinCents -H "Authorization: Bearer <token-admin>" -H "Content-Type: application/json" -d '{"value":"1000"}'
+  curl -X PUT https://www.lorflux.com/api/settings/superReaderMinCents -H "Authorization: Bearer <token-admin>" -H "Content-Type: application/json" -d '{"value":"1000"}'
   ```
 - **Ausente ou inválido** (não-inteiro ou ≤ 0) → o backend usa o default **500** automaticamente (`services/superReaderService.js`) — não é obrigatório criar a chave para o recurso funcionar
 
@@ -264,8 +264,8 @@ Ou crie um novo seed script modificando `scripts/seedAdmin.js`.
 
 | Serviço | URL |
 |---------|-----|
-| **Frontend (Vercel)** | `https://lorflux.com` |
-| **Backend API** | `https://api.lorflux.com` |
+| **Frontend** | `https://www.lorflux.com` (servido pelo próprio app Express, `server.js:702-709` — **não** é Vercel) |
+| **Backend API** | `https://www.lorflux.com` (mesma origem do site; `api.lorflux.com` **não existe em DNS**) |
 | **MongoDB Atlas** | Configurado em `MONGO_URI` no `.env` |
 | **Bunny.net Stream** | Dashboard em [bunny.net](https://bunny.net) |
 | **Stripe Dashboard** | [dashboard.stripe.com](https://dashboard.stripe.com) |

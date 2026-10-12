@@ -8,7 +8,7 @@ const logger = require("../utils/logger");
  * episódios). Sem autenticação, qualquer um na internet pode forjar chamadas.
  *
  * Configure no painel do Bunny a URL do webhook com um segredo, p.ex.:
- *   https://api.lorflux.com/api/bunny/webhook?token=SEU_SEGREDO
+ *   https://www.lorflux.com/api/bunny/webhook?token=SEU_SEGREDO
  * e defina BUNNY_WEBHOOK_SECRET=SEU_SEGREDO no .env.
  *
  * Também aceita o segredo via header "x-webhook-token".
