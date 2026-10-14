@@ -45,7 +45,11 @@ router.get('/search', optionalAuth, async (req, res) => {
       ...filtroParental,
     };
 
-    // Conteúdo premium aparece para todos — free vê anúncio antes de consumir (gate no cliente).
+    // Episódio premium CONTINUA aparecendo na busca para todo mundo — a
+    // listagem não filtra por isPremium. O que mudou na Fase 6, T1
+    // (363af62) foi quem barra a LEITURA: o gate saiu do cliente e virou
+    // autorizarConteudo em GET /episodes/:id (ver :424), que responde 403
+    // com código para a tela convidar a assinar.
     // status: 'published' — Fase 5 Bloco 1, Task 2 ("Drafts invisíveis ao
     // público"): capítulo draft não deve aparecer na busca, mesmo que a série
     // já esteja publicada.
