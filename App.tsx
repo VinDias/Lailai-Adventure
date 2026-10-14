@@ -23,7 +23,7 @@ import PushAccountToggle from './components/PushAccountToggle';
 import SuperReaderThanks from './components/SuperReaderThanks';
 import SuperReaderBadge from './components/SuperReaderBadge';
 import { Play, BookOpen, Film, User as UserIcon, ShieldAlert, Sparkles, Search, Heart, Star, Pencil } from 'lucide-react';
-import { getLocalizedPrice, getLocalizedCurrency, formatarPreco } from './utils/localizedPrice';
+import { getLocalizedCurrency, formatarPreco } from './utils/localizedPrice';
 import { temComprasDaPlay } from './utils/appAndroid';
 import { comprarAssinatura, comprasExistentes, precoDaAssinatura } from './services/playBilling';
 import { initConsent } from './utils/consent';
@@ -666,7 +666,7 @@ const App: React.FC = () => {
               {user && (
                 <>
                   {!user.isPremium && (
-                    <button onClick={irParaAssinatura} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')} ({precoPremium ?? getLocalizedPrice()})</button>
+                    <button onClick={irParaAssinatura} className="w-full py-5 bg-amber-500 text-black font-black rounded-3xl hover:scale-[1.02] transition-all">{t('account.subscribePremium')}{precoPremium ? ` (${precoPremium})` : ''}</button>
                   )}
                   <button onClick={() => setView(ViewMode.FAVORITES)} className="w-full py-5 bg-white/5 text-[var(--text-color)] font-black rounded-3xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3"><Heart size={18} /> {t('account.myFavorites')}</button>
                   <SuperReaderBadge />
