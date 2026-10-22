@@ -4,8 +4,8 @@ Bug corrigido que volta é o problema que mais se repete. Esta tabela diz, para
 cada conserto, qual teste impede a volta dele.
 
 Suíte inteira do projeto: `npm run test:all` (frontend com jsdom, backend com
-mongodb-memory-server). Em 21/10/2026: **58 arquivos e 651 testes no frontend,
-43 e 1246 no backend**, todos passando.
+mongodb-memory-server). Em 22/10/2026: **58 arquivos e 651 testes no frontend,
+44 e 1249 no backend**, todos passando.
 
 Procedimento: skill `/regressao`. Em resumo, conserto só termina com um teste
 que falha sem a correção, e a prova de que ele falha é feita numa **cópia** do
@@ -28,6 +28,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| `517bb54` | 2026-10-22 | `invoice.paid` (renovacao mensal) tratado no codigo desde 16/09 mas **nunca habilitado no endpoint do Stripe**: o evento nao era entregue, `premiumExpiresAt` congelava nos 30 dias da primeira cobranca | `tests/backend/webhookEventosStripe.test.js` — _todo event.type tratado em routes/payment.js esta declarado em EVENTOS_ESPERADOS_, mais `node scripts/verificarWebhookStripe.js` na VPS para a conferencia contra o painel | coberto-novo | alto |
 | `9471736` | 2026-10-13 | fix(assinatura): botao nao mostra mais preco de reserva desatualizado | `tests/frontend/appPrecoAssinarBotao.test.tsx` | coberto-novo | medio |
 | `f82bb17` | 2026-10-11 | fix(carrossel): capitulo na fila de aprovacao segurava o Continuar | `tests/backend/progress.test.js` — _capitulo na fila de aprovacao NAO segura a obra no carrossel_ | coberto-verificado | medio |
 | `120e441` | 2026-10-07 | fix(fase6): tres defeitos da tela de convite achados no E2E do app real | `tests/frontend/api.bloqueio.test.ts` — _403 de conteudo pago > carrega status, code e OBRA (titulo e capa) no _ | coberto-verificado | alto |
@@ -80,6 +81,37 @@ Os 12 foram aprovados.
 | `4ea593f` | 2026-03-26 | fix: índice de translation layers no batch upload e fallback de CDN | `tests/frontend/adminPaineisIndice.test.tsx` | coberto-novo | medio |
 | `6615c15` | 2026-03-12 | fix: use _id for Series (MongoDB) and deduplicate Stripe customers | `tests/backend/paymentCheckout.test.js` | coberto-novo | medio |
 | `2f30192` | 2026-03-12 | fix: optional chaining on req.cookies in verifyToken to prevent 500 on payment routes | `tests/backend/paymentCheckout.test.js` | coberto-novo | alto |
+
+## 22/10/2026: o conserto cuja metade morava fora do repositório
+
+**Código certo, serviço externo errado.** O `517bb54` (16/09/2026) passou a
+tratar `invoice.paid` para renovar a assinatura mensal, e veio com teste de
+regressão (`tests/backend/assinaturaPremium.test.js`, cujo cabeçalho descreve a
+falha). O teste passava, e sempre passou. Em 22/10/2026, ao listar o endpoint de
+webhook da conta do Stripe, apareceu que os eventos assinados eram só
+`checkout.session.completed` e `customer.subscription.deleted`: **o `invoice.paid`
+nunca foi habilitado no painel**, então o Stripe nunca o enviou e o handler estava
+morto em produção havia cinco semanas. Consequência se houvesse assinante:
+`premiumExpiresAt` congelado nos 30 dias de `routes/payment.js:183`, anúncio de
+volta para quem pagava (`utils/premium.ts:9`) e a pessoa fora da contagem do pool
+de royalties (`services/royaltyReportService.js:116-118`). Não atingiu ninguém
+porque a conta tinha zero assinaturas ativas.
+
+O teste existente não tinha como pegar: ele faz POST do evento direto no
+endpoint, com assinatura válida. Isso prova que o código trata o evento e nada
+diz sobre o Stripe mandar. É o primeiro caso neste projeto em que a metade que
+faltava do conserto não estava em arquivo versionado nenhum, e a regra do
+CLAUDE.md ("o conserto vale para todas as cópias") passa a valer também para
+configuração de serviço externo.
+
+O guarda ficou em duas peças: `tests/backend/webhookEventosStripe.test.js`, que
+roda offline e falha no instante em que alguém trata um `event.type` novo sem
+declarar na lista de `scripts/verificarWebhookStripe.js` — que é exatamente o
+instante de habilitar o evento no painel —, e `node scripts/verificarWebhookStripe.js`,
+que precisa da chave e por isso roda na VPS, comparando a lista com os
+`enabled_events` do endpoint vivo. A falha foi provada reintroduzindo o estado de
+16/09 numa cópia isolada (a rota tratando `invoice.paid`, a lista sem ele): dois
+dos três testes falham, com a mensagem que diz ao dev para habilitar o evento.
 
 ## O que este levantamento achou
 
