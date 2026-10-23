@@ -18,3 +18,7 @@ lorflux-twa/
 
 # Memória local do assistente (não compartilhar)
 memory/
+
+# chave de upload do TWA e certificados (nunca no repositorio)
+*.pem
+chaves-twa/
