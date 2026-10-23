@@ -65,3 +65,23 @@ só este arquivo de documentação não custa nada.
    `services/playBilling.ts`, `routes/mobilePayment.js`).
 3. O mesmo AAB carrega a barra de status imersiva prometida na Fase 5, que
    dependia do keystore.
+
+## Pré-requisitos que só o proprietário da conta resolve
+
+Conferido em 22/10/2026 com a conta convidada (`fellipe306@gmail.com`, acesso de
+app, não de conta):
+
+- **Monetizar > Assinaturas** responde: *"O proprietário da conta precisa
+  configurar uma conta do comerciante do Google Payments para que você tenha
+  acesso a esta página"*. Sem esse perfil de pagamentos não existe produto de
+  assinatura na Play, logo o Play Billing não pode ser nem configurado nem
+  testado. O perfil pede nome legal, endereço, dados fiscais e conta bancária
+  do titular, então é do Vin e não é delegável.
+- **Configurações de pagamento** e **Acesso à API** (nível de conta)
+  redirecionam para a página inicial com esse acesso. Vincular um projeto do
+  Google Cloud, de onde sai a conta de serviço lida por
+  `services/playBillingService.js` e o tópico Pub/Sub das notificações
+  (`POST /api/mobile/notificacoes`), é ação do proprietário.
+
+Ou seja: a chave de upload tem data (24/10/2026 23:33), mas a venda dentro do
+app ainda depende de dois passos que só o dono da conta de desenvolvedor executa.
