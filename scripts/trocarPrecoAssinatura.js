@@ -90,6 +90,15 @@ async function main() {
     console.log('  essas pessoas seguem pagando o valor antigo até cancelarem. Migrar exige mexer em cada assinatura.');
   }
 
+  // Price novo com o MESMO valor do atual nao muda nada para ninguem e deixa
+  // um objeto duplicado no Stripe para sempre (Price nao se apaga, so se
+  // desativa). Aconteceu em 27/10/2026: o preco ja estava em R$ 10,90 e o
+  // comando de troca foi rodado assim mesmo.
+  if (centavos === atual.unit_amount) {
+    console.log(`\nO preco ja esta em ${dinheiro(centavos, moeda)}. Nada a criar.`);
+    process.exit(0);
+  }
+
   if (!aplicar) {
     console.log('\n--- simulação, nada foi criado. Repita com --aplicar para criar o Price. ---');
     process.exit(0);
