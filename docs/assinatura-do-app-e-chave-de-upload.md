@@ -19,10 +19,13 @@ Impressões digitais SHA-256:
   **tem de permanecer** em `public/.well-known/assetlinks.json`. Removê-la
   quebra o App Link do app publicado.
 - **Chave de upload NOVA (22/10/2026):** `83:F3:E8:8C:86:94:8D:09:F8:3B:87:E9:86:DA:7B:A6:D7:29:3F:4E:E9:2B:77:03:E8:B6:0D:2E:F6:ED:AF:B8`
-- **Chave de upload ANTIGA:** `84:3C:6D:B5:F6:50:8E:B4:E3:4B:76:52:F1:C5:CB:9B:13:C8:D8:73:41:11:D1:51:A5:CA:A1:78:8D:2E:43:76`
-  Está no `assetlinks.json` e vira entulho quando a redefinição entrar em
-  vigor. Só importa para APK instalado à mão: o app distribuído pela Play é
-  reassinado com a chave de assinatura, que já está declarada.
+- **Chave de upload ANTIGA (revogada):** `84:3C:6D:B5:F6:50:8E:B4:E3:4B:76:52:F1:C5:CB:9B:13:C8:D8:73:41:11:D1:51:A5:CA:A1:78:8D:2E:43:76`
+  **Tirada do `assetlinks.json` em 27/10/2026.** Não era entulho inofensivo:
+  enquanto estivesse declarada, qualquer APK assinado com ela abriria as URLs
+  de lorflux.com, e ela está num computador formatado, fora do nosso controle.
+  Era exatamente isso que a redefinição existia para encerrar. Nada
+  legítimo dependia dela: o app da Play é reassinado com a chave de assinatura,
+  e não há como produzir APK novo com a chave perdida.
 
 ## A redefinição pedida em 22/10/2026
 
@@ -42,10 +45,15 @@ nova vale. O console mantém um "Cancelar pedido" enquanto está pendente.
 (pasta 700, fora de qualquer repositório git). Do Windows:
 `\\fap233\projects\lorfrux\chaves-twa`.
 
-- `lorflux-upload-2026.jks` — RSA 2048, validade até 09/03/2054,
-  `CN=Lorflux, OU=Lorflux Studio, O=Lorflux Studio, L=Sao Paulo, ST=SP, C=BR`
+- `lorflux-upload-2026.jks` — RSA 2048, alias `lorflux`, validade até
+  09/03/2054, `CN=Lorflux, OU=Lorflux Studio, O=Lorflux Studio, L=Sao Paulo, ST=SP, C=BR`
 - `upload_certificate.pem` — o que foi enviado ao Google
-- a senha fica no gerenciador de senhas do Fellipe, nunca aqui
+- `senha.txt` — a senha **também está nessa pasta** (conferido em 27/10/2026).
+  A versão anterior desta página dizia que ela ficava só no gerenciador de
+  senhas; não é verdade. A pasta é 700 e o arquivo 600, fora de qualquer
+  repositório, o que é aceitável neste servidor de um usuário só, mas não
+  substitui o gerenciador: se este disco morrer, morre a chave **e** a senha
+  juntas, que é o cenário de pedir outra redefinição ao Google.
 
 Conferir a identidade a qualquer momento, sem depender desta página:
 
@@ -125,3 +133,21 @@ Visto de passagem, de 23/10, na mesma página: a notificação *"É hora de se
 inscrever para a taxa de serviço de 15%"*. A inscrição é do dono da conta e não
 muda nada para assinatura (já é 15%); ela vale no dia em que compra avulsa
 entrar no app, onde a taxa cheia é 30%.
+
+## Os dois scripts de build do Windows estão desatualizados (27/10/2026)
+
+`scripts/build-twa.ps1` e `scripts/setup-twa.ps1` são trabalho em andamento do
+Fellipe na máquina dele, estão modificados na árvore e **não foram alterados
+aqui**. Mas eles carregam valores de antes da redefinição da chave, e cada um
+deles para o build de um jeito diferente:
+
+| Onde | Valor atual | Problema |
+|---|---|---|
+| `build-twa.ps1:25` | `$ExpectedFingerprint = "84:3C:..."` | é a chave **perdida**. Desde o deploy do `assetlinks.json` novo ela não está mais no ar, então a validação da etapa 2 falha com "SHA-256 esperado NÃO está presente" e o script aborta antes de buildar. Trocar por `83:F3:E8:8C:86:94:8D:09:F8:3B:87:E9:86:DA:7B:A6:D7:29:3F:4E:E9:2B:77:03:E8:B6:0D:2E:F6:ED:AF:B8`, ou rodar com `-SkipAssetCheck` |
+| `build-twa.ps1:12,44` e `setup-twa.ps1:16` | `%USERPROFILE%\.android-keystores\lorflux-release.keystore` | é o keystore perdido na formatação. O script aborta em "Keystore ausente"; se por acaso existir uma cópia velha, é pior, porque o AAB sai assinado com a chave que o Play já recusa. Trocar por `\\fap233\projects\lorfrux\chaves-twa\lorflux-upload-2026.jks` |
+| `setup-twa.ps1:74` | instrução `Play Billing : N` | é exatamente o campo que precisa ser `Y`. Com `N` o build termina sem erro nenhum e a compra dentro do app simplesmente não existe |
+
+Mais um ponto, independente da chave: `setup-twa.ps1:85` imprime a senha do
+keystore em texto claro no console (`Write-Host "Senha que voce digitou: $plainPwd"`)
+e só a esconde com `Start-Sleep 5` + `Clear-Host`. O `Clear-Host` não apaga o
+buffer de rolagem do Windows Terminal, e a senha fica no histórico da sessão.

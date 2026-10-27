@@ -4,8 +4,8 @@ Bug corrigido que volta é o problema que mais se repete. Esta tabela diz, para
 cada conserto, qual teste impede a volta dele.
 
 Suíte inteira do projeto: `npm run test:all` (frontend com jsdom, backend com
-mongodb-memory-server). Em 22/10/2026: **58 arquivos e 651 testes no frontend,
-44 e 1249 no backend**, todos passando.
+mongodb-memory-server). Em 27/10/2026: **58 arquivos e 651 testes no frontend,
+45 e 1254 no backend**, todos passando.
 
 Procedimento: skill `/regressao`. Em resumo, conserto só termina com um teste
 que falha sem a correção, e a prova de que ele falha é feita numa **cópia** do
@@ -28,6 +28,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| `46340c5` | 2026-10-27 | `assetlinks.json` ficou com a chave de upload **perdida** (`84:3C:...`) e sem a chave nova (`83:F3:...`) depois da redefinicao de 22/10: APK de teste abre com a barra do Chrome (parece build quebrado) e a chave fora do nosso controle continuava podendo abrir as URLs de lorflux.com | `tests/backend/assetLinksChaves.test.js` — _declara a chave de UPLOAD em vigor_ e _nao declara nenhuma chave revogada_, mais `node scripts/verificarAssetLinks.js` para o que o site serve e o que o Google tem em cache | coberto-novo | alto |
 | `517bb54` | 2026-10-22 | `invoice.paid` (renovacao mensal) tratado no codigo desde 16/09 mas **nunca habilitado no endpoint do Stripe**: o evento nao era entregue, `premiumExpiresAt` congelava nos 30 dias da primeira cobranca | `tests/backend/webhookEventosStripe.test.js` — _todo event.type tratado em routes/payment.js esta declarado em EVENTOS_ESPERADOS_, mais `node scripts/verificarWebhookStripe.js` na VPS para a conferencia contra o painel | coberto-novo | alto |
 | `9471736` | 2026-10-13 | fix(assinatura): botao nao mostra mais preco de reserva desatualizado | `tests/frontend/appPrecoAssinarBotao.test.tsx` | coberto-novo | medio |
 | `f82bb17` | 2026-10-11 | fix(carrossel): capitulo na fila de aprovacao segurava o Continuar | `tests/backend/progress.test.js` — _capitulo na fila de aprovacao NAO segura a obra no carrossel_ | coberto-verificado | medio |
@@ -120,6 +121,44 @@ morava fora do repositório entrou. O endpoint é o domínio sem `www`, e isso f
 conferido no mesmo dia porque o Stripe não segue redirecionamento: o apex serve
 o app direto (POST devolve 400 de assinatura inválida, igual ao `www`), não
 redireciona, então a entrega chega.
+
+## 27/10/2026: o mesmo padrão, agora no Digital Asset Links
+
+**Segunda vez que a metade do conserto mora fora do código.** A chave de upload
+original ficou no computador que foi formatado; a redefinição foi pedida ao
+Google em 22/10 e a chave nova passou a valer em 24/10 às 23:33. O
+`public/.well-known/assetlinks.json` não foi atualizado junto e ficou declarando
+a chave de assinatura do app (certo) mais a chave de upload **perdida**
+(errado), sem a nova. Nenhum teste existia sobre esse arquivo: a única
+conferência era `$ExpectedFingerprint` em `scripts/build-twa.ps1`, que roda só
+na máquina Windows do Fellipe, só na hora do build, e que tinha a chave perdida
+escrita dentro — ou seja, o verificador validava o valor errado.
+
+Os dois efeitos apontam para lados opostos, e nenhum deles grita. O
+`bubblewrap build --apk`, que é o teste em aparelho antes de subir o AAB, assina
+com a chave de upload; sem ela declarada o app abre com a barra de endereço do
+Chrome em cima, que é o sintoma clássico de assetlinks errado, e quem não
+soubesse do histórico iria procurar o defeito no build ou no manifest. Do outro
+lado, a chave perdida continuava recebendo delegação para abrir as URLs de
+lorflux.com, que é exatamente o que a redefinição existe para encerrar.
+
+Isso foi achado ao preparar o AAB que destrava a compra dentro do app, que é o
+caminho crítico da entrega da Fase 6.
+
+O guarda ficou em duas peças, como no caso do Stripe:
+`tests/backend/assetLinksChaves.test.js`, que roda offline sobre o arquivo
+versionado e exige a chave de assinatura, exige a chave de upload em vigor,
+recusa chave revogada e recusa impressão desconhecida; e
+`node scripts/verificarAssetLinks.js`, que compara o arquivo versionado com o
+que o site serve de verdade e com o que a API do Digital Asset Links tem em
+cache (até 1 hora de atraso), e não precisa de segredo nenhum para rodar. A
+falha foi provada contra o arquivo real antes da correção, que era o estado
+defeituoso em produção: dois dos cinco testes falham, nomeando a chave que falta
+e a que sobra.
+
+Trocar a chave de upload de novo significa trocar uma linha em
+`scripts/verificarAssetLinks.js` e fazer deploy do site. O teste falha até que
+as duas coisas aconteçam.
 
 ## O que este levantamento achou
 
