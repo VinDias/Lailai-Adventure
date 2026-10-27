@@ -58,13 +58,23 @@ só este arquivo de documentação não custa nada.
 
 ## O que vem depois da chave
 
+A ordem importa, e ela **não** é a intuitiva (criar o produto e depois enviar o
+app). Conferido na própria página em 27/10/2026, ver a seção do fim.
+
 1. AAB novo com `"features": { "playBilling": { "enabled": true } }` no
    `twa-manifest.json`, assinado com a chave nova.
-2. Faixa de teste interno e uma compra de teste real — é ela que valida o
-   Play Billing escrito na Fase 6 (`services/playBillingService.js`,
-   `services/playBilling.ts`, `routes/mobilePayment.js`).
-3. O mesmo AAB carrega a barra de status imersiva prometida na Fase 5, que
-   dependia do keystore.
+2. Enviar para a faixa de **teste interno**. Só depois de existir um pacote
+   enviado o console deixa criar produto de assinatura.
+3. Criar a assinatura com id exatamente `premium_mensal`
+   (`services/playBilling.ts:21`, ou `VITE_PLAY_PRODUCT_ID` no build).
+4. Credencial da Play no servidor e tópico Pub/Sub do RTDN: são para
+   **verificar** a compra e receber renovação, não para criar o produto.
+5. Uma compra de teste real — é ela que valida o Play Billing escrito na
+   Fase 6 (`services/playBillingService.js`, `services/playBilling.ts`,
+   `routes/mobilePayment.js`).
+
+O mesmo AAB carrega a barra de status imersiva prometida na Fase 5, que
+dependia do keystore.
 
 ## Pré-requisitos que só o proprietário da conta resolve
 
@@ -83,5 +93,35 @@ app, não de conta):
   `services/playBillingService.js` e o tópico Pub/Sub das notificações
   (`POST /api/mobile/notificacoes`), é ação do proprietário.
 
-Ou seja: a chave de upload tem data (24/10/2026 23:33), mas a venda dentro do
-app ainda depende de dois passos que só o dono da conta de desenvolvedor executa.
+Ou seja, **no estado de 22/10**: a chave de upload tinha data, mas a venda
+dentro do app dependia de dois passos que só o dono da conta executa.
+
+## Conferido em 27/10/2026: as duas paredes do Vin caíram, o gargalo virou nosso
+
+O Vin resolveu os dois pré-requisitos: o **perfil de pagamentos** em 23/10 e o
+**Acesso à API** em 26/10 (projeto `peerless-list-512822-v6`, conta de serviço
+criada e adicionada como usuária do Play Console).
+
+Com isso, `Monetizar > Assinaturas` **abre** — a mensagem de 22/10 sumiu. Mas a
+página mostra "O app ainda não tem assinaturas" e **não oferece botão de criar**:
+o único botão é *"Faça upload de um novo APK"*. O console não deixa criar
+produto de assinatura antes de existir um pacote enviado. **Logo o AAB é o
+primeiro passo, não o último**, e a credencial deixou de ser o caminho crítico.
+
+Sobre a credencial, que continua pendente mas fora do caminho crítico: a
+política `iam.disableServiceAccountKeyCreation` da organização dele bloqueia
+baixar a chave JSON. Não é impedimento — o próprio aviso do Google diz que um
+administrador com `roles/orgpolicy.policyAdmin` desativa a restrição. E
+`services/playBillingService.js:47` usa `new google.auth.GoogleAuth({ scopes })`,
+que é ADC e aceita os três formatos pelo mesmo `GOOGLE_APPLICATION_CREDENTIALS`,
+**sem mudar uma linha**: chave de conta de serviço, `authorized_user` (refresh
+token de OAuth, caminho oficial da API da Play) e `external_account` (Workload
+Identity). Ordem recomendada: afrouxar a política só naquele projeto; se
+recusarem, cliente OAuth; Workload Identity por último, porque fora da nuvem do
+Google ela exige guardar uma chave privada nossa no mesmo VPS, que é o risco que
+a política existe para evitar.
+
+Visto de passagem, de 23/10, na mesma página: a notificação *"É hora de se
+inscrever para a taxa de serviço de 15%"*. A inscrição é do dono da conta e não
+muda nada para assinatura (já é 15%); ela vale no dia em que compra avulsa
+entrar no app, onde a taxa cheia é 30%.
