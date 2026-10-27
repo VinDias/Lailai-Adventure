@@ -113,6 +113,14 @@ que precisa da chave e por isso roda na VPS, comparando a lista com os
 16/09 numa cópia isolada (a rota tratando `invoice.paid`, a lista sem ele): dois
 dos três testes falham, com a mensagem que diz ao dev para habilitar o evento.
 
+**Fechado em 27/10/2026.** `node scripts/verificarWebhookStripe.js` na VPS
+responde `https://lorflux.com/api/payment/webhook [enabled]` com os três
+eventos assinados, `invoice.paid` entre eles: `ok`. A metade do conserto que
+morava fora do repositório entrou. O endpoint é o domínio sem `www`, e isso foi
+conferido no mesmo dia porque o Stripe não segue redirecionamento: o apex serve
+o app direto (POST devolve 400 de assinatura inválida, igual ao `www`), não
+redireciona, então a entrega chega.
+
 ## O que este levantamento achou
 
 **O vício do teste que confere o próprio mock.** O `43e7694` (token do Bunny)
