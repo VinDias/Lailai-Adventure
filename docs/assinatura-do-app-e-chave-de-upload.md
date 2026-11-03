@@ -112,9 +112,23 @@ criada e adicionada como usuária do Play Console).
 
 Com isso, `Monetizar > Assinaturas` **abre** — a mensagem de 22/10 sumiu. Mas a
 página mostra "O app ainda não tem assinaturas" e **não oferece botão de criar**:
-o único botão é *"Faça upload de um novo APK"*. O console não deixa criar
-produto de assinatura antes de existir um pacote enviado. **Logo o AAB é o
-primeiro passo, não o último**, e a credencial deixou de ser o caminho crítico.
+o único botão é *"Faça upload de um novo APK"*. **Logo o AAB é o primeiro passo,
+não o último**, e a credencial deixou de ser o caminho crítico.
+
+> **Correção de 02/11/2026, com as páginas conferidas uma por uma.** A frase que
+> estava aqui, "o console não deixa criar produto antes de existir um pacote
+> enviado", está **errada**, e por isso a razão certa importa. Existem dois
+> pacotes: `Teste interno` está **ativo** com a versão `3 (1.0.1)` de 27/06, e
+> `Todos os pacotes de apps` lista os códigos `3` e `1`. O app está público na
+> loja (`play.google.com/store/apps/details?id=com.lorflux.twa` responde com a
+> ficha). A palavra que importa no botão é **novo**: o console pede um pacote
+> novo porque nenhum dos enviados declara que o app vende algo. Nenhum declara
+> porque `scripts/setup-twa.ps1:74` manda responder `N` ao Play Billing, que é
+> como a versão 3 foi montada em junho. O que acrescenta a declaração é a
+> dependência `com.google.androidbrowserhelper:billing`, que o Bubblewrap só
+> inclui com a feature ligada.
+>
+> Daí sai também o número que faltava: **o próximo `versionCode` é 4**.
 
 Sobre a credencial, que continua pendente mas fora do caminho crítico: a
 política `iam.disableServiceAccountKeyCreation` da organização dele bloqueia

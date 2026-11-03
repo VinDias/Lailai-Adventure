@@ -8,9 +8,11 @@ Guia para gerar o AAB/APK e publicar na Google Play Store usando Bubblewrap, **a
 
 1. **A chave de upload é outra.** A original (`84:3C:6D:B5:...`) ficou no computador que foi formatado. A redefinição foi pedida ao Google em 22/10 e a chave nova (`83:F3:E8:8C:...`) vale desde **24/10/2026 às 23:33**. O keystore novo **não está no Windows**: ele mora no servidor `fap233`, em `\\fap233\projects\lorfrux\chaves-twa\lorflux-upload-2026.jks`, alias `lorflux`.
 2. **O `assetlinks.json` mudou junto** (27/10): declara a chave de assinatura do app e a chave de upload **nova**, e não declara mais a perdida. Conferir com `node scripts/verificarAssetLinks.js`, que olha o arquivo versionado, o que o site serve e o que o Google tem em cache.
-3. **O AAB precisa de Play Billing ligado** e vai para a faixa de **teste interno**, não para produção. Sem um pacote enviado, o Play Console não deixa nem criar o produto de assinatura (conferido na página em 27/10).
+3. **O AAB precisa de Play Billing ligado** e vai para a faixa de **teste interno**, não para produção. A página `Monetizar > Assinaturas` só libera a criação do produto quando existe um pacote enviado que **declare** que o app vende algo, e nenhum dos dois pacotes já enviados declara: ambos foram montados com Play Billing em `N`. Conferido página por página em 02/11.
 
-**Antes de começar, confirmar que o ambiente sobreviveu à formatação.** O JDK, o Bubblewrap, o Android SDK e a pasta `%USERPROFILE%\lorflux-twa` (onde vive o `twa-manifest.json`) estavam todos naquela máquina. Uma linha responde:
+**Desde 02/11/2026 existe um segundo caminho, no servidor, que não depende da máquina Windows** (seção "Buildar no fap233"). A chave já mora no servidor, então ele é o caminho mais curto.
+
+**Antes de começar pelo Windows, confirmar que o ambiente sobreviveu à formatação.** O JDK, o Bubblewrap, o Android SDK e a pasta `%USERPROFILE%\lorflux-twa` (onde vive o `twa-manifest.json`) estavam todos naquela máquina. Uma linha responde:
 
 ```powershell
 bubblewrap doctor; Test-Path "$env:USERPROFILE\lorflux-twa\twa-manifest.json"
@@ -97,6 +99,54 @@ Se o `twa-manifest.json` **já existir** sem Play Billing, não precisa refazer 
 ```json
 "features": { "playBilling": { "enabled": true } }
 ```
+
+## Buildar no fap233, sem a máquina Windows
+
+Montado em 02/11/2026. A chave de upload já vive no servidor, então o build
+inteiro cabe aqui e o Windows deixa de ser necessário:
+
+| Onde | O que é |
+|---|---|
+| `~/.bubblewrap/cli` | Bubblewrap CLI, instalado local (sem `-g`, sem `sudo`) |
+| `~/.bubblewrap/jdk/jdk-17.0.11+9` | JDK **17**, a única versão aceita: `JdkHelper.validatePath` lê o arquivo `release` e exige `JAVA_VERSION="17.0`. O JRE 21 do sistema não serve |
+| `~/.bubblewrap/android_sdk` | build-tools 36.1.0, platforms android-36, platform-tools |
+| `~/.bubblewrap/dl/gradle-8.11.1-bin.zip` | a distribuição do Gradle, baixada por `curl`. O downloader do próprio wrapper falha aqui com `SSL peer shut down incorrectly`, e o `gradle-wrapper.properties` do projeto aponta para este arquivo local |
+| `~/projects/lorfrux/twa-build` | o projeto Android gerado, com `twa-manifest.json` escrito à mão. Do Windows: `\\fap233\projects\lorfrux\twa-build` |
+
+```
+bash ~/projects/lorfrux/twa-build/buildar.sh
+```
+
+O script lê a senha do arquivo (ela não aparece na tela), confere a memória
+antes de começar e imprime onde o `.aab` ficou.
+
+**O `twa-manifest.json` foi escrito à mão de propósito**, sem `bubblewrap init`:
+o `init` é interativo e não aceita respostas por pipe (Inquirer). Os valores
+vieram da tabela da seção 2, mais `appVersionCode: 4` e a feature de Play
+Billing. O projeto gerado foi conferido: `versionCode 4`, `versionName "1.0.2"`,
+`com.google.androidbrowserhelper:billing:1.2.0`, a `PaymentActivity` com
+`org.chromium.default_payment_method_name = https://play.google.com/billing` e
+o `DigitalGoodsRequestHandler` no `DelegationService`.
+
+**Play Billing obriga notificação.** O `bubblewrap update` recusa com
+*"Play Billing requires `enableNotifications` to be true"*. Não é escolha. O
+efeito é bem-vindo: o Web Push já está pronto no site (`public/service-worker.js`,
+`routes/push.js`, `utils/pushManager.ts`, VAPID no `.env`) e dentro do app nunca
+funcionou porque a delegação estava desligada. A partir deste AAB o app pede a
+permissão de notificação na primeira abertura e o push passa a chegar.
+
+**O build morreu duas vezes por falta de memória** em 02/11. O servidor tem
+15 GB e estava com 13 em uso: 6,4 GB de sessões `claude` abertas havia até 12
+dias e 5,3 GB de Chrome de uns dez projetos. O `gradle.properties` gerado vem
+com `-Xmx1536m`; está baixado para `768m`, sem daemon, sem paralelismo e com um
+worker só. Mesmo assim o `buildar.sh` para se `free -m` mostrar menos de
+2000 MB disponíveis, porque abaixo disso o Gradle é morto no meio e não há
+mensagem que explique.
+
+**Para buildar no Windows a partir deste projeto**, copiar a pasta e trocar só
+o caminho do keystore no `twa-manifest.json` para
+`\\fap233\projects\lorfrux\chaves-twa\lorflux-upload-2026.jks`. Não precisa
+de `init` nem de responder prompt nenhum.
 
 ## 3. Conferir o versionCode antes do build
 
