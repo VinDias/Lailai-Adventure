@@ -10,6 +10,11 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/frontend/**/*.test.{ts,tsx}'],
+    // Sem limite, o Vitest sobe um worker por núcleo; com o servidor de
+    // desenvolvimento carregado (outros projetos), 9 arquivos nem iniciaram em
+    // 04/11/2026 ("Timeout waiting for worker to respond"). Com 4 a rodada
+    // calma leva ~40 s e não depende de a máquina estar ociosa.
+    maxWorkers: 4,
     coverage: { provider: 'v8', reporter: ['text', 'html'], include: ['services/**', 'components/**'] }
   },
   plugins: [react()],
