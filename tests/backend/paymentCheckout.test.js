@@ -395,6 +395,10 @@ describe('guardas estáticos das cópias do conserto', () => {
     expect(semGuard).toEqual([]);
   });
 
+  it('services/stripeService.js não voltou: era cópia do checkout SEM a dedup por e-mail (apagada em 04/11/2026)', () => {
+    expect(fs.existsSync(path.join(RAIZ, 'services', 'stripeService.js'))).toBe(false);
+  });
+
   it('services/stripeService.js segue desligado — é cópia do checkout SEM a dedup por e-mail', () => {
     const IGNORAR = new Set([
       'node_modules', '.git', 'dist', 'frontend-dist', 'uploads', 'logs',

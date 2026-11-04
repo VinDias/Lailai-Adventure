@@ -32,7 +32,6 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 |---------|-----------|
 | `Auth.tsx` | Tela de login/registro por e-mail/senha + botão "Entrar com Google" (Google Identity Services; aparece só quando `google_client_id` está nas settings públicas) + fluxos de esqueci/redefinir senha |
 | `Onboarding.tsx` | Walkthrough de primeiro uso — 4 passos apresentando HQCine/VCine/Hi-Qua/Conta; exibido uma vez (flag `lorflux_onboarded` no localStorage) |
-| `SubscriptionTab.tsx` | Aba com status da assinatura premium e opção de upgrade |
 | `Logout.tsx` | Botão e lógica de logout |
 
 > `Profile.tsx` foi **removido** na Fase 5, Bloco 1 (Task 9): era código morto — não importado por `App.tsx` — e a única coisa que ainda chamava era o antigo `POST /api/channels` aberto a qualquer usuário, que virou admin-only neste bloco. A aba Conta sempre foi renderizada pelo próprio `App.tsx`.
@@ -53,7 +52,6 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 
 | Arquivo | Propósito |
 |---------|-----------|
-| `Premium.tsx` | Página de apresentação da assinatura premium com features e botão de checkout Stripe |
 | `Ads.tsx` | Componente de listagem/controle de anúncios |
 | `AdComponent.tsx` | Componente individual de exibição de um anúncio em vídeo |
 | `DonateButton.tsx` | Botão de doação integrado ao backend |

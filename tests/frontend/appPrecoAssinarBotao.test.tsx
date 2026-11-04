@@ -148,8 +148,9 @@ describe('App — o botão de assinar nunca anuncia preço que o servidor não d
 });
 
 /**
- * As outras duas CÓPIAS do mesmo defeito, que não dá para testar rodando
- * porque hoje nenhuma tela as renderiza:
+ * As outras duas CÓPIAS do mesmo defeito. Ficaram desligadas de 13/10 a
+ * 04/11/2026 e foram APAGADAS na limpeza de 04/11
+ * (docs/verificacao-de-bugs-2026-11-04.md, item 8). Eram:
  *
  *   - `components/SubscriptionTab.tsx:33` mostra `getLocalizedPrice()`, o
  *     valor FIXO de utils/localizedPrice.ts (R$ 3,99).
@@ -174,6 +175,16 @@ describe('Telas antigas de assinatura seguem desligadas (cópias com preço que 
     }
     return achados;
   }
+
+  it('os dois arquivos com preço fixo/digitado não voltaram a existir', () => {
+    const raiz = process.cwd();
+    for (const nome of COPIAS_COM_PRECO_FIXO) {
+      expect(
+        fs.existsSync(path.join(raiz, 'components', `${nome}.tsx`)),
+        `components/${nome}.tsx voltou. Se for uma tela nova de assinatura, o preço vem de GET /api/payment/precos (ver 9471736).`
+      ).toBe(false);
+    }
+  });
 
   it('nenhum arquivo de produção importa SubscriptionTab nem Premium', () => {
     const raiz = process.cwd();
