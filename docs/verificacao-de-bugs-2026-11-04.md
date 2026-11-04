@@ -95,6 +95,14 @@ pm2 list
 grep -rn "real_ip\|CF-Connecting-IP\|X-Forwarded-For" /etc/nginx/ 2>/dev/null
 ```
 
+**Confirmado na VPS em 04/11: é o caso (a).** `pm2 list` mostra **um** só
+`lorflux-app` (fork), e o nginx não tem `real_ip` nenhum: só
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`
+(`/etc/nginx/sites-available/lorflux:18`). O `X-Forwarded-For` chega ao Node
+como `cliente, borda-do-cloudflare`, e com `trust proxy 1` o Express pega o
+último, a borda. Os pares do verificador (`299, 299, 298, 298…`) eram as
+requisições alternando entre duas bordas do Cloudflare.
+
 Se for (a), o conserto é no nginx (restaurar o IP real a partir das faixas do
 Cloudflare) e não em código. Se for (b), ou mudar para uma instância, ou usar um
 `store` compartilhado no limitador.
@@ -118,8 +126,9 @@ para as duas). Então existem, na prática, dois sites.
   `httpOnly`, `sameSite: "strict"`). Quem entra em `lorflux.com` não está logado
   em `www.lorflux.com`, e vice-versa.
 - A volta do checkout do Stripe vai para `${process.env.FRONTEND_URL}`
-  (`routes/payment.js:102-103`). Se o `FRONTEND_URL` for o `www` (conferir no
-  `.env` da VPS), **quem assina pelo domínio sem `www` paga e volta deslogado**,
+  (`routes/payment.js:102-103`). **Conferido em 04/11: o `FRONTEND_URL` da VPS
+  NÃO é `https://www.lorflux.com`** (o valor exato ainda a classificar). Ele é
+  usado em 18 lugares, inclusive links de e-mail. Se o `FRONTEND_URL` for o `www`, **quem assina pelo domínio sem `www` paga e volta deslogado**,
   vendo a tela de entrar logo depois de pagar. O Premium está na conta, então
   aparece depois do login, mas a primeira impressão é de cobrança sem entrega.
 - O app Android só abre links do `www` (é o host do TWA). Link compartilhado
