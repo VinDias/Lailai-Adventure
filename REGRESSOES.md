@@ -4,8 +4,10 @@ Bug corrigido que volta é o problema que mais se repete. Esta tabela diz, para
 cada conserto, qual teste impede a volta dele.
 
 Suíte inteira do projeto: `npm run test:all` (frontend com jsdom, backend com
-mongodb-memory-server). Em 27/10/2026: **58 arquivos e 651 testes no frontend,
-45 e 1254 no backend**, todos passando.
+mongodb-memory-server). Em 04/11/2026: **59 arquivos e 656 testes no frontend,
+46 e 1261 no backend**, todos passando. Desde 04/11 o `test:all` roda as duas
+metades sempre (`scripts/testarTudo.js`) e o frontend sobe no máximo 4 workers
+(`vite.config.ts`), porque com o servidor carregado 9 arquivos nem iniciavam.
 
 Procedimento: skill `/regressao`. Em resumo, conserto só termina com um teste
 que falha sem a correção, e a prova de que ele falha é feita numa **cópia** do
@@ -28,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| _este commit_ | 2026-11-04 | seis `setTimeout` do `AdminDashboard` nunca cancelados: o timer da criacao anterior fechava o modal "Nova Serie" reaberto dentro de 1,5 s, o novo modal herdava a mensagem de sucesso, e na suite o timer disparava depois do jsdom desmontado (`window is not defined`, rodada com codigo 1 e todos os testes passando) | `tests/frontend/adminDashboardTimers.test.tsx` — _fechar na mao e reabrir "Nova Serie" dentro de 1,5 s: o modal novo continua aberto_ (e mais 2: mensagem herdada, desmonte cancela os timers) | coberto-novo | baixo |
 | `46340c5` | 2026-10-27 | `assetlinks.json` ficou com a chave de upload **perdida** (`84:3C:...`) e sem a chave nova (`83:F3:...`) depois da redefinicao de 22/10: APK de teste abre com a barra do Chrome (parece build quebrado) e a chave fora do nosso controle continuava podendo abrir as URLs de lorflux.com | `tests/backend/assetLinksChaves.test.js` — _declara a chave de UPLOAD em vigor_ e _nao declara nenhuma chave revogada_, mais `node scripts/verificarAssetLinks.js` para o que o site serve e o que o Google tem em cache | coberto-novo | alto |
 | `517bb54` | 2026-10-22 | `invoice.paid` (renovacao mensal) tratado no codigo desde 16/09 mas **nunca habilitado no endpoint do Stripe**: o evento nao era entregue, `premiumExpiresAt` congelava nos 30 dias da primeira cobranca | `tests/backend/webhookEventosStripe.test.js` — _todo event.type tratado em routes/payment.js esta declarado em EVENTOS_ESPERADOS_, mais `node scripts/verificarWebhookStripe.js` na VPS para a conferencia contra o painel | coberto-novo | alto |
 | `9471736` | 2026-10-13 | fix(assinatura): botao nao mostra mais preco de reserva desatualizado | `tests/frontend/appPrecoAssinarBotao.test.tsx` | coberto-novo | medio |

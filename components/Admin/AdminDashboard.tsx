@@ -20,6 +20,7 @@ import CuradoriaPanel from './CuradoriaPanel';
 // (utils/tagsVocabulario.js), nunca uma lista duplicada (spec, "O
 // vocabulário": "os chips do TagsChipInput usam o IMPORT do JSON").
 import TAGS_VOCABULARIO from '../../utils/tagsVocabulario.json';
+import { useTimersAgendados } from '../../hooks/useTimersAgendados';
 
 const CONTENT_RATINGS = [
   { value: '', label: '— sem classificação —' },
@@ -58,6 +59,9 @@ const RELEASE_DAYS = [
 ];
 
 const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSubView }) => {
+  // Timers de "mensagem e fecha": cancelados ao reabrir o mesmo modal e no
+  // desmonte (tests/frontend/adminDashboardTimers.test.tsx).
+  const { agendar, cancelar } = useTimersAgendados();
   const [stats, setStats] = useState<any>(null);
   const [contentList, setContentList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,6 +128,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const [editEpisodeMsg, setEditEpisodeMsg] = useState('');
 
   const openEditSeries = (item: any) => {
+    cancelar('editarSerie');
     setEditingSeries(item);
     setEditSeriesForm({
       title: item.title ?? '',
@@ -161,7 +166,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       // Dívida T6 (2): a edição pode ter mudado content_rating — refetch do
       // badge "N não classificadas" pra não ficar stale.
       refetchAprovacoesBadges();
-      setTimeout(() => setEditingSeries(null), 900);
+      agendar('editarSerie', () => setEditingSeries(null), 900);
     } catch {
       setEditSeriesMsg('Erro ao salvar a série.');
     } finally {
@@ -170,6 +175,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   };
 
   const openEditEpisode = (ep: any) => {
+    cancelar('editarEpisodio');
     setEditingEpisode(ep);
     setEditEpisodeForm({
       title: ep.title ?? '',
@@ -193,7 +199,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       });
       setEpisodes(prev => prev.map(ep => (ep._id || ep.id) === id ? { ...ep, ...updated } : ep));
       setEditEpisodeMsg('Episódio atualizado!');
-      setTimeout(() => setEditingEpisode(null), 900);
+      agendar('editarEpisodio', () => setEditingEpisode(null), 900);
     } catch {
       setEditEpisodeMsg('Erro ao salvar o episódio.');
     } finally {
@@ -731,7 +737,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         api.updateSetting('ad_frequency_webtoon',  settingsForm.ad_frequency_webtoon,  'Frequência de anúncio no webtoon'),
       ]);
       setSettingsMsg('Configurações salvas!');
-      setTimeout(() => setSettingsMsg(''), 3000);
+      agendar('configuracoes', () => setSettingsMsg(''), 3000);
     } catch {
       setSettingsMsg('Erro ao salvar configurações.');
     } finally {
@@ -745,6 +751,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   }, [currentSubView]);
 
   const openNewAd = () => {
+    cancelar('anuncio');
     setEditingAd(null);
     setAdForm({ title: '', image_url: '', video_url: '', link_url: '', advertiser: '', startsAt: '', endsAt: '' });
     setAdMsg('');
@@ -752,6 +759,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   };
 
   const openEditAd = (ad: any) => {
+    cancelar('anuncio');
     setEditingAd(ad);
     setAdForm({
       title: ad.title, image_url: ad.image_url, video_url: ad.video_url ?? '', link_url: ad.link_url ?? '',
@@ -789,7 +797,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         setAdsList(prev => [created, ...prev]);
       }
       setAdMsg(editingAd ? 'Anúncio atualizado!' : 'Anúncio criado!');
-      setTimeout(() => { setAdMsg(''); setShowAdModal(false); }, 1200);
+      agendar('anuncio', () => { setAdMsg(''); setShowAdModal(false); }, 1200);
     } catch {
       setAdMsg('Erro ao salvar anúncio.');
     } finally {
@@ -906,7 +914,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       // Dívida T6 (2): série nasce sem content_rating (o admin publica direto,
       // fail-safe do filtro parental) — refetch do badge "N não classificadas".
       refetchAprovacoesBadges();
-      setTimeout(() => { setCreateMsg(''); setShowCreateModal(false); }, 1500);
+      agendar('criarSerie', () => { setCreateMsg(''); setShowCreateModal(false); }, 1500);
     } catch (e: any) {
       setCreateMsg(`Erro: ${e?.message || 'Erro ao criar série.'}`);
     } finally {
@@ -942,7 +950,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       setEpisodes(prev => [...prev, created]);
       setNewEpisode({ episode_number: episodes.length + 2, title: '', description: '', thumbnail: '', video_url: '', bunnyVideoId: '', isPremium: false });
       setEpisodeMsg('Episódio criado com sucesso!');
-      setTimeout(() => { setEpisodeMsg(''); setShowEpisodeModal(false); }, 1500);
+      agendar('criarEpisodio', () => { setEpisodeMsg(''); setShowEpisodeModal(false); }, 1500);
     } catch (e) {
       setEpisodeMsg('Erro ao criar episódio.');
     } finally {
@@ -1051,6 +1059,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
               </div>
               <button
                 onClick={() => {
+                  cancelar('criarSerie');
+                  setCreateMsg('');
                   setShowCreateModal(true);
                   // Canais para o vínculo de royalties (Fase 3)
                   api.listChannels().then(setChannels).catch(() => setChannels([]));
@@ -1152,7 +1162,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
             <div className="flex items-center justify-between mb-8 mt-6">
               <span className="text-xs font-bold text-zinc-500">{episodes.length} episódio{episodes.length !== 1 ? 's' : ''}</span>
               <button
-                onClick={() => setShowEpisodeModal(true)}
+                onClick={() => { cancelar('criarEpisodio'); setEpisodeMsg(''); setShowEpisodeModal(true); }}
                 className="flex items-center gap-2 px-6 py-3 bg-rose-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-rose-500 transition-all"
               >
                 <Plus size={16} /> Novo Episódio
