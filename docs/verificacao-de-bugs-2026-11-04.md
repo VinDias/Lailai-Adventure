@@ -163,6 +163,16 @@ O que tem exposição baixa: a crítica (`proxy-addr`) é sobre confiança por
 saltos** (`trust proxy 1`). `vite` e `esbuild` afetam o servidor de
 desenvolvimento, não a produção.
 
+**Feito em 04/11 (parte sem troca de versão maior):** `npm audit fix` com
+npm 11 levou de **49 para 31** (0 críticas, 3 altas, 28 moderadas). Suíte
+inteira, `tsc` e build passaram, e o bundle de produção saiu **idêntico** (mesmo
+hash `index-C0P33cUl.js`, 1.123 kB): a atualização não toca no frontend. O
+npm 9.2 instalado no servidor de desenvolvimento quebra no `audit fix`
+(`Cannot read properties of null (reading 'edgesOut')`); use
+`npx -y npm@11 audit fix`, que é a versão do CI. As 3 altas que sobram pedem
+troca de versão maior: `sharp`, `nodemailer` e `vite` (este só no servidor de
+desenvolvimento).
+
 A maior parte sai com `npm audit fix` sem troca de versão maior. `sharp`,
 `googleapis`, `@sentry/node` e `uuid` pedem troca maior e precisam de teste
 específico (o `sharp` tem `tests/backend/avatar.test.js`; o `googleapis` é o
@@ -261,7 +271,14 @@ Remover tira a chance de alguém religar por engano.
 O build de produção gera um só `index-*.js` de 1.122 kB (318 kB com gzip), com
 aviso do próprio Vite. É o que o celular baixa antes de mostrar qualquer coisa.
 Para quem chega por anúncio em rede móvel, cada segundo de tela preta custa
-clique pago. Divisão por tela (`import()` dinâmico nas telas de admin, portal e
+clique pago.
+
+**Armadilha para medir:** o `.env` local do repositório no servidor de
+desenvolvimento tem `NODE_ENV=development`, e o Vite lê esse arquivo. Um
+`npx vite build` ali sai com o React **de desenvolvimento** e 1.600 kB, o que
+parece regressão e não é. Para medir o tamanho real, `NODE_ENV=production npx
+vite build`. Na VPS o `.env` tem `NODE_ENV=production`, que o Vite ignora com
+aviso, e o build sai em modo produção. Divisão por tela (`import()` dinâmico nas telas de admin, portal e
 leitor) é o caminho.
 
 ---
