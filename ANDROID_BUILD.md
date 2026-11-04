@@ -188,7 +188,11 @@ A ordem **não** é a intuitiva. Conferido na própria página em 27/10/2026: `M
 5. **Uma compra de teste real** pelo app instalado da faixa de teste. É ela que valida `services/playBillingService.js`, `services/playBilling.ts` e `routes/mobilePayment.js`.
 6. Só depois, **Produção > Criar nova versão**, promovendo a mesma versão.
 
-O mesmo AAB carrega a barra de status imersiva prometida na Fase 5, que dependia do keystore.
+A barra de status escondida prometida na Fase 5 (cortesia) **só vai neste AAB
+se o `display` do `twa-manifest.json` for `fullscreen` (modo imersivo) ou
+`fullscreen-sticky` (a barra volta com um deslizar e some sozinha)**. O manifesto
+montado em 02/11/2026 está em `standalone`, que mantém a barra: conferido em
+04/11, decisão do modo pendente com o Fellipe (`docs/verificacao-de-bugs-2026-11-04.md`).
 
 ### Assets da ficha
 

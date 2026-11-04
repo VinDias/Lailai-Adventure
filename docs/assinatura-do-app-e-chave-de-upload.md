@@ -81,8 +81,10 @@ app). Conferido na própria página em 27/10/2026, ver a seção do fim.
    Fase 6 (`services/playBillingService.js`, `services/playBilling.ts`,
    `routes/mobilePayment.js`).
 
-O mesmo AAB carrega a barra de status imersiva prometida na Fase 5, que
-dependia do keystore.
+O mesmo AAB pode carregar a barra de status escondida prometida na Fase 5,
+que dependia do keystore, **desde que** o `display` do `twa-manifest.json` seja
+`fullscreen` ou `fullscreen-sticky`. O manifesto montado em 02/11/2026 está em
+`standalone` (conferido em 04/11); o modo é decisão pendente.
 
 ## Pré-requisitos que só o proprietário da conta resolve
 
