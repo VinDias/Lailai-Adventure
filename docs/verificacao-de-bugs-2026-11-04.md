@@ -103,6 +103,26 @@ como `cliente, borda-do-cloudflare`, e com `trust proxy 1` o Express pega o
 último, a borda. Os pares do verificador (`299, 299, 298, 298…`) eram as
 requisições alternando entre duas bordas do Cloudflare.
 
+**RESOLVIDO em 04/11/2026, na VPS.** Arquivo novo
+`/etc/nginx/conf.d/cloudflare-real-ip.conf` com `set_real_ip_from` para as faixas
+publicadas pelo Cloudflare (ips-v4 e ips-v6 do dia) e `real_ip_header
+CF-Connecting-IP`; `nginx -t` ok e reload, sem derrubar o site. Depois:
+`node scripts/verificarLimiteRequisicoes.js` → `299, 298, 297, 296, 295, 294,
+293, 292`, ok. Se o Cloudflare publicar faixas novas, o verificador volta a
+falhar de vez em quando: é só regerar o arquivo com o mesmo bloco.
+
+**Efeito que vai além do limite, e que também foi consertado:** o registro de
+engajamento que alimenta o repasse dos autores (`services/engagementLogger.js:57-94`)
+descarta visualização, leitura e impressão de anúncio repetida comparando o
+**hash do IP**: uma por usuário **ou** IP, por episódio, a cada 6 horas
+(`dedupe`), e mais de 30 eventos do mesmo IP em 60 s viram `burst`. Com o IP da
+borda do Cloudflare no lugar do IP de cada pessoa, leitores diferentes passando
+pela mesma borda contavam como uma pessoa só, inclusive logados, porque a
+condição é `userId` **ou** `ipHash`. Até 04/11, portanto, a contagem que
+compõe o bolo de royalties tende a estar **abaixo** do real. Os eventos antigos
+não têm como ser recontados (o hash guardado é o da borda). A partir de 04/11 a
+contagem é por pessoa.
+
 Se for (a), o conserto é no nginx (restaurar o IP real a partir das faixas do
 Cloudflare) e não em código. Se for (b), ou mudar para uma instância, ou usar um
 `store` compartilhado no limitador.
