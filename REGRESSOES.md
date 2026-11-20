@@ -30,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (este PR) | 2026-11-19 | `GET /api/content/series/:id/episodes` devolvia o documento inteiro do episodio Premium (URLs dos paineis e das camadas de idioma, `video_url`, `bunnyVideoId`, faixas de audio) a visitante, conta gratuita e assinatura vencida: o 403 do detalhe e da URL assinada (Fase 6, `363af62`) era contornavel pela lista. A rota nem lia o `isPremium` da serie | `tests/backend/premiumListaEpisodios.test.js` — _visitante sem conta: episodio pago aparece na lista SEM midia_ (e mais 8: conta gratuita, vencida, assinante, dono, admin, obra mista, detalhe e signed-url); `tests/frontend/videoBloqueadoDaLista.test.tsx` (player mostra o convite com o item sem midia) | coberto-novo | alto |
 | `cb3e7e0` (verificador) + nginx da VPS | 2026-11-04 | o limite de requisicoes e a anti-fraude do engajamento usavam o IP da borda do Cloudflare como se fosse o visitante (nginx sem `real_ip`, `trust proxy 1`): limite dividido entre desconhecidos e visualizacoes de pessoas diferentes descartadas como duplicata | **sem teste offline** (o conserto mora em `/etc/nginx/conf.d/cloudflare-real-ip.conf`); guarda: `node scripts/verificarLimiteRequisicoes.js`, de fora e sem segredo, exige o contador caindo de um em um | coberto-externo | alto |
 | `14dd134` | 2026-11-04 | seis `setTimeout` do `AdminDashboard` nunca cancelados: o timer da criacao anterior fechava o modal "Nova Serie" reaberto dentro de 1,5 s, o novo modal herdava a mensagem de sucesso, e na suite o timer disparava depois do jsdom desmontado (`window is not defined`, rodada com codigo 1 e todos os testes passando) | `tests/frontend/adminDashboardTimers.test.tsx` — _fechar na mao e reabrir "Nova Serie" dentro de 1,5 s: o modal novo continua aberto_ (e mais 2: mensagem herdada, desmonte cancela os timers) | coberto-novo | baixo |
 | `46340c5` | 2026-10-27 | `assetlinks.json` ficou com a chave de upload **perdida** (`84:3C:...`) e sem a chave nova (`83:F3:...`) depois da redefinicao de 22/10: APK de teste abre com a barra do Chrome (parece build quebrado) e a chave fora do nosso controle continuava podendo abrir as URLs de lorflux.com | `tests/backend/assetLinksChaves.test.js` — _declara a chave de UPLOAD em vigor_ e _nao declara nenhuma chave revogada_, mais `node scripts/verificarAssetLinks.js` para o que o site serve e o que o Google tem em cache | coberto-novo | alto |
@@ -86,6 +87,39 @@ Os 12 foram aprovados.
 | `4ea593f` | 2026-03-26 | fix: índice de translation layers no batch upload e fallback de CDN | `tests/frontend/adminPaineisIndice.test.tsx` | coberto-novo | medio |
 | `6615c15` | 2026-03-12 | fix: use _id for Series (MongoDB) and deduplicate Stripe customers | `tests/backend/paymentCheckout.test.js` | coberto-novo | medio |
 | `2f30192` | 2026-03-12 | fix: optional chaining on req.cookies in verifyToken to prevent 500 on payment routes | `tests/backend/paymentCheckout.test.js` | coberto-novo | alto |
+
+## 19/11/2026: o Premium fechado na porta e aberto na lista
+
+**Nao voltou: nunca tinha sido fechado.** A Fase 6 (`363af62`, 07/10/2026)
+criou a porta unica `autorizarConteudo` e a aplicou ao detalhe do episodio e a
+URL assinada do video. O levantamento da propria fase
+(`docs/superpowers/specs/2026-10-06-fase6-assinatura-acesso-design.md`, secao 3)
+listava a LISTA de episodios entre as rotas que entregavam tudo, mas a tabela
+4.2 do desenho so tratou a lista para o filtro de idade. A tarefa T1 foi
+marcada como feita "nas rotas de lista e de documento", e a lista ficou de fora.
+
+Antes disso, de 08/07 (`bffb6ce`) a 07/10/2026, entregar o Premium a todos era a
+regra combinada (Premium = sem anuncio). Um conserto de 23/05 (`33578ce`) tirava a
+midia paga do detalhe e foi desfeito de proposito em 08/07. Nenhum dos dois tocou a lista.
+
+**Por que a suite nao pegou.** Os testes da lista em `content.test.js`
+conferiam so o TITULO ("episodio premium tambem aparece para nao-premium"),
+que e o comportamento certo da vitrine, e os episodios Premium desses testes
+nao tinham midia nenhuma. Nenhum teste perguntava se a URL do painel saia. O
+teste novo cria episodios com painel, camada de idioma, video e audio e
+procura qualquer URL deles no JSON inteiro, nao so nos campos conhecidos.
+
+**O conserto e de lista do que pode sair.** `episodiosParaLista` em
+`utils/autorizacaoConteudo.js` copia so os campos de vitrine
+(`CAMPOS_DE_VITRINE`) do episodio bloqueado; campo de midia novo no schema
+fica de fora sem ninguem lembrar. A decisao continua em `autorizarConteudo`.
+
+**O que a API nao resolve.** Paineis, capas e audios ficam na zona de
+armazenamento da Bunny com URL publica e sem token
+(`routes/bunnyWebhook.js:254,336,401`): o nome tem relogio em milissegundos e
+~52 bits aleatorios, entao nao e adivinhavel, mas quem ja tem a URL abre para
+sempre e pode repassar. O video depende da Token Authentication estar ligada
+na zona da biblioteca do Stream, o que nao e conferivel daqui.
 
 ## 22/10/2026: o conserto cuja metade morava fora do repositório
 

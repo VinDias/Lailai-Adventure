@@ -38,6 +38,7 @@ import { useCamadaVoltar } from './utils/pilhaVoltar';
 import MeuEstudioCard from './components/MeuEstudioCard';
 import PortalEstudio from './components/PortalEstudio';
 import ParentalSettings from './components/ParentalSettings';
+import { videoDoEpisodio } from './utils/videoDoEpisodio';
 
 /**
  * Views que o AdminDashboard atende. Lista ÚNICA e exportada porque a
@@ -545,22 +546,7 @@ const App: React.FC = () => {
             onOpenAgenda={() => setAgendaOpen(true)}
             onOpenSeriesElsewhere={handleSearchSelect}
             onOpen={(ep, series) => {
-              setActiveVideo({
-                id: (ep._id || ep.id)?.toString(),
-                // Fase 4 (progresso): id real da série/obra, separado do id do episódio acima.
-                seriesId: series._id,
-                titulo: ep.title,
-                categoria: series.genre,
-                descricao: ep.description,
-                duracao: 15,
-                arquivoUrl: ep.video_url,
-                bunnyVideoId: ep.bunnyVideoId,
-                thumbnailUrl: ep.thumbnail,
-                isPremium: series.isPremium,
-                criadoEm: new Date().toISOString(),
-                type: 'hqcine',
-                hlsAudioLabels: ep.hlsAudioLabels
-              });
+              setActiveVideo(videoDoEpisodio(ep, series, 'hqcine', 15));
               setView(ViewMode.PLAYER);
             }}
           />
@@ -574,22 +560,7 @@ const App: React.FC = () => {
             onOpenAgenda={() => setAgendaOpen(true)}
             onOpenSeriesElsewhere={handleSearchSelect}
             onOpen={(ep, series) => {
-              setActiveVideo({
-                id: (ep._id || ep.id)?.toString(),
-                // Fase 4 (progresso): id real da série/obra, separado do id do episódio acima.
-                seriesId: series._id,
-                titulo: ep.title,
-                categoria: series.genre,
-                descricao: ep.description,
-                duracao: 10,
-                arquivoUrl: ep.video_url,
-                bunnyVideoId: ep.bunnyVideoId,
-                thumbnailUrl: ep.thumbnail,
-                isPremium: series.isPremium,
-                criadoEm: new Date().toISOString(),
-                type: 'vcine',
-                hlsAudioLabels: ep.hlsAudioLabels
-              });
+              setActiveVideo(videoDoEpisodio(ep, series, 'vcine', 10));
               setView(ViewMode.PLAYER);
             }}
           />

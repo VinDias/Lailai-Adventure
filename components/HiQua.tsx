@@ -295,7 +295,7 @@ const HiQua: React.FC<HiQuaProps> = ({ user, onOpen, focusSeriesId, onFocusConsu
                  {content.episodes.map(ep => (
                    <div key={ep._id || ep.id} onClick={() => onOpen(ep, selectedSeries, content.episodes)} className="p-6 bg-white/5 border border-white/5 rounded-3xl flex items-center gap-6 cursor-pointer hover:bg-white/10 transition-all">
                       <div className="w-20 h-28 bg-black rounded-2xl overflow-hidden shrink-0">
-                         <ImageWithFallback src={ep.thumbnail || (ep as any).panels?.[0]?.image_url} className="w-full h-full object-cover opacity-60" alt={ep.title} />
+                         <ImageWithFallback src={ep.thumbnail || (ep as any).panels?.[0]?.image_url || selectedSeries.cover_image} className="w-full h-full object-cover opacity-60" alt={ep.title} />
                       </div>
                       <div className="flex-1">
                          <div className="flex items-center gap-2">
