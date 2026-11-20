@@ -49,7 +49,10 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarCo
   const [playbackError, setPlaybackError] = useState(false);
   // 403 do servidor: conteúdo pago. É oferta, não falha de reprodução — por
   // isso não entra em playbackError ("vídeo indisponível").
-  const [bloqueio, setBloqueio] = useState<{ motivo: MotivoBloqueio; obra?: any } | null>(null);
+  // Quando a LISTA já disse que este viewer não pode assistir (o item veio
+  // sem mídia e com `bloqueio`), o convite aparece de saída: não há URL para
+  // pedir e não faz sentido mostrar anúncio antes.
+  const [bloqueio, setBloqueio] = useState<{ motivo: MotivoBloqueio; obra?: any } | null>(video.bloqueio ?? null);
 
   const [qualityLevels, setQualityLevels] = useState<any[]>([]);
   const [currentQuality, setCurrentQuality] = useState(-1);
@@ -123,6 +126,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarCo
 
   useEffect(() => {
     if (showAd) return;
+    if (video.bloqueio) return;
     if (video.bunnyVideoId) {
       setPlaybackError(false);
       setBloqueio(null);

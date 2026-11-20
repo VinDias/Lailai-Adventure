@@ -12,7 +12,7 @@ const logger = require('../utils/logger');
 const pick = require('../utils/pick');
 const { podeVerRascunho } = require('../utils/ownership');
 const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
-const { autorizarConteudo, responderBloqueio } = require('../utils/autorizacaoConteudo');
+const { autorizarConteudo, responderBloqueio, episodiosParaLista } = require('../utils/autorizacaoConteudo');
 const { addPanels, setTranslationLayer } = require('../services/episodePanelService');
 const { responderCastError } = require('../utils/routeErrors');
 
@@ -354,9 +354,12 @@ router.get('/recommendations', optionalAuth, async (req, res) => {
 // ─── EPISODES ───────────────────────────────────────────────────────────────
 
 // GET /api/content/series/:id/episodes — episódios de uma série
-// Todos os episódios PUBLICADOS aparecem para todos os usuários (isPremium
-// vai no JSON pro cliente exibir badge e decidir o anúncio pra usuários
-// free) — sem paywall na listagem. Episódio draft/processing só aparece pro
+// Todos os episódios PUBLICADOS aparecem para todos os usuários (é a
+// vitrine, com o selo Premium), mas a MÍDIA de episódio pago só sai para
+// quem a porta de autorização deixa ler (utils/autorizacaoConteudo.js,
+// episodiosParaLista): para os demais o item vem sem painéis, vídeo e áudio,
+// e com `bloqueio`. Até 19/11/2026 esta rota entregava o documento inteiro a
+// qualquer um (tests/backend/premiumListaEpisodios.test.js). Episódio draft/processing só aparece pro
 // admin ou pro dono do canal da série (Fase 5 Bloco 1, Task 2 — "Drafts
 // invisíveis ao público"; o portal do ilustrador, Task 4, precisa ver o
 // status dos próprios rascunhos). Série inexistente OU rascunho (isPublished
@@ -367,7 +370,7 @@ router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
     // Fase 5, Bloco 2, Task 5: select += content_rating tags (o helper
     // serieVisivelPara LANÇA sem os dois — fail-closed contra select
     // estreito, ver utils/parentalFilter.js).
-    const series = await Series.findById(req.params.id).select('isPublished channelId content_rating tags').lean();
+    const series = await Series.findById(req.params.id).select('isPublished channelId content_rating tags isPremium').lean();
     const podeVerRascunhos = series ? await podeVerRascunho(req.user, series.channelId) : false;
 
     if (!series || (!series.isPublished && !podeVerRascunhos)) {
@@ -389,7 +392,7 @@ router.get('/series/:id/episodes', optionalAuth, async (req, res) => {
     const episodes = await Episode.find(filter)
       .sort({ order_index: 1, episode_number: 1 })
       .lean();
-    res.json(episodes);
+    res.json(await episodiosParaLista(req.user, series, episodes));
   } catch (err) {
     // Fix round (Fase 5 Bloco 2, Task 8): id malformado (CastError no `_id`
     // do findById acima) caía no catch genérico e virava 500 — pra anônimo E

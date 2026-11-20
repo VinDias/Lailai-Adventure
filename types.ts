@@ -30,6 +30,9 @@ export interface Video {
   type: 'hqcine' | 'vcine';
   order_index?: number;
   hlsAudioLabels?: string[];
+  // Veio da LISTA de episódios: o servidor já disse que este viewer não pode
+  // assistir e mandou o item sem mídia (utils/videoDoEpisodio.ts).
+  bloqueio?: { motivo: 'login_necessario' | 'assinatura_necessaria'; obra?: { title?: string; cover_image?: string } };
 }
 
 export interface Webtoon {
