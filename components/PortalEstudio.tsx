@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Lock, Send } from 'lucide-react';
 import { api } from '../services/api';
 import { useT } from '../contexts/I18nContext';
@@ -379,6 +379,11 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [panelsLanguage, setPanelsLanguage] = useState<'original' | 'pt' | 'en' | 'es' | 'zh'>('original');
   const [uploadingPanels, setUploadingPanels] = useState(false);
   const [panelsError, setPanelsError] = useState<string | null>(null);
+  // Painel alvo de cada arquivo de camada, fixado no PRIMEIRO envio. Na
+  // retentativa o arquivo volta para o mesmo painel; sem isso, com falhas
+  // salteadas (ex.: #2 e #4), o reenvio caia em #2 e #3 e sobrescrevia o
+  // balao bom do #3.
+  const alvosDasCamadas = useRef(new Map<File, { lang: string; indice: number }>());
 
   useCamadaVoltar(!!panelsModalFor, () => setPanelsModalFor(null));
 
@@ -387,6 +392,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     setPendingPanelFiles([]);
     setPanelsError(null);
     setPanelsLanguage('original');
+    alvosDasCamadas.current = new Map();
     setPanelsModalFor({ episode: ep, seriesId: selectedSeriesId });
   };
 
@@ -405,48 +411,74 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     if (!panelsModalFor || pendingPanelFiles.length === 0) return;
 
     const paineisExistentes = panelsModalFor.episode.panels ?? [];
-    const base = panelsLanguage === 'original' ? 0 : primeiroPainelSemCamada(panelsLanguage);
-    if (panelsLanguage !== 'original') {
+    const ehCamada = panelsLanguage !== 'original';
+    // Alvo de cada arquivo: retentativa volta ao painel do primeiro envio;
+    // arquivo novo vai a partir do primeiro painel sem camada (depois dos que
+    // estao sendo reenviados).
+    const alvoGuardado = (f: File) => {
+      const a = alvosDasCamadas.current.get(f);
+      return a && a.lang === panelsLanguage ? a.indice : undefined;
+    };
+    const reservados = ehCamada ? pendingPanelFiles.map(alvoGuardado).filter((i): i is number => i !== undefined) : [];
+    const novos = ehCamada ? pendingPanelFiles.filter(f => alvoGuardado(f) === undefined).length : pendingPanelFiles.length;
+    let base = 0;
+    if (ehCamada) {
+      const depois = reservados.length > 0 ? Math.max(...reservados) + 1 : 0;
+      const i = paineisExistentes.findIndex((p: any, idx: number) =>
+        idx >= depois && !(p.translationLayers ?? []).some((l: any) => l.language === panelsLanguage));
+      base = i === -1 ? (reservados.length > 0 ? paineisExistentes.length : primeiroPainelSemCamada(panelsLanguage)) : i;
+    }
+    if (ehCamada) {
       if (paineisExistentes.length === 0) {
         setPanelsError(t('portal.works.panelsLayerNone'));
         return;
       }
-      if (pendingPanelFiles.length > paineisExistentes.length - base) {
+      if (novos > paineisExistentes.length - base) {
         setPanelsError(t('portal.works.panelsLayerTooMany'));
         return;
       }
     }
+    let k = 0;
+    const alvos = pendingPanelFiles.map(f => (ehCamada ? alvoGuardado(f) ?? base + k++ : 0));
+    if (ehCamada) pendingPanelFiles.forEach((f, i) => alvosDasCamadas.current.set(f, { lang: panelsLanguage, indice: alvos[i] }));
 
     setUploadingPanels(true);
     setPanelsError(null);
     try {
       const result = await api.uploadPortalImagesBatch(pendingPanelFiles, panelsModalFor.seriesId);
 
-      if (panelsLanguage !== 'original') {
-        // Camada: grava painel a painel, preservando a ordem enviada. O índice
-        // é base + posição NO LOTE, nunca a posição entre os que deram certo.
-        const gravados = await Promise.all(
+      if (ehCamada) {
+        // Camada: um pedido por painel, e o resultado de CADA um conta
+        // (Promise.all escondia os que deram certo quando um falhava, e o
+        // arquivo que falhou nao voltava para a fila). Indice = alvo fixado
+        // acima, nunca a posicao entre os que deram certo.
+        const gravados = await Promise.allSettled(
           result.results.map((r, i) =>
             r.success && r.url
-              ? api.addPortalPainelTraducao(panelsModalFor.episode._id, base + i, panelsLanguage, r.url)
-              : Promise.resolve(null)
+              ? api.addPortalPainelTraducao(panelsModalFor.episode._id, alvos[i], panelsLanguage, r.url)
+              : Promise.reject(new Error(r.error || 'upload'))
           )
         );
         const paineisAtualizados = [...paineisExistentes];
-        gravados.forEach((resp, i) => {
-          if (resp?.panel) paineisAtualizados[base + i] = resp.panel;
+        const falharam: File[] = [];
+        const paineisQueFalharam: number[] = [];
+        pendingPanelFiles.forEach((f, i) => {
+          const g = gravados[i];
+          if (g && g.status === 'fulfilled' && g.value?.panel) {
+            paineisAtualizados[alvos[i]] = g.value.panel;
+            alvosDasCamadas.current.delete(f);
+          } else {
+            falharam.push(f);
+            paineisQueFalharam.push(alvos[i] + 1);
+          }
         });
         const episodeAtualizado = { ...panelsModalFor.episode, panels: paineisAtualizados };
         setEpisodesOfSelected(prev => prev.map(ep => (ep._id === panelsModalFor.episode._id ? episodeAtualizado : ep)));
-
-        if (result.failCount > 0) {
-          const falharam = pendingPanelFiles.filter((_, i) => !result.results[i]?.success);
-          setPendingPanelFiles(falharam);
-          setPanelsModalFor({ ...panelsModalFor, episode: episodeAtualizado });
-          setPanelsError(`${result.successCount}/${result.total} ${t('portal.works.panelsPartialLabel')}`);
-        } else {
-          setPendingPanelFiles([]);
-          setPanelsModalFor({ ...panelsModalFor, episode: episodeAtualizado });
+        setPendingPanelFiles(falharam);
+        setPanelsModalFor({ ...panelsModalFor, episode: episodeAtualizado });
+        if (falharam.length > 0) {
+          const ok = pendingPanelFiles.length - falharam.length;
+          setPanelsError(`${ok}/${pendingPanelFiles.length} ${t('portal.works.panelsPartialLabel')} (#${paineisQueFalharam.join(', #')})`);
         }
         return;
       }

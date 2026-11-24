@@ -30,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (branch `fix/balao-lote-paralelo`) | 2026-11-24 | balao (camada de idioma) enviado em LOTE se perdia: admin e Meu Estudio gravam em paralelo, `setTranslationLayer` salvava a lista inteira de paineis e os pedidos seguintes davam VersionError (rota 500; medido 23/11: 1 de 10 gravados pela rota do admin). No admin o arquivo ja aparecia "concluido" e o erro nao aparecia; no reenvio, falhas salteadas iam para o painel vizinho | `tests/backend/balaoLoteParalelo.test.js` — _10 baloes em paralelo, os 10 gravados_ (servico e as duas rotas, mais 5: troca e acrescimo no mesmo painel, idioma duplicado, remover junto, leitura antiga da conflito, validacoes); `tests/frontend/balaoLoteErroAdmin.test.tsx` e `tests/frontend/balaoLoteErroPortal.test.tsx` (erro visivel, so fica ok o que gravou, reenvio no mesmo painel) | coberto-novo | alto |
 | (este PR) | 2026-11-19 | `GET /api/content/series/:id/episodes` devolvia o documento inteiro do episodio Premium (URLs dos paineis e das camadas de idioma, `video_url`, `bunnyVideoId`, faixas de audio) a visitante, conta gratuita e assinatura vencida: o 403 do detalhe e da URL assinada (Fase 6, `363af62`) era contornavel pela lista. A rota nem lia o `isPremium` da serie | `tests/backend/premiumListaEpisodios.test.js` — _visitante sem conta: episodio pago aparece na lista SEM midia_ (e mais 8: conta gratuita, vencida, assinante, dono, admin, obra mista, detalhe e signed-url); `tests/frontend/videoBloqueadoDaLista.test.tsx` (player mostra o convite com o item sem midia) | coberto-novo | alto |
 | `cb3e7e0` (verificador) + nginx da VPS | 2026-11-04 | o limite de requisicoes e a anti-fraude do engajamento usavam o IP da borda do Cloudflare como se fosse o visitante (nginx sem `real_ip`, `trust proxy 1`): limite dividido entre desconhecidos e visualizacoes de pessoas diferentes descartadas como duplicata | **sem teste offline** (o conserto mora em `/etc/nginx/conf.d/cloudflare-real-ip.conf`); guarda: `node scripts/verificarLimiteRequisicoes.js`, de fora e sem segredo, exige o contador caindo de um em um | coberto-externo | alto |
 | `14dd134` | 2026-11-04 | seis `setTimeout` do `AdminDashboard` nunca cancelados: o timer da criacao anterior fechava o modal "Nova Serie" reaberto dentro de 1,5 s, o novo modal herdava a mensagem de sucesso, e na suite o timer disparava depois do jsdom desmontado (`window is not defined`, rodada com codigo 1 e todos os testes passando) | `tests/frontend/adminDashboardTimers.test.tsx` — _fechar na mao e reabrir "Nova Serie" dentro de 1,5 s: o modal novo continua aberto_ (e mais 2: mensagem herdada, desmonte cancela os timers) | coberto-novo | baixo |
@@ -87,6 +88,32 @@ Os 12 foram aprovados.
 | `4ea593f` | 2026-03-26 | fix: índice de translation layers no batch upload e fallback de CDN | `tests/frontend/adminPaineisIndice.test.tsx` | coberto-novo | medio |
 | `6615c15` | 2026-03-12 | fix: use _id for Series (MongoDB) and deduplicate Stripe customers | `tests/backend/paymentCheckout.test.js` | coberto-novo | medio |
 | `2f30192` | 2026-03-12 | fix: optional chaining on req.cookies in verifyToken to prevent 500 on payment routes | `tests/backend/paymentCheckout.test.js` | coberto-novo | alto |
+
+## 24/11/2026: o balao do lote que o servidor recusava calado
+
+**Nao voltou: nunca tinha sido consertado.** Os consertos de painel anteriores
+(`4ea593f`, `f371353`) eram de INDICE (qual painel recebe a camada). Este e de
+concorrencia: o lote grava um pedido por painel ao mesmo tempo, e o servico
+lia o episodio, mexia num painel e salvava a lista inteira com a versao do
+documento (`__v`). So o primeiro pedido passava.
+
+**Por que a suite nao pegou.** Os testes do frontend mockam a API, entao todo
+pedido "dava certo"; os de backend (`portalCrud.test.js`) gravavam um balao
+por vez. Nenhum teste mandava dois pedidos juntos. O teste novo faz o que a
+tela faz: 10 pedidos em paralelo, pelo servico e pelas duas rotas.
+
+**O conserto.** `services/episodePanelService.js` grava a camada com
+`updateOne` no proprio painel (`panels.<i>.translationLayers`), sem ler e
+salvar a lista; o DELETE da camada usa `$pull` (`removeTranslationLayer`).
+As duas operacoes fazem `$inc: { __v: 1 }`, para quem ainda salva a lista
+inteira a partir de leitura antiga (DELETE de painel, `splice` + `save`)
+receber conflito em vez de apagar o balao novo. Nos clientes, o arquivo so
+fica "ok" depois de gravado, cada falha aparece com o numero do painel e o
+reenvio volta ao painel do primeiro envio.
+
+**O que continua aberto.** Apagar um PAINEL no meio de um lote de baloes
+desloca os indices (o balao vai para o painel que subiu de posicao). Nao
+medido nem consertado: e outro defeito.
 
 ## 19/11/2026: o Premium fechado na porta e aberto na lista
 

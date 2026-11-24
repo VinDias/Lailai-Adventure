@@ -13,7 +13,7 @@ const pick = require('../utils/pick');
 const { podeVerRascunho } = require('../utils/ownership');
 const { getFiltroParental, serieVisivelPara } = require('../utils/parentalFilter');
 const { autorizarConteudo, responderBloqueio, episodiosParaLista } = require('../utils/autorizacaoConteudo');
-const { addPanels, setTranslationLayer } = require('../services/episodePanelService');
+const { addPanels, setTranslationLayer, removeTranslationLayer } = require('../services/episodePanelService');
 const { responderCastError } = require('../utils/routeErrors');
 
 // content_rating (Fase 5 Bloco 2, Task 6): só o Master define — admin form
@@ -812,23 +812,17 @@ router.put('/episodes/:episodeId/panels/:panelIndex/translations', verifyToken, 
 // DELETE /api/content/episodes/:episodeId/panels/:panelIndex/translations/:language — admin
 router.delete('/episodes/:episodeId/panels/:panelIndex/translations/:language', verifyToken, requireAdmin, async (req, res) => {
   try {
-    const { language } = req.params;
-    const panelIndex = parseInt(req.params.panelIndex, 10);
-    const episode = await Episode.findById(req.params.episodeId);
-    if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
-    if (!episode.panels[panelIndex]) return res.status(404).json({ error: 'Painel não encontrado.' });
-
-    const panel = episode.panels[panelIndex];
-    if (panel.translationLayers) {
-      panel.translationLayers = panel.translationLayers.filter(l => l.language !== language);
-    }
-
-    episode.panels[panelIndex] = panel;
-    episode.markModified('panels');
-    await episode.save();
-
-    res.json({ success: true, panel: episode.panels[panelIndex] });
+    // Atomico no proprio painel (services/episodePanelService), desde
+    // 24/11/2026: antes salvava a lista inteira de paineis e brigava por
+    // versao com os baloes gravados ao mesmo tempo.
+    const panel = await removeTranslationLayer(
+      req.params.episodeId,
+      parseInt(req.params.panelIndex, 10),
+      req.params.language
+    );
+    res.json({ success: true, panel });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     logger.error('[Content] DELETE /episodes/:episodeId/panels/:panelIndex/translations/:language', err);
     res.status(500).json({ error: 'Erro ao remover camada de tradução.' });
   }
