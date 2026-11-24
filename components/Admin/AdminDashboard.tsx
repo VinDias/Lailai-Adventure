@@ -273,7 +273,11 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
 
 
   // Batch upload de painéis
-  const [batchFiles, setBatchFiles] = useState<Array<{ file: File; preview: string; status: 'pending' | 'uploading' | 'done' | 'error'; url?: string; error?: string }>>([]);
+  // `lang` + `panelIndex`: painel alvo da camada, fixado no PRIMEIRO envio do
+  // arquivo. Na retentativa o arquivo volta para o MESMO painel; sem isso, com
+  // falhas salteadas (ex.: #3 e #7), o reenvio caia em #3 e #4 e sobrescrevia
+  // o balao bom do #4.
+  const [batchFiles, setBatchFiles] = useState<Array<{ file: File; preview: string; status: 'pending' | 'uploading' | 'done' | 'error'; url?: string; error?: string; lang?: string; panelIndex?: number }>>([]);
   const [batchUploading, setBatchUploading] = useState(false);
   const [batchDragOver, setBatchDragOver] = useState(false);
   const batchInputRef = useRef<HTMLInputElement>(null);
@@ -590,52 +594,108 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     const pending = batchFiles.filter(f => f.status === 'pending');
     if (pending.length === 0) return;
 
-    // Camada de idioma só existe sobre painel existente: avisa ANTES de gastar
-    // upload no Bunny se não houver painel suficiente a partir do ponto atual.
-    const base = batchLanguage === 'original' ? 0 : primeiroPainelSemCamada(batchLanguage);
-    if (batchLanguage !== 'original') {
+    const ehCamada = batchLanguage !== 'original';
+    // Alvo de cada arquivo pendente. Retentativa (ja tem alvo neste idioma)
+    // volta para o mesmo painel; arquivo novo vai a partir do primeiro painel
+    // sem camada, depois dos que estao sendo reenviados.
+    const temAlvo = (f: typeof pending[number]) => ehCamada && f.lang === batchLanguage && typeof f.panelIndex === 'number';
+    const reservados = pending.filter(temAlvo).map(f => f.panelIndex as number);
+    const novos = pending.filter(f => !temAlvo(f));
+    let base = 0;
+    if (ehCamada) {
+      const depois = reservados.length > 0 ? Math.max(...reservados) + 1 : 0;
+      const i = panelsList.findIndex((p: any, idx: number) =>
+        idx >= depois && !(p.translationLayers ?? []).some((l: any) => l.language === batchLanguage));
+      base = i === -1 ? (reservados.length > 0 ? panelsList.length : primeiroPainelSemCamada(batchLanguage)) : i;
+      // Camada de idioma só existe sobre painel existente: avisa ANTES de
+      // gastar upload no Bunny se não houver painel suficiente.
       const vagas = panelsList.length - base;
-      if (pending.length > vagas) {
+      if (novos.length > vagas) {
         setBatchFiles(prev => prev.map(f => f.status === 'pending'
           ? { ...f, status: 'error', error: `Cabem ${vagas} camada(s) a partir do painel #${base + 1} — o capítulo tem ${panelsList.length} painéis.` }
           : f));
         return;
       }
     }
+    let k = 0;
+    const alvos = pending.map(f => (temAlvo(f) ? (f.panelIndex as number) : base + k++));
+
     setBatchUploading(true);
-    setBatchFiles(prev => prev.map(f => f.status === 'pending' ? { ...f, status: 'uploading' } : f));
+    // Fica "enviando" até o balão (ou o painel) estar GRAVADO no episódio, não
+    // só no Bunny: antes o arquivo virava "concluído" ao subir a imagem e, se a
+    // gravação falhava, nada aparecia na tela.
+    {
+      let j = 0;
+      setBatchFiles(prev => prev.map(f => {
+        if (f.status !== 'pending') return f;
+        const alvo = alvos[j++];
+        return ehCamada
+          ? { ...f, status: 'uploading', error: undefined, lang: batchLanguage, panelIndex: alvo }
+          : { ...f, status: 'uploading', error: undefined };
+      }));
+    }
+
+    // Resultado final de cada arquivo pendente, na ordem do lote.
+    const finais: Array<{ ok: boolean; url?: string; error?: string }> = pending.map(() => ({ ok: false, error: 'Sem resposta do servidor.' }));
+    const epId = selectedEpisode._id || selectedEpisode.id;
     try {
       const slug = selectedSeries?.title?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
       const result = await api.uploadImagesBatchToBunny(pending.map(f => f.file), slug);
-      let idx = 0;
-      setBatchFiles(prev => prev.map(f => {
-        if (f.status !== 'uploading') return f;
-        const r = result.results[idx++];
-        if (!r) return { ...f, status: 'error', error: 'Sem resposta do servidor.' };
-        return r.success ? { ...f, status: 'done', url: r.url } : { ...f, status: 'error', error: r.error };
-      }));
-      // `i` é a posição do arquivo no lote; o painel alvo é o base + i (o base
-      // é 0 no idioma original, onde os painéis são criados no fim da lista).
-      const successItems = result.results
-        .map((r, i) => ({ url: r.url, success: r.success, panelIndex: base + i }))
-        .filter(item => item.success && item.url);
-      const successUrls = successItems.map(item => item.url!);
-      const epId = selectedEpisode._id || selectedEpisode.id;
+      pending.forEach((_, i) => {
+        const r = result.results[i];
+        finais[i] = !r ? { ok: false, error: 'Sem resposta do servidor.' }
+          : r.success && r.url ? { ok: true, url: r.url }
+          : { ok: false, error: r.error || 'Erro no envio da imagem.' };
+      });
+
+      // `i` é a posição do arquivo no lote; o painel alvo foi fixado acima
+      // (no idioma original, os painéis são criados no fim da lista).
+      const successItems = finais
+        .map((r, i) => ({ ...r, pos: i, panelIndex: alvos[i] }))
+        .filter(item => item.ok && item.url);
       if (successItems.length > 0) {
-        if (batchLanguage === 'original') {
-          const panels = successUrls.map((url, i) => ({ image_url: url, order: panelsList.length + i + 1 }));
-          const updated = await api.addPanels(epId, panels);
-          setPanelsList(updated.episode?.panels ?? [...panelsList, ...panels]);
+        if (!ehCamada) {
+          const panels = successItems.map((item, i) => ({ image_url: item.url!, order: panelsList.length + i + 1 }));
+          try {
+            const updated = await api.addPanels(epId, panels);
+            setPanelsList(updated.episode?.panels ?? [...panelsList, ...panels]);
+          } catch (err: any) {
+            successItems.forEach(item => {
+              finais[item.pos] = { ok: false, error: `Painel não gravado no capítulo: ${err?.message || 'erro do servidor'}.` };
+            });
+          }
         } else {
-          // Sobrescreve translation layers dos painéis existentes preservando índice original
-          await Promise.all(successItems.map(item => api.updatePanelTranslation(epId, item.panelIndex, batchLanguage, item.url!)));
-          const full = await api.getEpisode(epId);
-          setPanelsList(full.panels ?? panelsList);
+          // Cada balão é um pedido; o resultado de CADA um decide o status do
+          // arquivo (Promise.all escondia todos se um falhasse).
+          const gravados = await Promise.allSettled(
+            successItems.map(item => api.updatePanelTranslation(epId, item.panelIndex, batchLanguage, item.url!))
+          );
+          gravados.forEach((g, n) => {
+            const item = successItems[n];
+            if (g.status === 'rejected') {
+              finais[item.pos] = {
+                ok: false,
+                error: `Balão ${batchLanguage.toUpperCase()} não gravado no painel #${item.panelIndex + 1}: ${(g.reason as any)?.message || 'erro do servidor'}.`,
+              };
+            }
+          });
+          // Recarrega a grade do servidor: mostra o que de fato ficou gravado.
+          try {
+            const full = await api.getEpisode(epId);
+            setPanelsList(full.panels ?? panelsList);
+          } catch { /* a fila já mostra o resultado de cada arquivo */ }
         }
       }
     } catch (err: any) {
-      setBatchFiles(prev => prev.map(f => f.status === 'uploading' ? { ...f, status: 'error', error: err.message } : f));
+      pending.forEach((_, i) => { finais[i] = { ok: false, error: err?.message || 'Erro no envio do lote.' }; });
     } finally {
+      let j = 0;
+      setBatchFiles(prev => prev.map(f => {
+        if (f.status !== 'uploading') return f;
+        const r = finais[j++];
+        if (!r) return { ...f, status: 'error', error: 'Sem resposta do servidor.' };
+        return r.ok ? { ...f, status: 'done', url: r.url, error: undefined } : { ...f, status: 'error', error: r.error };
+      }));
       setBatchUploading(false);
     }
   };
