@@ -278,6 +278,7 @@ app.use("/api/admin", require("./routes/adminCuradoria")); // Fase 5 Bloco 3: Fi
 app.use("/api/me", require("./routes/progress"));
 app.use("/api/settings", require("./routes/settings"));
 app.use("/api/bunny", require("./routes/bunnyWebhook"));
+app.use("/api/envio-episodio", require("./routes/envioEpisodio")); // Fase 7 frente A: envio da pasta do episodio
 app.use("/api/content", require("./routes/content"));
 app.use("/api/content", require("./routes/sinalizacao")); // Fase 5 Bloco 3: sinalizar conteudo (leitor)
 app.use("/api/channels", require("./routes/channels"));

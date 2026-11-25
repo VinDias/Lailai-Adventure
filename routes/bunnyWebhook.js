@@ -11,11 +11,7 @@ const { podeVerRascunho, isAdminUser, temCanalAtivo, serieDeCanalAtivoDoUsuario 
 const { serieVisivelPara } = require('../utils/parentalFilter');
 const { autorizarConteudo, responderBloqueio } = require('../utils/autorizacaoConteudo');
 
-function toSlug(str) {
-  return (str || '').toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-}
+const { toSlug } = require('../utils/slug');
 
 /**
  * Resolve o slug de destino de upload-image/upload-image-batch (Fase 5
