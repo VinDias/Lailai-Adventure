@@ -89,6 +89,27 @@ Os 12 foram aprovados.
 | `6615c15` | 2026-03-12 | fix: use _id for Series (MongoDB) and deduplicate Stripe customers | `tests/backend/paymentCheckout.test.js` | coberto-novo | medio |
 | `2f30192` | 2026-03-12 | fix: optional chaining on req.cookies in verifyToken to prevent 500 on payment routes | `tests/backend/paymentCheckout.test.js` | coberto-novo | alto |
 
+## 25/11/2026: a linha fina entre duas fatias da mesma pagina, no celular
+
+**Nao voltou: apareceu agora.** Era o risco R2 do recorte de 23/11. Com a
+frente A, uma pagina alta vira varias fatias de 1280 px que se encaixam sem
+emenda no desenho. No celular o leitor reduz a imagem de 800 px para a
+largura da tela, a altura de cada painel fica fracionaria (1280 x 412/800 =
+659,2 px) e o navegador deixa uma fresta de um pixel do fundo preto entre os
+paineis. No desktop (800 px, sem reducao) nao acontece. As fatias em si estao
+certas: a ultima linha de uma e a primeira da seguinte tem o mesmo brilho.
+
+**Como foi achado e medido.** `scripts/e2eEnvioPasta.cjs` posta o HaQa Stone
+EP3 do Vin pelo Meu Estudio e tira print do leitor em emulacao de Pixel 7
+com uma emenda no meio da tela; compara o brilho da linha da borda com o das
+vizinhas. Antes do conserto: queda de 50 a 58. Depois: 0. Desktop: 0 nos dois.
+
+**O conserto.** `components/WebtoonReader.tsx`: cada painel depois do
+primeiro sobe 1 px sobre o anterior (`-mt-px`). Unica copia do leitor de
+paineis no repositorio. Pino na suite: `tests/frontend/reader.test.tsx`
+("emenda entre fatias"), que falha sem a classe; a medida de pixels so roda
+no roteiro E2E (precisa do Chromium).
+
 ## 24/11/2026: o balao do lote que o servidor recusava calado
 
 **Nao voltou: nunca tinha sido consertado.** Os consertos de painel anteriores

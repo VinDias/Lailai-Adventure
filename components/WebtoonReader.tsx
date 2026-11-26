@@ -328,10 +328,15 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
             </p>
           </div>
         ) : (
-          paineis.map(panel => {
+          paineis.map((panel, i) => {
             const translationLayer = panel.translationLayers?.find(l => l.language === language);
             return (
-              <div key={panel.id} className="relative w-full max-w-[800px] leading-none overflow-hidden">
+              // Painel depois do primeiro sobe 1 px sobre o anterior. No celular
+              // a imagem de 800 px é reduzida e a altura fica fracionária
+              // (1280 x 412/800 = 659,2 px): sem a sobreposição aparece uma
+              // linha escura entre duas fatias da mesma página (frente A, R2;
+              // medido no Chromium em 25/11/2026 com o HáQa Stone EP3).
+              <div key={panel.id} data-testid="painel-leitor" className={`relative w-full max-w-[800px] leading-none overflow-hidden${i > 0 ? ' -mt-px' : ''}`}>
                 <img
                   src={panel.imagemUrl}
                   className="w-full h-auto block"

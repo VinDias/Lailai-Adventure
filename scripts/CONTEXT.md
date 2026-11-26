@@ -56,6 +56,14 @@ Corta uma pasta de episódio no Chromium de verdade, com o MESMO código da tela
 
 ---
 
+### `e2eEnvioPasta.cjs` (Fase 7, frente A, item 5)
+Ambiente inteiramente local (Mongo em memória, `server.js` em :3456 com `NODE_ENV=test`, Bunny falso gravando em `<saída>/cdn` e servido em :3457, tela pelo Vite em :5173, Chromium do Playwright). Para cada pasta: cria um rascunho, entra como autor, posta pelo Meu Estúdio (botão "Enviar pasta do episódio", input de pasta), confere no banco e no "CDN" que cada balão tem o tamanho da fatia, marca publicado direto no banco e abre o leitor: print por idioma no primeiro painel com balão, desktop e Pixel 7, e mede no print a emenda entre duas fatias (linha escura = falha).
+- `node scripts/e2eEnvioPasta.cjs <saída> <pasta> [<pasta> ...]`; sai com 1 em qualquer divergência; `relatorio.json` e os prints na saída
+- Sem Redis local o log reclama da fila de vídeo; não afeta o envio
+- O servidor guarda um refresh token por conta: o roteiro entra de novo antes de cada contexto
+
+---
+
 ## Observações
 
 - Nenhum desses scripts é executado automaticamente — todos requerem execução manual
