@@ -48,6 +48,14 @@ Marca episódios legados (`status: 'published'` sem `notificationSentAt`) como j
 
 ---
 
+### `conferirCorteNoChromium.mjs` (Fase 7, frente A, itens 4 e 5)
+Corta uma pasta de episódio no Chromium de verdade, com o MESMO código da tela (`utils/envioPasta.ts`, empacotado com esbuild na hora), e confere cada fatia: largura x altura e, nos balões, o canal alfa contra a página original na mesma faixa. Imprime arquivos que sobem, MB antes e depois do corte e o tempo.
+- `node scripts/conferirCorteNoChromium.mjs <pasta> [pasta de saída para as fatias]`; sai com 1 se alguma fatia veio errada
+- Usa o Chromium do Playwright (`PLAYWRIGHT_CHROMIUM` escolhe outro executável); nada sai para a rede
+- 25/11/2026, pastas do Vin: HáQa Stone EP3 (3 páginas 800x12500 + 1) = 151 arquivos, 4,68 MB viram 6,81 MB (PNG regravado cresce), alfa idêntico; The Near Ones EP6 = 55 arquivos, todos sem corte; página sintética 800x28160 com balão = 44 arquivos em 1 s
+
+---
+
 ## Observações
 
 - Nenhum desses scripts é executado automaticamente — todos requerem execução manual

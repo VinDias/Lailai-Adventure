@@ -2,6 +2,36 @@
 import API_URL from '../config/api';
 import { getAnonymousId } from '../utils/anonymousId';
 
+/** GET /api/envio-episodio/config (services/envioEpisodioService.js). */
+export interface EnvioConfig {
+  limitePaineis: number;
+  limiteBytes: number;
+  alturaMaxima: number;
+  tamanhoMaximoParte: number;
+  arquivosPorParte: number;
+}
+
+/** Um arquivo a subir, com o recorte que o navegador faz antes. */
+export interface RecorteEnvio {
+  chave: string;
+  indice: number;
+  tipo: 'pagina' | 'balao' | 'capa';
+  idioma?: 'pt' | 'en' | 'es' | 'zh';
+  y: number | null;
+  altura: number | null;
+  largura: number | null;
+}
+
+export interface EnvioIniciado {
+  envioId: string;
+  totalPaineis: number;
+  totalPaginas: number;
+  totalBytes: number;
+  limiteBytes: number;
+  limitePaineis: number;
+  arquivos: RecorteEnvio[];
+}
+
 // Formato de PushSubscription.toJSON() (Web Push API) — o que POST /me/push/subscribe espera.
 export interface PushSubscriptionPayload {
   endpoint: string;
@@ -244,6 +274,9 @@ class ApiService {
         // achado no E2E da T7, invisível para os testes de componente, que
         // entregam `obra` já pronto.
         if (body.obra) error.obra = body.obra;
+        // Frente A: o envio de pasta recusado volta com a lista de problemas
+        // por arquivo (a tela mostra cada um no arquivo certo).
+        if (Array.isArray(body.problemas)) error.problemas = body.problemas;
         return error;
       };
 
@@ -1011,6 +1044,52 @@ class ApiService {
       throw new Error(err.error || `Erro ao fazer upload em lote: ${response.status}`);
     }
     return response.json();
+  }
+
+  // ─── Fase 7, frente A: envio da pasta do episódio em partes ────────────────
+  // Rota routes/envioEpisodio.js. Um pedido por parte (até tamanhoMaximoParte),
+  // nunca o episódio inteiro de uma vez. Quem orquestra: utils/envioPasta.ts.
+  async getEnvioEpisodioConfig() {
+    return this.request<EnvioConfig>('/envio-episodio/config');
+  }
+
+  async iniciarEnvioEpisodio(episodeId: string, arquivos: Array<{ nome: string; largura?: number; altura?: number; tamanho: number }>) {
+    return this.request<EnvioIniciado>(`/envio-episodio/${episodeId}/iniciar`, {
+      method: 'POST',
+      body: JSON.stringify({ arquivos }),
+    });
+  }
+
+  /**
+   * Uma parte: um campo por arquivo, nome do campo = chave. Erro com
+   * `status` e, quando o servidor manda, `falhas` (chaves que não chegaram ao
+   * Bunny: só elas precisam de nova tentativa) e `recusados`. Erro de rede
+   * sai sem `status`.
+   */
+  async enviarParteEpisodio(envioId: string, itens: Array<{ chave: string; blob: Blob; nome: string }>): Promise<{ recebidos: number; total: number }> {
+    const formData = new FormData();
+    for (const it of itens) formData.append(it.chave, it.blob, it.nome);
+    const response = await this.fetchAutenticado(`${API_URL}/envio-episodio/${envioId}/partes`, {
+      method: 'POST',
+      body: formData,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error: any = new Error(body.error || `Erro ${response.status}`);
+      error.status = response.status;
+      if (Array.isArray(body.falhas)) error.falhas = body.falhas;
+      if (Array.isArray(body.recusados)) error.recusados = body.recusados;
+      throw error;
+    }
+    return body;
+  }
+
+  async concluirEnvioEpisodio(envioId: string) {
+    return this.request<{ episode: any; totalPaineis: number; apagadosDoBunny: number; naoApagados: string[] }>(`/envio-episodio/${envioId}/concluir`, { method: 'POST' });
+  }
+
+  async cancelarEnvioEpisodio(envioId: string) {
+    return this.request<{ cancelado: boolean }>(`/envio-episodio/${envioId}`, { method: 'DELETE' });
   }
 
   // ─── Fase 5 Bloco 1, Task 10: canal público (leitor) ───────────────────────

@@ -7,6 +7,7 @@ import { useCamadaVoltar } from '../utils/pilhaVoltar';
 import { NOME_ABA } from '../utils/contentTypeLabels';
 import { formatarValorMonetario } from '../utils/currency';
 import ImageWithFallback from './ImageWithFallback';
+import EnvioPastaEpisodio from './EnvioEpisodio/EnvioPastaEpisodio';
 // Fonte ÚNICA dos 19 slugs do vocabulário fechado de tags (Fase 5 Bloco 2) —
 // MESMO JSON que o backend (utils/tagsVocabulario.js) e o TagsChipInput do
 // admin (spec, "O vocabulário": chips sempre pelo IMPORT do JSON, nunca uma
@@ -386,6 +387,12 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const alvosDasCamadas = useRef(new Map<File, { lang: string; indice: number }>());
 
   useCamadaVoltar(!!panelsModalFor, () => setPanelsModalFor(null));
+
+  // Frente A, itens 2 e 4: a pasta inteira do episódio, com conferência e
+  // envio em partes (components/EnvioEpisodio). O "Gerenciar painéis" de
+  // antes continua para ajustes avulsos.
+  const [envioPastaFor, setEnvioPastaFor] = useState<any | null>(null);
+  useCamadaVoltar(!!envioPastaFor, () => setEnvioPastaFor(null));
 
   const abrirPanelsModal = (ep: any) => {
     if (!selectedSeriesId) return;
@@ -825,6 +832,12 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                                 {podeGerenciar && (
                                   <div className="flex gap-2 mt-2">
                                     <button
+                                      onClick={() => setEnvioPastaFor(ep)}
+                                      className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                    >
+                                      {t('envio.botao')}
+                                    </button>
+                                    <button
                                       onClick={() => abrirPanelsModal(ep)}
                                       className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
                                     >
@@ -1074,6 +1087,17 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
             </div>
           </form>
         </div>
+      )}
+
+      {envioPastaFor && (
+        <EnvioPastaEpisodio
+          episode={envioPastaFor}
+          onFechar={() => setEnvioPastaFor(null)}
+          onConcluido={(atualizado: any) => {
+            if (!atualizado?._id) return;
+            setEpisodesOfSelected(prev => prev.map(ep => (ep._id === atualizado._id ? { ...ep, ...atualizado } : ep)));
+          }}
+        />
       )}
 
       {/* ─── Modal: painéis do capítulo ─── */}

@@ -15,6 +15,7 @@ import RoyaltiesPanel from './RoyaltiesPanel';
 import AprovacoesPanel from './AprovacoesPanel';
 import CanaisPanel from './CanaisPanel';
 import CuradoriaPanel from './CuradoriaPanel';
+import EnvioPastaEpisodio from '../EnvioEpisodio/EnvioPastaEpisodio';
 // Fonte ÚNICA dos 19 slugs do vocabulário fechado de tags (Fase 5 Bloco 2) —
 // o TagsChipInput (admin/fila) importa o MESMO JSON que o backend
 // (utils/tagsVocabulario.js), nunca uma lista duplicada (spec, "O
@@ -239,6 +240,8 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   // Painéis (Hi-Qua webtoon)
   const [selectedEpisode, setSelectedEpisode] = useState<any>(null);
   const [panelsList, setPanelsList] = useState<any[]>([]);
+  // Frente A: envio da pasta inteira do episódio (mesmo componente do portal).
+  const [envioPastaAberto, setEnvioPastaAberto] = useState(false);
   const [loadingPanels, setLoadingPanels] = useState(false);
   const [newPanelUrl, setNewPanelUrl] = useState('');
   const [addingPanel, setAddingPanel] = useState(false);
@@ -1343,6 +1346,28 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <h2 className="text-3xl font-black tracking-tighter truncate">{selectedEpisode.title}</h2>
               </div>
             </div>
+
+            {/* Pasta inteira do episódio (frente A): conferência e envio em partes */}
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={() => setEnvioPastaAberto(true)}
+                className="px-4 py-2 rounded-xl bg-rose-600 text-white text-[11px] font-black uppercase tracking-widest"
+              >
+                Enviar pasta do episódio
+              </button>
+            </div>
+            {envioPastaAberto && (
+              <EnvioPastaEpisodio
+                episode={{ _id: selectedEpisode._id || selectedEpisode.id, title: selectedEpisode.title, panels: panelsList }}
+                onFechar={() => setEnvioPastaAberto(false)}
+                onConcluido={(atualizado: any) => {
+                  if (!atualizado) return;
+                  setPanelsList(atualizado.panels ?? []);
+                  setSelectedEpisode((prev: any) => ({ ...prev, ...atualizado }));
+                }}
+              />
+            )}
 
             {/* Adicionar painéis — Batch Upload */}
             <div className="space-y-3 mb-6">
