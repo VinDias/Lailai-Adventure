@@ -3,8 +3,8 @@
  * em services/envioEpisodioService.js. Serve o Meu Estúdio e o Gerenciar
  * Conteúdo (a guarda de admin ou dono fica no serviço).
  *
- *  GET    /api/envio-episodio/config               limite de painéis e tamanho da parte
- *  POST   /api/envio-episodio/:episodeId/iniciar   { arquivos: [{ nome, largura, altura }] }
+ *  GET    /api/envio-episodio/config               limites (painéis, MB) e tamanho da parte
+ *  POST   /api/envio-episodio/:episodeId/iniciar   { arquivos: [{ nome, largura, altura, tamanho }] }
  *  POST   /api/envio-episodio/:envioId/partes      multipart, um campo por arquivo, nome do campo = chave
  *  POST   /api/envio-episodio/:envioId/concluir
  *  DELETE /api/envio-episodio/:envioId

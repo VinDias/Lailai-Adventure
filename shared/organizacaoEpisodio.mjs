@@ -24,10 +24,28 @@
  *    largura mantida, último pedaço preservado; o balão usa o mesmo mapa.
  *  - O balão tem de ter o mesmo tamanho da página (como no Studio).
  *  - O limite de painéis conta DEPOIS do corte.
+ *  - Limites que o Vin deu em 25/11/2026 (99, conversa 17712278): até 100
+ *    imagens por episódio (100 x 1280 = os 128.000 px de altura que ele citou,
+ *    então são painéis DEPOIS do corte) e 20 MB no total por episódio. Os
+ *    20 MB contam sobre os arquivos ORIGINAIS que entram (o tamanho que o
+ *    autor vê na pasta dele); o corte no navegador regrava as fatias, e o
+ *    servidor tem um teto próprio para o que chega de fato
+ *    (services/envioEpisodioService.js, FOLGA_DO_CORTE).
+ *  - Arquivo que sobe sem corte (página ou balão de até 1280 px, capa) tem de
+ *    caber numa parte do envio (`tamanhoMaximoArquivo`).
  */
 
 export const ALTURA_MAXIMA = 1280;
-export const LIMITE_PAINEIS_PADRAO = 184;
+export const LIMITE_PAINEIS_PADRAO = 100;
+export const LIMITE_MB_EPISODIO_PADRAO = 20;
+export const BYTES_POR_MB = 1024 * 1024;
+
+/** "4,7 MB": como a tela e as mensagens mostram tamanho. */
+export function formatarMB(bytes) {
+  const mb = (Number(bytes) || 0) / BYTES_POR_MB;
+  const casas = mb >= 10 ? 0 : 1;
+  return `${mb.toFixed(casas).replace('.', ',')} MB`;
+}
 
 /** Sufixo do nome do arquivo -> idioma da Lorflux (models/Episode.js). */
 export const IDIOMA_POR_SUFIXO = { PORT: 'pt', ENG: 'en', ESP: 'es', ZHO: 'zh' };
@@ -46,6 +64,8 @@ export const PROBLEMAS_QUE_IMPEDEM = new Set([
   'limite-paineis',
   'tamanho-ilegivel',
   'capa-repetida',
+  'limite-tamanho',
+  'arquivo-grande',
 ]);
 
 const MENSAGENS = {
@@ -61,6 +81,8 @@ const MENSAGENS = {
   'capa-repetida': 'Há mais de um arquivo de capa.',
   'sem-paginas': 'Nenhuma página (.jpg ou .jpeg) com número no nome.',
   'limite-paineis': 'O episódio passa do limite de painéis.',
+  'limite-tamanho': 'O episódio passa do limite de tamanho.',
+  'arquivo-grande': 'Arquivo grande demais para subir sem corte.',
 };
 
 export function mensagemDoProblema(codigo) {
@@ -150,7 +172,8 @@ export function nomeNoBunny({ numeroPagina, fatia = 1, totalFatias = 1, idioma =
 /**
  * Organiza a pasta inteira.
  *
- * Entrada: lista de { nome, largura?, altura? } (nome pode trazer a pasta;
+ * Entrada: lista de { nome, largura?, altura?, tamanho? } (nome pode trazer a pasta;
+ * tamanho em bytes, do arquivo original;
  * largura/altura são da imagem ORIGINAL, lidas pelo cabeçalho; sem elas, o
  * corte e a conferência de tamanho não são feitos e o problema
  * 'tamanho-ilegivel' aparece se `exigirTamanho`).
@@ -164,13 +187,27 @@ export function nomeNoBunny({ numeroPagina, fatia = 1, totalFatias = 1, idioma =
  *  - capa: { indice, nome, extensao } ou null;
  *  - problemas: [{ indice, nome, codigo, mensagem, impede }] (indice = posição
  *    do arquivo na entrada; null para problema do episódio inteiro);
- *  - totalPaineis, porIdioma ({pt: n painéis com balão}), podeEnviar.
+ *  - totalPaineis, porIdioma ({pt: n painéis com balão}), podeEnviar;
+ *  - totalBytes: soma dos originais que entram (páginas, balões usados, capa).
+ *
+ * Opções: limitePaineis (padrão 100), limiteBytes (padrão 20 MB; 0 desliga),
+ * tamanhoMaximoArquivo (bytes; sem ele não confere), exigirTamanho.
  */
 export function organizarPasta(arquivos, opcoes = {}) {
   const limite = Number.isInteger(opcoes.limitePaineis) && opcoes.limitePaineis > 0
     ? opcoes.limitePaineis
     : LIMITE_PAINEIS_PADRAO;
   const exigirTamanho = opcoes.exigirTamanho !== false;
+  const limiteBytes = Number.isInteger(opcoes.limiteBytes) && opcoes.limiteBytes >= 0
+    ? opcoes.limiteBytes
+    : LIMITE_MB_EPISODIO_PADRAO * BYTES_POR_MB;
+  const tamanhoMaximoArquivo = Number.isInteger(opcoes.tamanhoMaximoArquivo) && opcoes.tamanhoMaximoArquivo > 0
+    ? opcoes.tamanhoMaximoArquivo
+    : null;
+  const bytesDe = (indice) => {
+    const t = lista[indice] && lista[indice].tamanho;
+    return Number.isInteger(t) && t >= 0 ? t : 0;
+  };
   const lista = Array.isArray(arquivos) ? arquivos : [];
 
   const problemas = [];
@@ -191,6 +228,7 @@ export function organizarPasta(arquivos, opcoes = {}) {
     if (c.tipo === 'capa') {
       if (capa) return problema(indice, c.nome, 'capa-repetida');
       capa = { indice, nome: c.nome, extensao: c.extensao };
+      if (tamanhoMaximoArquivo && bytesDe(indice) > tamanhoMaximoArquivo) problema(indice, c.nome, 'arquivo-grande');
       return;
     }
 
@@ -283,7 +321,34 @@ export function organizarPasta(arquivos, opcoes = {}) {
     for (const idioma of IDIOMAS) if (p.baloes[idioma]) porIdioma[idioma] += total;
   }
 
+  // Soma dos originais que entram, e o que sobe inteiro (sem corte) tem de
+  // caber numa parte do envio.
+  let totalBytes = capa ? bytesDe(capa.indice) : 0;
+  for (const p of ordenadas) {
+    const usados = [{ indice: p.indice, nome: p.nome }, ...IDIOMAS.filter(i => p.baloes[i]).map(i => p.baloes[i])];
+    for (const u of usados) {
+      totalBytes += bytesDe(u.indice);
+      if (tamanhoMaximoArquivo && p.fatias.length === 1 && bytesDe(u.indice) > tamanhoMaximoArquivo) {
+        problema(u.indice, u.nome, 'arquivo-grande');
+      }
+    }
+  }
+
   if (ordenadas.length === 0) problema(null, null, 'sem-paginas');
+  if (limiteBytes > 0 && totalBytes > limiteBytes) {
+    problemas.push({
+      indice: null,
+      nome: null,
+      codigo: 'limite-tamanho',
+      // Arredondado, 20 MB e um byte apareceria como "20 MB; o limite é 20 MB".
+      mensagem: formatarMB(totalBytes) === formatarMB(limiteBytes)
+        ? `Os arquivos do episódio somam um pouco mais de ${formatarMB(limiteBytes)}, que é o limite.`
+        : `Os arquivos do episódio somam ${formatarMB(totalBytes)}; o limite é ${formatarMB(limiteBytes)}.`,
+      impede: true,
+      valor: totalBytes,
+      limite: limiteBytes,
+    });
+  }
   if (paineis.length > limite) {
     problemas.push({
       indice: null,
@@ -291,6 +356,8 @@ export function organizarPasta(arquivos, opcoes = {}) {
       codigo: 'limite-paineis',
       mensagem: `O episódio fica com ${paineis.length} painéis depois do corte; o limite é ${limite}.`,
       impede: true,
+      valor: paineis.length,
+      limite,
     });
   }
 
@@ -304,6 +371,8 @@ export function organizarPasta(arquivos, opcoes = {}) {
     paginasCortadas: ordenadas.filter(p => p.fatias.length > 1).length,
     porIdioma,
     limitePaineis: limite,
+    totalBytes,
+    limiteBytes,
     podeEnviar: !problemas.some(p => p.impede),
   };
 }

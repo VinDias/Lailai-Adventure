@@ -224,6 +224,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     ad_frequency_feed: '',
     ad_frequency_webtoon: '',
     limite_paineis_episodio: '',
+    limite_mb_episodio: '',
   });
 
   // Anúncios
@@ -797,6 +798,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         api.updateSetting('ad_frequency_feed',     settingsForm.ad_frequency_feed,     'Frequência de anúncio no feed'),
         api.updateSetting('ad_frequency_webtoon',  settingsForm.ad_frequency_webtoon,  'Frequência de anúncio no webtoon'),
         api.updateSetting('limite_paineis_episodio', settingsForm.limite_paineis_episodio, 'Limite de painéis por episódio'),
+        api.updateSetting('limite_mb_episodio', settingsForm.limite_mb_episodio, 'Limite de MB por episódio'),
       ]);
       setSettingsMsg('Configurações salvas!');
       agendar('configuracoes', () => setSettingsMsg(''), 3000);
@@ -1800,19 +1802,33 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                   </div>
                 </div>
 
-                {/* Envio de episódios (Fase 7, frente A): limite contado depois do corte
-                    das páginas altas; vazio ou inválido = 184 (services/envioEpisodioService.js). */}
+                {/* Envio de episódios (Fase 7, frente A): limites que o Vin deu em 25/11/2026.
+                    Painéis contados depois do corte das páginas altas; MB somados nos
+                    arquivos originais da pasta. Vazio ou inválido = 100 e 20
+                    (services/envioEpisodioService.js). */}
                 <div>
                   <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-4">Envio de episódios</p>
                   <div>
-                    <label htmlFor="limite_paineis_episodio" className="text-xs font-bold text-zinc-400 block mb-1">Limite de painéis por episódio <span className="text-zinc-600 font-normal">(contado depois do corte das páginas altas; vazio = 184)</span></label>
+                    <label htmlFor="limite_paineis_episodio" className="text-xs font-bold text-zinc-400 block mb-1">Limite de painéis por episódio <span className="text-zinc-600 font-normal">(contado depois do corte das páginas altas; vazio = 100)</span></label>
                     <input
                       id="limite_paineis_episodio"
                       type="number"
                       min="1"
-                      placeholder="184"
+                      placeholder="100"
                       value={settingsForm.limite_paineis_episodio}
                       onChange={e => setSettingsForm(p => ({ ...p, limite_paineis_episodio: e.target.value }))}
+                      className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <label htmlFor="limite_mb_episodio" className="text-xs font-bold text-zinc-400 block mb-1">Limite de MB por episódio <span className="text-zinc-600 font-normal">(soma dos arquivos da pasta, antes do corte; vazio = 20)</span></label>
+                    <input
+                      id="limite_mb_episodio"
+                      type="number"
+                      min="1"
+                      placeholder="20"
+                      value={settingsForm.limite_mb_episodio}
+                      onChange={e => setSettingsForm(p => ({ ...p, limite_mb_episodio: e.target.value }))}
                       className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
                     />
                   </div>

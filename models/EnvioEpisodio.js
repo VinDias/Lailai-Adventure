@@ -18,6 +18,7 @@ const ArquivoEsperadoSchema = new mongoose.Schema({
   caminho: { type: String, required: true }, // caminho no Storage
   recebido: { type: Boolean, default: false },
   url: { type: String, default: null },
+  bytes: { type: Number, default: 0 }, // tamanho do que chegou (depois do corte)
 }, { _id: false });
 
 const EnvioEpisodioSchema = new mongoose.Schema({
@@ -27,6 +28,8 @@ const EnvioEpisodioSchema = new mongoose.Schema({
   status: { type: String, enum: ['aberto', 'concluindo', 'concluido', 'cancelado'], default: 'aberto', index: true },
   pasta: { type: String, required: true },
   totalPaineis: { type: Number, required: true },
+  bytesDeclarados: { type: Number, default: 0 }, // soma dos originais da pasta
+  tetoBytes: { type: Number, default: 0 }, // máximo que pode chegar de fato (0 = sem teto)
   arquivos: { type: [ArquivoEsperadoSchema], default: [] },
   concluidoEm: { type: Date, default: null },
 }, { timestamps: true });

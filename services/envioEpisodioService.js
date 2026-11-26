@@ -8,7 +8,9 @@
  *  1. iniciarEnvio: recebe só a LISTA dos arquivos (nome, largura, altura),
  *     roda as regras de shared/organizacaoEpisodio.mjs (as mesmas da tela),
  *     aplica o limite de painéis depois do corte (Setting
- *     `limite_paineis_episodio`, padrão 184) e grava o que espera receber,
+ *     `limite_paineis_episodio`, padrão 100) e o de tamanho do episódio
+ *     (Setting `limite_mb_episodio`, padrão 20, sobre os originais), e grava
+ *     o que espera receber,
  *     com o nome que o SERVIDOR monta no Bunny:
  *       lorflux/series/<obra>/ep-<nn>/<envio>/pagina-008-2-en.png
  *     Uma subpasta por envio: nome novo a cada envio, então o CDN nunca serve
@@ -36,12 +38,24 @@ const { isAdminUser } = require('../utils/ownership');
 const logger = require('../utils/logger');
 
 const CHAVE_LIMITE = 'limite_paineis_episodio';
+const CHAVE_LIMITE_MB = 'limite_mb_episodio';
 const MAXIMO_ARQUIVOS_NA_LISTA = 2000;
 // Por pedido de parte. O navegador agrupa os arquivos até esse total; o
 // limite global de 300 pedidos por 15 min (server.js) impede um pedido por
-// arquivo num episódio de 184 painéis com 4 idiomas.
-const TAMANHO_MAXIMO_PARTE = 20 * 1024 * 1024;
+// arquivo num episódio de 100 painéis com 4 idiomas (500 arquivos).
+// 8 MB e não 20: o episódio inteiro tem 20 MB (limite do Vin, 25/11), então
+// são 3 ou 4 pedidos por episódio; cada pedido fica na memória do processo
+// até subir ao Bunny (multer em memória) e o pm2 reinicia acima de 500 MB,
+// com vários autores enviando ao mesmo tempo. E cabe num client_max_body_size
+// de 10M no nginx, que não está no repositório.
+const TAMANHO_MAXIMO_PARTE = 8 * 1024 * 1024;
 const ARQUIVOS_POR_PARTE = 60;
+// O limite de MB conta os originais da pasta. O corte no navegador regrava as
+// fatias: JPEG a 0,9 fica do mesmo tamanho, mas PNG de balão regravado pelo
+// canvas cresce de 2 a 2,7 vezes (medido no Chromium com o HáQa Stone EP3 do
+// Vin em 25/11/2026). O que chega de fato ao Bunny pode ir até 3 vezes o
+// limite; acima disso a parte é recusada (é alguém mandando outra coisa).
+const FOLGA_DO_CORTE = 3;
 const ENVIOS_SIMULTANEOS_AO_BUNNY = 4;
 
 let regras;
@@ -57,17 +71,30 @@ function erro(status, mensagem, extra = {}) {
   return e;
 }
 
+/** Inteiro positivo gravado no Setting, ou o padrão (vazio, texto, 0, 1.5). */
+async function lerInteiroDoSetting(chave, padrao) {
+  const doc = await Setting.findOne({ key: chave }).lean();
+  const texto = doc ? String(doc.value).trim() : '';
+  const n = Number.parseInt(texto, 10);
+  return Number.isInteger(n) && n > 0 && String(n) === texto ? n : padrao;
+}
+
 async function lerLimitePaineis() {
   const { LIMITE_PAINEIS_PADRAO } = await carregarRegras();
-  const doc = await Setting.findOne({ key: CHAVE_LIMITE }).lean();
-  const n = doc ? Number.parseInt(String(doc.value).trim(), 10) : NaN;
-  return Number.isInteger(n) && n > 0 && String(n) === String(doc.value).trim() ? n : LIMITE_PAINEIS_PADRAO;
+  return lerInteiroDoSetting(CHAVE_LIMITE, LIMITE_PAINEIS_PADRAO);
+}
+
+/** Limite de tamanho do episódio, em bytes (o Setting guarda MB). */
+async function lerLimiteBytes() {
+  const { LIMITE_MB_EPISODIO_PADRAO, BYTES_POR_MB } = await carregarRegras();
+  return (await lerInteiroDoSetting(CHAVE_LIMITE_MB, LIMITE_MB_EPISODIO_PADRAO)) * BYTES_POR_MB;
 }
 
 async function configuracao() {
   const { ALTURA_MAXIMA } = await carregarRegras();
   return {
     limitePaineis: await lerLimitePaineis(),
+    limiteBytes: await lerLimiteBytes(),
     alturaMaxima: ALTURA_MAXIMA,
     tamanhoMaximoParte: TAMANHO_MAXIMO_PARTE,
     arquivosPorParte: ARQUIVOS_POR_PARTE,
@@ -146,8 +173,8 @@ async function cancelarAbertos(episodeId, excetoId = null) {
 }
 
 /**
- * Passo 1. `arquivos`: [{ nome, largura, altura }] da pasta inteira, como o
- * navegador leu (nome com ou sem a pasta). Devolve o envio e, para cada
+ * Passo 1. `arquivos`: [{ nome, largura, altura, tamanho }] da pasta inteira,
+ * como o navegador leu (nome com ou sem a pasta; tamanho em bytes do original). Devolve o envio e, para cada
  * arquivo que vai subir, a `chave` com que ele deve voltar no passo 2, o
  * `indice` na lista recebida e o recorte (y, altura) a fazer antes.
  */
@@ -157,16 +184,22 @@ async function iniciarEnvio({ user, episodeId, arquivos }) {
   }
   if (!Array.isArray(arquivos) || arquivos.length === 0) throw erro(400, 'Envie a lista de arquivos da pasta.');
   if (arquivos.length > MAXIMO_ARQUIVOS_NA_LISTA) throw erro(400, `A pasta tem mais de ${MAXIMO_ARQUIVOS_NA_LISTA} arquivos.`);
+  // Sem o tamanho de cada arquivo o limite de MB não teria como ser conferido.
+  if (arquivos.some(a => !Number.isInteger(a?.tamanho) || a.tamanho < 0)) {
+    throw erro(400, 'Envie o tamanho (em bytes) de cada arquivo da pasta.');
+  }
   const lista = arquivos.map(a => ({
     nome: typeof a?.nome === 'string' ? a.nome.slice(0, 300) : '',
     largura: Number.isInteger(a?.largura) ? a.largura : undefined,
     altura: Number.isInteger(a?.altura) ? a.altura : undefined,
+    tamanho: a.tamanho,
   }));
 
   const { episode, series, porAdmin } = await acessoAoEpisodio(user, episodeId);
   const { organizarPasta } = await carregarRegras();
   const limitePaineis = await lerLimitePaineis();
-  const org = organizarPasta(lista, { limitePaineis });
+  const limiteBytes = await lerLimiteBytes();
+  const org = organizarPasta(lista, { limitePaineis, limiteBytes, tamanhoMaximoArquivo: TAMANHO_MAXIMO_PARTE });
   if (!org.podeEnviar) {
     throw erro(400, 'A pasta tem problemas que impedem o envio.', { problemas: org.problemas });
   }
@@ -176,6 +209,8 @@ async function iniciarEnvio({ user, episodeId, arquivos }) {
     userId: user.id,
     porAdmin,
     totalPaineis: org.totalPaineis,
+    bytesDeclarados: org.totalBytes,
+    tetoBytes: limiteBytes * FOLGA_DO_CORTE,
     pasta: 'pendente',
   });
   envio.pasta = pastaDoEpisodio(series, episode, envio._id);
@@ -208,6 +243,8 @@ async function iniciarEnvio({ user, episodeId, arquivos }) {
     totalPaginas: org.totalPaginas,
     porIdioma: org.porIdioma,
     limitePaineis,
+    totalBytes: org.totalBytes,
+    limiteBytes,
     problemas: org.problemas,
     arquivos: recortes,
   };
@@ -267,6 +304,14 @@ async function receberParte({ user, envioId, arquivos }) {
   }
   if (recusados.length > 0) throw erro(400, 'Parte recusada: arquivos fora do esperado.', { recusados });
 
+  // Teto do que chega de fato (ver FOLGA_DO_CORTE). Reenvio de um arquivo
+  // conta o tamanho novo no lugar do antigo.
+  const novos = new Map(arquivos.map(a => [a.chave, a.buffer.length]));
+  const somaDepois = envio.arquivos.reduce((s, a) => s + (novos.has(a.chave) ? novos.get(a.chave) : (a.recebido ? a.bytes || 0 : 0)), 0);
+  if (envio.tetoBytes && somaDepois > envio.tetoBytes) {
+    throw erro(413, 'Os arquivos deste envio passaram do tamanho esperado para o episódio.');
+  }
+
   const falhas = [];
   for (let i = 0; i < arquivos.length; i += ENVIOS_SIMULTANEOS_AO_BUNNY) {
     const lote = arquivos.slice(i, i + ENVIOS_SIMULTANEOS_AO_BUNNY);
@@ -277,7 +322,7 @@ async function receberParte({ user, envioId, arquivos }) {
         const url = await bunnyStorage.uploadBufferToStorage(a.buffer, esperado.caminho, contentType);
         await EnvioEpisodio.updateOne(
           { _id: envio._id, status: 'aberto', 'arquivos.chave': a.chave },
-          { $set: { 'arquivos.$.recebido': true, 'arquivos.$.url': url } }
+          { $set: { 'arquivos.$.recebido': true, 'arquivos.$.url': url, 'arquivos.$.bytes': a.buffer.length } }
         );
       } catch (e) {
         logger.error(`[EnvioEpisodio] Falha ao subir ${esperado.caminho}`, e);
@@ -429,7 +474,10 @@ module.exports = {
   cancelarEnvio,
   configuracao,
   lerLimitePaineis,
+  lerLimiteBytes,
   CHAVE_LIMITE,
+  CHAVE_LIMITE_MB,
+  FOLGA_DO_CORTE,
   TAMANHO_MAXIMO_PARTE,
   ARQUIVOS_POR_PARTE,
 };

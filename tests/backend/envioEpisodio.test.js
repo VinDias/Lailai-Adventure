@@ -64,7 +64,7 @@ beforeEach(async () => {
     return `https://${CDN}/${caminho}`;
   });
   bunny.__setDeleterForTests(async (caminho) => { apagados.push(caminho); noBunny.delete(caminho); });
-  await Setting.deleteMany({ key: 'limite_paineis_episodio' });
+  await Setting.deleteMany({ key: { $in: ['limite_paineis_episodio', 'limite_mb_episodio'] } });
 });
 
 // ─── imagens ───────────────────────────────────────────────────────────────
@@ -108,13 +108,13 @@ const SUFIXO = { pt: 'PORT', en: 'ENG', es: 'ESP', zh: 'ZHO' };
 async function montarPasta(paginas, { capa = false } = {}) {
   const lista = [];
   const bytes = [];
-  if (capa) { lista.push({ nome: 'EP/Capa.jpeg', largura: 60, altura: 90 }); bytes.push(await jpeg(60, 90)); }
+  if (capa) { bytes.push(await jpeg(60, 90)); lista.push({ nome: 'EP/Capa.jpeg', largura: 60, altura: 90, tamanho: bytes.at(-1).length }); }
   for (const p of paginas) {
-    lista.push({ nome: `EP/Pagina ${tres(p.n)}.jpeg`, largura: p.largura, altura: p.altura });
     bytes.push(await jpeg(p.largura, p.altura));
+    lista.push({ nome: `EP/Pagina ${tres(p.n)}.jpeg`, largura: p.largura, altura: p.altura, tamanho: bytes.at(-1).length });
     for (const idioma of p.baloes || []) {
-      lista.push({ nome: `EP/Pagina ${tres(p.n)}_${SUFIXO[idioma]}.png`, largura: p.largura, altura: p.altura });
       bytes.push(await png(p.largura, p.altura));
+      lista.push({ nome: `EP/Pagina ${tres(p.n)}_${SUFIXO[idioma]}.png`, largura: p.largura, altura: p.altura, tamanho: bytes.at(-1).length });
     }
   }
   return { lista, bytes };
@@ -234,34 +234,95 @@ describe('envio da pasta inteira', () => {
 });
 
 describe('limite de painéis depois do corte, na configuração', () => {
-  // 93 páginas de 2560 px = 186 painéis depois do corte.
-  const lista = Array.from({ length: 93 }, (_, i) => ({ nome: `Pagina ${tres(i + 1)}.jpg`, largura: 800, altura: 2560 }));
+  // 51 páginas de 2560 px = 102 painéis depois do corte (limite do Vin, 25/11: 100).
+  const lista = Array.from({ length: 51 }, (_, i) => ({ nome: `Pagina ${tres(i + 1)}.jpg`, largura: 800, altura: 2560, tamanho: 1000 }));
 
-  it('passa de 184 depois do corte: recusado com aviso; Setting 200 passa a aceitar; 150 recusa de novo', async () => {
+  it('passa de 100 depois do corte: recusado com aviso; Setting 200 passa a aceitar; 90 recusa de novo', async () => {
     const { episode } = await criarEpisodio();
+    expect((await request(app).get('/api/envio-episodio/config').set('Authorization', `Bearer ${admin()}`)).body.limitePaineis).toBe(100);
     const r1 = await iniciar(admin(), episode._id, lista);
     expect(r1.status).toBe(400);
     const aviso = r1.body.problemas.find(p => p.codigo === 'limite-paineis');
-    expect(aviso.mensagem).toContain('186');
-    expect(aviso.mensagem).toContain('184');
+    expect(aviso.mensagem).toContain('102');
+    expect(aviso.mensagem).toContain('100');
+    expect((await iniciar(admin(), episode._id, lista.slice(0, 50))).status).toBe(201);
 
     const put = await request(app).put('/api/settings/limite_paineis_episodio').set('Authorization', `Bearer ${admin()}`).send({ value: '200', label: 'Limite de painéis por episódio' });
     expect(put.status).toBe(200);
     expect((await request(app).get('/api/envio-episodio/config').set('Authorization', `Bearer ${admin()}`)).body.limitePaineis).toBe(200);
     const r2 = await iniciar(admin(), episode._id, lista);
     expect(r2.status).toBe(201);
-    expect(r2.body.totalPaineis).toBe(186);
+    expect(r2.body.totalPaineis).toBe(102);
 
-    await Setting.updateOne({ key: 'limite_paineis_episodio' }, { $set: { value: '150' } });
-    expect((await iniciar(admin(), episode._id, lista.slice(0, 80))).status).toBe(400);
+    await Setting.updateOne({ key: 'limite_paineis_episodio' }, { $set: { value: '90' } });
+    expect((await iniciar(admin(), episode._id, lista.slice(0, 46))).status).toBe(400);
   });
 
-  it('valor inválido na configuração volta para 184', async () => {
+  it('valor inválido na configuração volta para 100', async () => {
     await Setting.create({ key: 'limite_paineis_episodio', value: 'abc' });
     const { episode } = await criarEpisodio();
     const r = await iniciar(admin(), episode._id, lista);
     expect(r.status).toBe(400);
-    expect(r.body.problemas.find(p => p.codigo === 'limite-paineis').mensagem).toContain('184');
+    expect(r.body.problemas.find(p => p.codigo === 'limite-paineis').mensagem).toContain('100');
+  });
+});
+
+describe('limite de 20 MB por episódio (originais), na configuração', () => {
+  const MB = 1024 * 1024;
+  // 4 páginas de 5,25 MB = 21 MB: passa dos 20.
+  const lista = Array.from({ length: 4 }, (_, i) => ({ nome: `Pagina ${tres(i + 1)}.jpg`, largura: 800, altura: 6400, tamanho: 5.25 * MB }));
+
+  it('21 MB recusado com aviso; Setting 30 aceita; 20 MB exatos passam', async () => {
+    const { episode } = await criarEpisodio();
+    expect((await request(app).get('/api/envio-episodio/config').set('Authorization', `Bearer ${admin()}`)).body.limiteBytes).toBe(20 * MB);
+    const r1 = await iniciar(admin(), episode._id, lista);
+    expect(r1.status).toBe(400);
+    const aviso = r1.body.problemas.find(p => p.codigo === 'limite-tamanho');
+    expect(aviso.mensagem).toBe('Os arquivos do episódio somam 21 MB; o limite é 20 MB.');
+
+    const exatos = lista.map(a => ({ ...a, tamanho: 5 * MB }));
+    expect((await iniciar(admin(), episode._id, exatos)).status).toBe(201);
+
+    await request(app).put('/api/settings/limite_mb_episodio').set('Authorization', `Bearer ${admin()}`).send({ value: '30', label: 'Limite de MB por episódio' });
+    expect((await request(app).get('/api/envio-episodio/config').set('Authorization', `Bearer ${admin()}`)).body.limiteBytes).toBe(30 * MB);
+    expect((await iniciar(admin(), episode._id, lista)).status).toBe(201);
+  });
+
+  it('lista sem o tamanho de algum arquivo é recusada (o limite não teria como ser conferido)', async () => {
+    const { episode } = await criarEpisodio();
+    const r = await iniciar(admin(), episode._id, [{ nome: 'Pagina 001.jpg', largura: 80, altura: 128 }]);
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/tamanho/);
+  });
+
+  it('página sem corte maior que a parte do envio (8 MB) impede, com aviso no arquivo', async () => {
+    const { episode } = await criarEpisodio();
+    const r = await iniciar(admin(), episode._id, [
+      { nome: 'Pagina 001.jpg', largura: 800, altura: 1280, tamanho: 9 * MB },
+      { nome: 'Pagina 002.jpg', largura: 800, altura: 12800, tamanho: 9 * MB },
+    ]);
+    expect(r.status).toBe(400);
+    const grandes = r.body.problemas.filter(p => p.codigo === 'arquivo-grande').map(p => p.nome);
+    expect(grandes).toEqual(['Pagina 001.jpg']); // a de 12800 vai em fatias
+  });
+
+  it('teto do que chega de fato: 3x o limite; acima disso a parte é recusada (413) e nada sobe', async () => {
+    await Setting.create({ key: 'limite_mb_episodio', value: '1' }); // teto real = 3 MB
+    const { episode } = await criarEpisodio();
+    // Ruído não comprime: cada JPEG 800x1280 de ruído a 100 tem ~1 MB ou mais.
+    const ruido = async () => sharp(require('crypto').randomBytes(800 * 1280 * 3), { raw: { width: 800, height: 1280, channels: 3 } }).jpeg({ quality: 100 }).toBuffer();
+    const bufs = [await ruido(), await ruido(), await ruido(), await ruido()];
+    expect(bufs.reduce((s, b) => s + b.length, 0)).toBeGreaterThan(3 * MB);
+    // Declara 200 KB cada (a pasta "passa"), manda os de verdade.
+    const lista = bufs.map((_, i) => ({ nome: `Pagina ${tres(i + 1)}.jpg`, largura: 800, altura: 1280, tamanho: 200 * 1024 }));
+    const ini = await iniciar(admin(), episode._id, lista);
+    expect(ini.status).toBe(201);
+    const itens = ini.body.arquivos.map(a => ({ chave: a.chave, tipo: a.tipo, buffer: bufs[a.indice] }));
+    const r1 = await enviarParte(admin(), ini.body.envioId, itens.slice(0, 2));
+    expect(r1.status).toBe(200);
+    const r2 = await enviarParte(admin(), ini.body.envioId, itens.slice(2));
+    expect(r2.status).toBe(413);
+    expect(noBunny.size).toBe(2);
   });
 });
 
@@ -426,7 +487,7 @@ describe('o servidor confere cada arquivo de novo', () => {
   it('pasta com problema que impede (página repetida) não abre envio', async () => {
     const { episode } = await criarEpisodio();
     const r = await iniciar(admin(), episode._id, [
-      { nome: 'Pagina 001.jpg', largura: 8, altura: 8 }, { nome: 'Pagina 1.jpeg', largura: 8, altura: 8 },
+      { nome: 'Pagina 001.jpg', largura: 8, altura: 8, tamanho: 100 }, { nome: 'Pagina 1.jpeg', largura: 8, altura: 8, tamanho: 100 },
     ]);
     expect(r.status).toBe(400);
     expect(r.body.problemas.map(p => p.codigo)).toEqual(['pagina-repetida', 'pagina-repetida']);
@@ -460,7 +521,7 @@ describe('quem pode enviar', () => {
     const dono = await criarAutor();
     const outro = await criarAutor();
     const { episode } = await criarEpisodio({ canalId: dono.canal._id });
-    const lista = [{ nome: 'Pagina 001.jpg', largura: 80, altura: 128 }];
+    const lista = [{ nome: 'Pagina 001.jpg', largura: 80, altura: 128, tamanho: 100 }];
     expect((await iniciar(outro.token, episode._id, lista)).status).toBe(404);
     const ini = await iniciar(dono.token, episode._id, lista);
     expect((await enviarParte(outro.token, ini.body.envioId, [{ chave: '0', tipo: 'pagina', buffer: await jpeg(80, 128) }])).status).toBe(404);
@@ -469,7 +530,7 @@ describe('quem pode enviar', () => {
 
   it('autor: episódio enviado para aprovação 403; publicado 403; usuário sem canal 404', async () => {
     const autor = await criarAutor();
-    const lista = [{ nome: 'Pagina 001.jpg', largura: 80, altura: 128 }];
+    const lista = [{ nome: 'Pagina 001.jpg', largura: 80, altura: 128, tamanho: 100 }];
     const enviado = await criarEpisodio({ canalId: autor.canal._id, submittedAt: new Date() });
     expect((await iniciar(autor.token, enviado.episode._id, lista)).status).toBe(403);
     const publicado = await criarEpisodio({ canalId: autor.canal._id, status: 'published' });

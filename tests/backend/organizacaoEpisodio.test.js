@@ -110,20 +110,129 @@ describe('página alta', () => {
 });
 
 describe('limite de painéis, contado depois do corte', () => {
-  it('184 passa; 185 depois do corte impede o envio; o limite é parâmetro', () => {
-    const arquivos = Array.from({ length: 92 }, (_, i) => ({ nome: `Pagina ${tres(i + 1)}.jpg`, largura: 800, altura: 2560 }));
+  // Vin, 25/11/2026: "até 100 imagens (o que dá uma altura máxima teórica de
+  // 800x128.000 px)". 100 x 1280 = 128.000: são painéis DEPOIS do corte.
+  it('100 passa; 101 depois do corte impede o envio; o limite é parâmetro', () => {
+    const arquivos = Array.from({ length: 50 }, (_, i) => ({ nome: `Pagina ${tres(i + 1)}.jpg`, largura: 800, altura: 2560 }));
     const ok = O.organizarPasta(arquivos);
-    expect(ok.totalPaineis).toBe(184);
+    expect(O.LIMITE_PAINEIS_PADRAO).toBe(100);
+    expect(ok.totalPaineis).toBe(100);
     expect(ok.podeEnviar).toBe(true);
 
-    const demais = O.organizarPasta([...arquivos, { nome: 'Pagina 093.jpg', largura: 800, altura: 100 }]);
-    expect(demais.totalPaineis).toBe(185);
+    const demais = O.organizarPasta([...arquivos, { nome: 'Pagina 051.jpg', largura: 800, altura: 100 }]);
+    expect(demais.totalPaineis).toBe(101);
     expect(demais.podeEnviar).toBe(false);
     const p = demais.problemas.find(x => x.codigo === 'limite-paineis');
-    expect(p.mensagem).toContain('185');
-    expect(p.mensagem).toContain('184');
+    expect(p.mensagem).toBe('O episódio fica com 101 painéis depois do corte; o limite é 100.');
+    expect([p.valor, p.limite]).toEqual([101, 100]);
 
-    expect(O.organizarPasta([...arquivos, { nome: 'Pagina 093.jpg', largura: 800, altura: 100 }], { limitePaineis: 200 }).podeEnviar).toBe(true);
+    expect(O.organizarPasta([...arquivos, { nome: 'Pagina 051.jpg', largura: 800, altura: 100 }], { limitePaineis: 200 }).podeEnviar).toBe(true);
+  });
+
+  it('a altura teórica do Vin: uma página de 800 x 128.000 dá exatamente 100 painéis; 128.001 passa do limite', () => {
+    expect(O.organizarPasta([{ nome: 'Pagina 001.jpg', largura: 800, altura: 128000 }]).totalPaineis).toBe(100);
+    const r = O.organizarPasta([{ nome: 'Pagina 001.jpg', largura: 800, altura: 128001 }]);
+    expect(r.totalPaineis).toBe(101);
+    expect(r.podeEnviar).toBe(false);
+  });
+
+  it('página de 800 x 28.160 (a maior que o Vin diz ser comum) vira 22 painéis, balão nas mesmas fatias', () => {
+    const r = O.organizarPasta([
+      { nome: 'Pagina 001.jpg', largura: 800, altura: 28160 },
+      { nome: 'Pagina 001_ENG.png', largura: 800, altura: 28160 },
+    ]);
+    expect(r.totalPaineis).toBe(22);
+    expect(r.paineis.every(p => p.altura === 1280 && p.baloes.en)).toBe(true);
+    expect(r.paineis[21].pagina.arquivo).toBe('pagina-001-22.jpg');
+    expect(r.paineis[21].baloes.en.arquivo).toBe('pagina-001-22-en.png');
+  });
+});
+
+describe('limite de 20 MB por episódio, sobre os arquivos originais', () => {
+  const MB = 1024 * 1024;
+  it('soma páginas, balões usados e capa; 20 MB exatos passam, um byte a mais impede', () => {
+    const pasta = [
+      { nome: 'Capa.jpg', largura: 600, altura: 900, tamanho: 2 * MB },
+      { nome: 'Pagina 001.jpg', largura: 800, altura: 12500, tamanho: 10 * MB },
+      { nome: 'Pagina 001_ENG.png', largura: 800, altura: 12500, tamanho: 8 * MB },
+    ];
+    const ok = O.organizarPasta(pasta);
+    expect(ok.totalBytes).toBe(20 * MB);
+    expect(ok.limiteBytes).toBe(20 * MB);
+    expect(ok.podeEnviar).toBe(true);
+
+    const demais = O.organizarPasta([...pasta.slice(0, 2), { ...pasta[2], tamanho: 8 * MB + 1 }]);
+    expect(demais.podeEnviar).toBe(false);
+    const p = demais.problemas.find(x => x.codigo === 'limite-tamanho');
+    expect(p.mensagem).toBe('Os arquivos do episódio somam um pouco mais de 20 MB, que é o limite.');
+    expect(p.valor).toBe(20 * MB + 1);
+  });
+
+  it('o que fica de fora (balão sem página, arquivo de outro tipo) não conta no tamanho', () => {
+    const r = O.organizarPasta([
+      { nome: 'Pagina 001.jpg', largura: 800, altura: 1280, tamanho: 1 * MB },
+      { nome: 'Pagina 009_ENG.png', largura: 800, altura: 1280, tamanho: 30 * MB },
+      { nome: 'roteiro.psd', tamanho: 300 * MB },
+    ]);
+    expect(r.totalBytes).toBe(1 * MB);
+    expect(r.podeEnviar).toBe(true);
+  });
+
+  it('o limite é parâmetro (Setting do admin); 0 desliga', () => {
+    const pasta = [{ nome: 'Pagina 001.jpg', largura: 800, altura: 25600, tamanho: 25 * MB }];
+    expect(O.organizarPasta(pasta).podeEnviar).toBe(false);
+    expect(O.organizarPasta(pasta, { limiteBytes: 30 * MB }).podeEnviar).toBe(true);
+    expect(O.organizarPasta(pasta, { limiteBytes: 0 }).podeEnviar).toBe(true);
+  });
+
+  it('arquivo que sobe inteiro (até 1280 px, ou capa) maior que a parte do envio impede; página que vai em fatias, não', () => {
+    const r = O.organizarPasta([
+      { nome: 'Capa.png', largura: 3000, altura: 4000, tamanho: 9 * MB },
+      { nome: 'Pagina 001.jpg', largura: 800, altura: 1280, tamanho: 9 * MB },
+      { nome: 'Pagina 002.jpg', largura: 800, altura: 12500, tamanho: 9 * MB },
+    ], { tamanhoMaximoArquivo: 8 * MB, limiteBytes: 100 * MB });
+    expect(r.problemas.filter(p => p.codigo === 'arquivo-grande').map(p => p.nome)).toEqual(['Capa.png', 'Pagina 001.jpg']);
+    expect(r.podeEnviar).toBe(false);
+  });
+
+  it('formatarMB: uma casa abaixo de 10 MB, vírgula decimal', () => {
+    expect(O.formatarMB(4910292)).toBe('4,7 MB');
+    expect(O.formatarMB(21 * MB)).toBe('21 MB');
+  });
+});
+
+describe('as duas pastas reais que o Vin mandou em 25/11/2026', () => {
+  // Só nome, tamanho e dimensões (tests/fixtures); as imagens ficam fora do git.
+  const pastas = require('../fixtures/pastasVin-2026-11-25.json');
+
+  it('HáQa Stone EP3 (páginas de 800 x 12.500 com balão do mesmo tamanho): 31 painéis, balão nas 30 fatias, 4 idiomas', () => {
+    const r = O.organizarPasta(pastas.haqaStoneEp3);
+    expect(r.problemas).toEqual([]);
+    expect(r.podeEnviar).toBe(true);
+    expect(r.totalPaginas).toBe(4); // 000 a 003
+    expect(r.paginasCortadas).toBe(3);
+    expect(r.totalPaineis).toBe(1 + 3 * 10); // 12.500 = 9 x 1280 + 980
+    expect(r.paineis.filter(p => p.numeroPagina === 1).map(p => p.altura)).toEqual([...Array(9).fill(1280), 980]);
+    for (const idioma of ['pt', 'en', 'es', 'zh']) {
+      expect(r.porIdioma[idioma]).toBe(30);
+      expect(r.paineis[0].baloes[idioma]).toBeUndefined(); // a página 000 não tem balão
+    }
+    expect(r.paineis[10].baloes.zh.nome).toBe('Pagina 001_ZHO.png');
+    expect(r.paineis[10].baloes.zh.arquivo).toBe('pagina-001-10-zh.png');
+    expect(O.formatarMB(r.totalBytes)).toBe('4,7 MB');
+  });
+
+  it('The Near Ones EP6 (subpastas art/ e dialog_xx/, 800 x 1280): 23 painéis, balão só nos números dele', () => {
+    const r = O.organizarPasta(pastas.nearOnesEp6);
+    expect(r.problemas).toEqual([]);
+    expect(r.totalPaineis).toBe(23); // panel 000 a 022
+    expect(r.paginasCortadas).toBe(0);
+    const comBalao = [8, 9, 10, 11, 13, 15, 16, 17];
+    for (const idioma of ['pt', 'en', 'es', 'zh']) {
+      expect(r.paineis.filter(p => p.baloes[idioma]).map(p => p.numeroPagina)).toEqual(comBalao);
+    }
+    expect(r.paineis[8].baloes.es.nome).toBe('panel 008_ESP.png');
+    expect(r.totalBytes).toBe(pastas.nearOnesEp6.reduce((s, a) => s + a.tamanho, 0));
   });
 });
 
