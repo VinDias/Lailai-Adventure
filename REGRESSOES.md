@@ -30,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (branch `fix/retorno-vin-27-11`, item 4) | 2026-11-27 | (funcao nova, promessa antiga) a hora e a bateria apareciam durante a leitura do quadrinho no app Android | `tests/frontend/leitorTelaCheia.test.tsx` — _abrir o leitor pede tela cheia para a pagina inteira_ (e mais 11: computador, previa, anuncio, voltar, troca de app, rolagem) | coberto-novo (jsdom); **aparelho: sem teste** | medio |
 | (branch `fix/retorno-vin-27-11`, item 3) | 2026-11-27 | (funcao nova, nao conserto) o autor nao tinha como excluir capitulo nem obra depois de enviar; so o admin apagava, e sem apagar arquivo | `tests/backend/exclusaoAutor.test.js` (15: dono, outro autor 404, rascunho/na fila/devolvido/publicado, titulo exigido no publicado, arquivos do Bunny, video do autor x do admin, fila limpa, log); `tests/frontend/exclusaoAutor.test.tsx` (10); `tests/frontend/api.portalT10.test.ts` (3) | coberto-novo | alto |
 | (branch `fix/retorno-vin-27-11`, item 2) | 2026-11-27 | video do autor pronto e "Enviar capitulo" recusado com aviso em vermelho ("podera ir para aprovacao em 13 minuto(s)"); nada na Fila de Aprovacao. Era a espera pela validade da autorizacao de envio (item 10), que os testes nunca exercitaram porque venciam a autorizacao a mao antes de cada envio | `tests/backend/videoFilaAprovacao.test.js` — _video pronto: o episodio vai para a fila NA HORA_ e _caso do print-2 e do print-3_ (e mais 3 da conferencia na aprovacao); `tests/backend/videoAutor.test.js` (validade minima); `tests/frontend/videoFilaAprovacao.test.tsx` — _a confirmacao sai em verde_ | coberto-novo | alto |
 | (branch `fix/retorno-vin-27-11`, item 1) | 2026-11-27 | player de video mostrava quatro botoes de idioma com o mesmo texto ("English"): o Bunny marca todas as faixas com o mesmo idioma e o player traduzia o codigo faixa por faixa; o video enviado pelo AUTOR (frente A, item 9) nao tem os nomes que o admin digita (`hlsAudioLabels`). **Segunda vez**: `136b916` (28/03) consertou e `1073485` (10 minutos depois) apagou o conserto, sem teste | `tests/frontend/rotulosDeAudio.test.tsx` — _video do autor com quatro faixas "en" NAO mostra quatro botoes "English"_ (e mais 10) | voltou, coberto-novo | medio |
@@ -195,6 +196,33 @@ pendente, 1. Sem as rotas, os 15; sem os botoes, os 10 da tela.
 **Nao coberto.** O Bunny de verdade (Storage e Stream sao falsos nos testes).
 Progresso de leitura (`ReadingProgress`) e eventos de engajamento de obra
 excluida ficam no banco, como ja ficavam no DELETE do admin.
+
+### Item 4: hora e bateria aparecendo durante a leitura (funcao nova)
+
+**Pedido (print-1, app Android, TWA).** "esconder a hora e a duracao da
+bateria no momento da leitura".
+
+**O que entrou.** `hooks/useTelaCheiaNaLeitura.ts`, usado pelo
+`WebtoonReader`: tela cheia da PAGINA (Fullscreen API) enquanto o leitor esta
+na tela, so em aparelho de toque. Sai ao fechar o leitor. O "voltar" do
+Android, que em tela cheia so tira da tela cheia, fecha o leitor de uma vez;
+troca de app nao fecha.
+
+**`public/manifest.json` nao mudou** (`"display": "standalone"`):
+`fullscreen` esconderia a barra de status no app inteiro (PWA instalada), nao
+so na leitura, e nao muda a TWA ja publicada (o modo da TWA vem do APK).
+
+**Prova.** Com o `WebtoonReader.tsx` de `origin/main` numa copia, 6 dos 12
+testes falham.
+
+**SEM TESTE, so no aparelho** (jsdom nao tem Fullscreen API nem barra de
+status; a API e falsa nos testes): (1) se a hora e a bateria somem de fato no
+app instalado da Play; (2) o aviso do Chrome ao entrar em tela cheia; (3) se
+um "voltar" fecha o leitor (depende de o Chrome avisar a pagina da saida da
+tela cheia com ela visivel); (4) se sair do app e voltar no meio da leitura
+mantem o leitor aberto; (5) o topo do painel atras do recorte da camera
+(`viewport-fit=cover`); (6) leitor gratuito cujo anuncio fecha sozinho: a tela
+cheia so entra no primeiro toque na leitura.
 
 ## 27/11/2026: o autor barrado por megabytes (limite de 20 MB por episodio como padrao)
 

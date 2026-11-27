@@ -26,6 +26,8 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 
 O texto de cada botão de idioma do player vem de `utils/rotulosDeAudio.ts` (nome do admin, idioma quando distingue a faixa, nome do vídeo, ordem combinada PT-BR/English/Español/中文, "Faixa N"): dois botões nunca saem iguais. Não volte a escolher o texto no JSX (já regrediu uma vez: REGRESSOES.md, 27/11/2026).
 
+O `WebtoonReader` entra em tela cheia no celular (`hooks/useTelaCheiaNaLeitura.ts`): só com o leitor de fato na tela (não no anúncio, não no convite de conteúdo pago, não na prévia do moderador).
+
 > Atenção: `VerticalPlayer.tsx` e `WebtoonReader.tsx` são componentes de alto volume de código, contendo toda a lógica de reprodução/leitura.
 
 ## Autenticação e Usuário
