@@ -200,6 +200,9 @@ const GradePaineis: React.FC<GradePaineisProps> = ({ episodeId, panels, onMudar,
               data-testid="grade-painel"
               className={`relative group rounded-2xl overflow-hidden border bg-zinc-900 flex flex-col transition-all ${marcado ? 'border-rose-500 ring-1 ring-rose-500' : 'border-[var(--border-color)]'}`}
             >
+              {/* No celular (sem `sm:`) os botões são maiores: o dedo precisa de
+                  pelo menos 24 px de alvo (WCAG 2.2); medido no Chromium em
+                  27/11/2026, o selo de idioma tinha 18 px de altura. */}
               <div className="relative">
                 <img src={panel.image_url} alt={`${t('grade.painel')} ${idx + 1}`} className="w-full object-cover" loading="lazy" />
                 {trocando && (
@@ -217,19 +220,19 @@ const GradePaineis: React.FC<GradePaineisProps> = ({ episodeId, panels, onMudar,
                       if (n.has(k)) n.delete(k); else n.add(k);
                       return n;
                     })}
-                    className={`absolute top-2 left-2 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${marcado ? 'bg-rose-600 border-rose-500' : 'bg-black/60 border-white/20 opacity-70 sm:opacity-0 group-hover:opacity-100'}`}
+                    className={`absolute top-2 left-2 w-7 h-7 sm:w-6 sm:h-6 rounded-lg border-2 flex items-center justify-center transition-all ${marcado ? 'bg-rose-600 border-rose-500' : 'bg-black/60 border-white/20 opacity-70 sm:opacity-0 group-hover:opacity-100'}`}
                   >
                     {marcado && <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
                   </button>
                 )}
-                <div className={`absolute top-2 ${somenteLeitura ? 'left-2' : 'left-9'} bg-black/60 rounded-lg px-2 py-1 text-[10px] font-black text-zinc-300`}>
+                <div className={`absolute top-2 ${somenteLeitura ? 'left-2' : 'left-10 sm:left-9'} bg-black/60 rounded-lg px-2 py-1 text-[10px] font-black text-zinc-300`}>
                   #{idx + 1}
                 </div>
                 {!somenteLeitura && (
                   <div className="absolute top-2 right-2 flex gap-1 opacity-90 sm:opacity-0 group-hover:opacity-100 transition-all">
                     <label
                       title={t('grade.trocarImagem')}
-                      className="p-1.5 bg-black/70 rounded-lg text-white cursor-pointer hover:bg-sky-600"
+                      className="p-2 sm:p-1.5 bg-black/70 rounded-lg text-white cursor-pointer hover:bg-sky-600"
                     >
                       <ImagePlus size={13} />
                       <input
@@ -246,7 +249,7 @@ const GradePaineis: React.FC<GradePaineisProps> = ({ episodeId, panels, onMudar,
                       aria-label={`${t('grade.apagarPainel')} #${idx + 1}`}
                       onClick={() => apagar([idx])}
                       disabled={apagando}
-                      className="p-1.5 bg-rose-600/80 rounded-lg text-white hover:bg-rose-600 disabled:opacity-50"
+                      className="p-2 sm:p-1.5 bg-rose-600/80 rounded-lg text-white hover:bg-rose-600 disabled:opacity-50"
                     >
                       <Trash2 size={13} />
                     </button>
@@ -261,7 +264,7 @@ const GradePaineis: React.FC<GradePaineisProps> = ({ episodeId, panels, onMudar,
                     aria-label={`${t('grade.balao')} ${lang.toUpperCase()} #${idx + 1}`}
                     aria-pressed={idiomasDoPainel.includes(lang)}
                     onClick={() => { setUrlBalao(''); setErro(null); setBalaoAberto({ indice: idx, idioma: lang }); }}
-                    className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${idiomasDoPainel.includes(lang) ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-500 hover:bg-white/10'}`}
+                    className={`px-2 py-2 sm:py-0.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${idiomasDoPainel.includes(lang) ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-500 hover:bg-white/10'}`}
                   >
                     {lang}
                   </button>

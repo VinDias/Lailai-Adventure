@@ -250,6 +250,27 @@ describe('GradePaineis — casos de borda', () => {
     expect(within(dialogo).queryByRole('button', { name: /Remover balão/ })).not.toBeInTheDocument();
   });
 
+  // 27/11/2026, E2E em emulação de Pixel 7 (tests/e2e/roteiroFrenteA.cjs): o
+  // selo de idioma tinha 18 px de altura e os botões 24 a 25 px, abaixo ou no
+  // limite do alvo de toque. jsdom não mede tela: este pino confere as classes
+  // que dão o tamanho no celular (sem prefixo `sm:`); a medida de verdade é do
+  // roteiro E2E.
+  it('no celular os botões da grade têm alvo de toque maior que no desktop', () => {
+    render(<Hospedeiro inicio={quatro()} />);
+    const classes = (el: Element | null) => (el?.getAttribute('class') ?? '').split(/\s+/);
+    const selo = classes(screen.getByRole('button', { name: 'Balão PT #1' }));
+    expect(selo).toContain('py-2');
+    expect(selo).toContain('sm:py-0.5');
+    const apagar = classes(screen.getByRole('button', { name: 'Apagar painel #1' }));
+    expect(apagar).toContain('p-2');
+    expect(apagar).toContain('sm:p-1.5');
+    const trocar = classes(screen.getByLabelText('Trocar imagem do painel #1').closest('label'));
+    expect(trocar).toContain('p-2');
+    const marcar = classes(screen.getByRole('button', { name: 'Selecionar painel #1' }));
+    expect(marcar).toContain('w-7');
+    expect(marcar).toContain('h-7');
+  });
+
   it('sem painéis: diz que não há nenhum', () => {
     render(<Hospedeiro inicio={[]} />);
     expect(screen.getByText('Nenhum painel')).toBeInTheDocument();

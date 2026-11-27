@@ -89,6 +89,37 @@ Os 12 foram aprovados.
 | `6615c15` | 2026-03-12 | fix: use _id for Series (MongoDB) and deduplicate Stripe customers | `tests/backend/paymentCheckout.test.js` | coberto-novo | medio |
 | `2f30192` | 2026-03-12 | fix: optional chaining on req.cookies in verifyToken to prevent 500 on payment routes | `tests/backend/paymentCheckout.test.js` | coberto-novo | alto |
 
+## 27/11/2026: botoes pequenos demais para o dedo na grade de paineis (celular)
+
+**Nao voltou: apareceu agora**, no primeiro teste da grade (frente A, item 6)
+em navegador de verdade. Em emulacao de Pixel 7 (412 px de largura, duas
+colunas de 157 px) o selo de idioma de cada painel (PT/EN/ES/ZH, que abre a
+janela do balao) tinha 30x18 px, e os botoes de apagar, trocar imagem e
+selecionar tinham 24 a 25 px. O minimo de alvo de toque da WCAG 2.2 e 24 px;
+o selo ficava abaixo e o apagar ficava colado no trocar imagem. Funcionava
+(o roteiro tocou e apagou), mas errar o dedo era facil.
+
+**Como foi achado e medido.** `tests/e2e/roteiroFrenteA.cjs` abre a grade
+como autor no celular e mede cada botao com `getBoundingClientRect`. Antes:
+apagar 25x25, trocar 25x25, selecionar 24x24, selo 30x18. Depois: 29x29,
+29x29, 28x28, 30x30, sem rolagem lateral.
+
+**O conserto.** `components/EnvioEpisodio/GradePaineis.tsx`: no celular (sem
+o prefixo `sm:`) os botoes ganham mais area (`p-2`, `w-7 h-7`, `py-2`); do
+`sm:` para cima fica como era. Unica copia da grade (Meu Estudio e Gerenciar
+Conteudo usam o mesmo componente). Pino na suite:
+`tests/frontend/gradePaineis.test.tsx` ("no celular os botoes da grade tem
+alvo de toque maior que no desktop"), que falha com o componente antigo
+(provado numa copia em 27/11: `expected [...'py-0.5'...] to include 'py-2'`).
+jsdom nao mede tela: o pino confere as classes; a medida em pixels so roda no
+roteiro E2E, que nao faz parte do `npm run test:all` (precisa do Chromium do
+Playwright).
+
+No mesmo roteiro, conferidos e SEM defeito: itens 5, 6, 7 e 8 da frente A
+pela tela (envio de pasta, grade, fila do moderador, edicao de publicado),
+no desktop e em Pixel 7, e a emenda entre fatias do conserto de 25/11
+(queda de brilho 0,4 no HaQa Stone EP3).
+
 ## 25/11/2026: a linha fina entre duas fatias da mesma pagina, no celular
 
 **Nao voltou: apareceu agora.** Era o risco R2 do recorte de 23/11. Com a
