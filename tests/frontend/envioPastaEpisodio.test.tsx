@@ -266,6 +266,29 @@ describe('envio em partes pela tela (item 4)', () => {
     expect(s.api.cancelarEnvioEpisodio).toHaveBeenCalledWith('env1');
   });
 
+  it('envio parado no meio (o pedido não responde): "Cancelar envio" funciona DURANTE o envio, aborta o pedido, apaga o envio no servidor e fecha (27/11/2026)', async () => {
+    const s = servidorFalso();
+    let sinal: AbortSignal | undefined;
+    s.api.enviarParteEpisodio.mockImplementation(((_id: string, _itens: any, opcoes?: { sinal?: AbortSignal }) => { sinal = opcoes?.sinal; return new Promise(() => {}); }) as any);
+    const { onFechar, onConcluido } = abrir(s);
+    await escolher(dezPaginas());
+    fireEvent.click(screen.getByTestId('envio-confirmo'));
+    fireEvent.click(screen.getByTestId('envio-enviar'));
+    await waitFor(() => expect(s.api.enviarParteEpisodio).toHaveBeenCalledTimes(1));
+
+    const cancelar = screen.getByTestId('envio-cancelar');
+    expect(cancelar).toBeEnabled();
+    expect(cancelar).toHaveTextContent('Cancelar envio');
+    fireEvent.click(cancelar);
+
+    await waitFor(() => expect(onFechar).toHaveBeenCalledTimes(1));
+    expect(sinal?.aborted).toBe(true);
+    expect(s.api.cancelarEnvioEpisodio).toHaveBeenCalledWith('env1');
+    expect(onConcluido).not.toHaveBeenCalled();
+    // Cancelar não é erro: nada de aviso em vermelho.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('recusa no iniciar (limite mudou no admin): mostra os problemas do servidor e deixa escolher de novo', async () => {
     const s = servidorFalso();
     s.api.iniciarEnvioEpisodio.mockRejectedValueOnce(Object.assign(new Error('A pasta tem problemas que impedem o envio.'), {

@@ -1106,12 +1106,15 @@ class ApiService {
    * Bunny: só elas precisam de nova tentativa) e `recusados`. Erro de rede
    * sai sem `status`.
    */
-  async enviarParteEpisodio(envioId: string, itens: Array<{ chave: string; blob: Blob; nome: string }>): Promise<{ recebidos: number; total: number }> {
+  async enviarParteEpisodio(envioId: string, itens: Array<{ chave: string; blob: Blob; nome: string }>, opcoes: { sinal?: AbortSignal } = {}): Promise<{ recebidos: number; total: number }> {
     const formData = new FormData();
     for (const it of itens) formData.append(it.chave, it.blob, it.nome);
+    // `sinal`: quem orquestra (utils/envioPasta.ts) aborta a parte que passou
+    // do tempo ou o envio cancelado; sem isso um pedido parado ficava para sempre.
     const response = await this.fetchAutenticado(`${API_URL}/envio-episodio/${envioId}/partes`, {
       method: 'POST',
       body: formData,
+      ...(opcoes.sinal ? { signal: opcoes.sinal } : {}),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {

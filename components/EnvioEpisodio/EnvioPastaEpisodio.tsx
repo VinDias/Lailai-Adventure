@@ -119,6 +119,8 @@ const EnvioPastaEpisodio: React.FC<Props> = ({ episode, onFechar, onConcluido, a
       setEtapa('pronto');
       onConcluido?.(fim.episode);
     } catch (e: any) {
+      // Cancelado pelo autor no meio do envio: o modal está fechando.
+      if (!envioRef.current || (e instanceof ErroEnvio && e.tipo === 'cancelado')) return;
       // Recusa no iniciar (a pasta mudou entre a conferência e o envio, ou
       // o limite mudou no admin): mostra os problemas do servidor.
       if (!envioRef.current.envioId) {
@@ -220,8 +222,10 @@ const EnvioPastaEpisodio: React.FC<Props> = ({ episode, onFechar, onConcluido, a
             <button type="button" onClick={onFechar} className="flex-1 py-3 bg-rose-600 text-white font-black rounded-2xl">{t('envio.fechar')}</button>
           ) : (
             <>
-              <button type="button" onClick={cancelar} disabled={etapa === 'enviando'} className="flex-1 py-3 font-bold text-zinc-500 disabled:opacity-40">
-                {continuaveis ? t('envio.cancelar') : t('envio.fechar')}
+              {/* Liberado também DURANTE o envio (27/11/2026): desligado, um
+                  envio parado não tinha saída a não ser fechar o app. */}
+              <button type="button" data-testid="envio-cancelar" onClick={cancelar} className="flex-1 py-3 font-bold text-zinc-500">
+                {continuaveis || etapa === 'enviando' ? t('envio.cancelar') : t('envio.fechar')}
               </button>
               {etapa === 'parou' && continuaveis && (
                 <button type="button" onClick={executar} className="flex-1 py-3 bg-rose-600 text-white font-black rounded-2xl">{t('envio.tentarDeNovo')}</button>

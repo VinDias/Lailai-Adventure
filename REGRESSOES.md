@@ -30,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (branch `fix/retorno-vin-27-11`, item 5) | 2026-11-27 | envio da pasta de quadrinhos "travou" na primeira tentativa (causa PROVAVEL, nao reproduzida em producao): episodio pequeno ia numa parte so e a barra ficava em 0 ate o fim; pedido de parte sem prazo ficava esperando para sempre; "Cancelar envio" desligado durante o envio | `tests/frontend/envioPasta.test.ts` — _o envio nao fica parado na tela_ (6 testes); `tests/frontend/envioPastaEpisodio.test.tsx` — _"Cancelar envio" funciona DURANTE o envio_ | coberto-novo (causa presumida) | medio |
 | (branch `fix/retorno-vin-27-11`, item 4) | 2026-11-27 | (funcao nova, promessa antiga) a hora e a bateria apareciam durante a leitura do quadrinho no app Android | `tests/frontend/leitorTelaCheia.test.tsx` — _abrir o leitor pede tela cheia para a pagina inteira_ (e mais 11: computador, previa, anuncio, voltar, troca de app, rolagem) | coberto-novo (jsdom); **aparelho: sem teste** | medio |
 | (branch `fix/retorno-vin-27-11`, item 3) | 2026-11-27 | (funcao nova, nao conserto) o autor nao tinha como excluir capitulo nem obra depois de enviar; so o admin apagava, e sem apagar arquivo | `tests/backend/exclusaoAutor.test.js` (15: dono, outro autor 404, rascunho/na fila/devolvido/publicado, titulo exigido no publicado, arquivos do Bunny, video do autor x do admin, fila limpa, log); `tests/frontend/exclusaoAutor.test.tsx` (10); `tests/frontend/api.portalT10.test.ts` (3) | coberto-novo | alto |
 | (branch `fix/retorno-vin-27-11`, item 2) | 2026-11-27 | video do autor pronto e "Enviar capitulo" recusado com aviso em vermelho ("podera ir para aprovacao em 13 minuto(s)"); nada na Fila de Aprovacao. Era a espera pela validade da autorizacao de envio (item 10), que os testes nunca exercitaram porque venciam a autorizacao a mao antes de cada envio | `tests/backend/videoFilaAprovacao.test.js` — _video pronto: o episodio vai para a fila NA HORA_ e _caso do print-2 e do print-3_ (e mais 3 da conferencia na aprovacao); `tests/backend/videoAutor.test.js` (validade minima); `tests/frontend/videoFilaAprovacao.test.tsx` — _a confirmacao sai em verde_ | coberto-novo | alto |
@@ -223,6 +224,44 @@ tela cheia com ela visivel); (4) se sair do app e voltar no meio da leitura
 mantem o leitor aberto; (5) o topo do painel atras do recorte da camera
 (`viewport-fit=cover`); (6) leitor gratuito cujo anuncio fecha sozinho: a tela
 cheia so entra no primeiro toque na leitura.
+
+### Item 5: o envio de quadrinhos "travou" na primeira tentativa (causa provavel)
+
+**O que o cliente disse.** "A primeira vez que tentei, travou, depois nao deu
+mais esse defeito." Sem print, sem horario, sem mensagem de erro.
+
+**Nao foi reproduzido.** Nao ha log de producao nesta sessao. O que segue e o
+que a leitura do codigo achou de caminhos em que a tela FICA PARADA sem erro:
+
+1. A tela juntava numa parte tudo o que coubesse no limite do servidor (8 MB,
+   60 arquivos). Um episodio de ate 8 MB (o HaQa Stone EP3 dele tem 6,8 MB
+   depois do corte) ia numa parte SO: "Enviando 0 de N" o envio inteiro, e a
+   barra pulava para o fim. O progresso so conta parte confirmada.
+2. O pedido de uma parte nao tinha prazo (`fetch` sem tempo maximo). Conexao
+   que para sem fechar deixava o envio esperando para sempre.
+3. "Cancelar envio" ficava desligado durante o envio: sem saida a nao ser
+   fechar o app. Na segunda tentativa, tudo de novo do zero, funcionava.
+
+**Conserto** (`utils/envioPasta.ts`, `services/api.ts`,
+`EnvioPastaEpisodio.tsx`): a tela fecha a parte em 2 MB (a barra anda); cada
+pedido de parte tem prazo pelo tamanho (20 KB/s no minimo, mais 1 minuto), e
+vencido o prazo o pedido e abortado e conta como queda de rede (tenta de novo
+sozinho, e para com "Tentar de novo" se nao der); "Cancelar envio" funciona
+durante o envio e aborta o pedido em curso.
+
+**Prova.** Com os tres arquivos de `origin/main` numa copia, 7 testes falham;
+3 deles por tempo esgotado do proprio teste (o envio fica mesmo parado).
+
+**Olhado e NAO mexido.** (a) Limite global de 300 pedidos por 15 minutos por
+IP (`server.js`): um 429 no meio do envio vira erro em vermelho com "Tentar de
+novo", nao tela parada; mas com video processando o Meu Estudio consulta o
+servidor a cada 8 a 10 segundos (uns 100 pedidos em 15 minutos por episodio),
+e celular e computador da mesma casa somam no mesmo IP. Com partes de 2 MB um
+episodio de 60 MB passa de 8 para 30 pedidos. (b) `iniciar` e `concluir` nao
+tentam de novo sozinhos (erro visivel, "Tentar de novo" continua). (c) O
+servidor repassa ao Bunny sem prazo proprio (o `fetch` do Node espera ate 5
+minutos); o nginx corta em 60 s e a tela tenta de novo. (d) Falha ao ler os
+limites (`GET /config`) deixa o modal so com o erro; fechar e abrir resolve.
 
 ## 27/11/2026: o autor barrado por megabytes (limite de 20 MB por episodio como padrao)
 
