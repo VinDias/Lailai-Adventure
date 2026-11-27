@@ -16,6 +16,10 @@ const EpisodeSchema = new mongoose.Schema({
     videoId: { type: String },
     estado: { type: String, enum: ['enviando', 'processando', 'pronto', 'erro'] },
     atualizadoEm: { type: Date },
+    // Até quando vale a última autorização de envio entregue ao autor. Antes
+    // disso o episódio não pode ir para aprovação (item 10): o moderador só
+    // vê o vídeo quando o autor já não consegue trocá-lo.
+    autorizadoAte: { type: Date },
   },
   thumbnail: { type: String },
   duration: { type: Number },

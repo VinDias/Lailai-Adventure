@@ -965,6 +965,16 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                                         >
                                           {estadoVideo === 'sem-video' || estadoVideo === 'enviando' ? t('video.botao') : t('video.botaoTrocar')}
                                         </button>
+                                        {/* Item 10: com o vídeo pronto, o episódio vai para a fila. */}
+                                        {estadoVideo === 'pronto' && (
+                                          <button
+                                            onClick={() => handleEnviarEpisodio(ep._id, s._id)}
+                                            disabled={enviandoId === ep._id}
+                                            className="text-[10px] font-black text-emerald-400 uppercase tracking-widest disabled:opacity-50"
+                                          >
+                                            {t('portal.works.submitChapter')}
+                                          </button>
+                                        )}
                                       </div>
                                     )}
                                   </div>

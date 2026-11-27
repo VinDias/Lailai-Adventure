@@ -505,11 +505,23 @@ router.post('/series/:id/enviar', requireCanalDoUsuario, async (req, res) => {
     // novo só para destravar o reenvio, contra a promessa de que ele pode
     // corrigir e reenviar. O que protege a fila de obra vazia é existir painel,
     // não o estado do capítulo.
-    const episodioComPainel = await Episode.exists({
-      seriesId: series._id,
-      'panels.0': { $exists: true },
-    });
-    if (!episodioComPainel) faltando.push('ao menos um episódio com painéis');
+    if (videoAutor.ehObraDeVideo(series)) {
+      // Frente A, item 10: obra de V-Show ou Anicom. O que protege a fila de
+      // obra vazia é existir um episódio com o vídeo PRONTO (o do autor,
+      // processado; ou um que já tem endereço, de obra removida pela
+      // curadoria e reenviada).
+      const episodioComVideo = await Episode.exists({
+        seriesId: series._id,
+        $or: [{ 'videoEnvio.estado': 'pronto' }, { video_url: { $nin: [null, ''] } }],
+      });
+      if (!episodioComVideo) faltando.push('ao menos um episódio com o vídeo pronto');
+    } else {
+      const episodioComPainel = await Episode.exists({
+        seriesId: series._id,
+        'panels.0': { $exists: true },
+      });
+      if (!episodioComPainel) faltando.push('ao menos um episódio com painéis');
+    }
 
     if (faltando.length > 0) {
       return res.status(400).json({ error: `Não é possível enviar para aprovação: falta ${faltando.join(' e ')}.` });
@@ -551,7 +563,17 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
     if (episode.submittedAt) {
       return res.status(400).json({ error: 'Episódio já enviado para aprovação — aguarde a revisão do editor.' });
     }
-    if (!episode.panels || episode.panels.length === 0) {
+    // Frente A, item 10: episódio de obra de vídeo vai para a fila com o
+    // vídeo PRONTO, e só depois que a autorização de envio do autor venceu
+    // (services/videoAutorService.js, travaDeEnvio).
+    const deVideo = videoAutor.ehObraDeVideo(series);
+    if (deVideo) {
+      if (!videoAutor.temVideoPronto(episode)) {
+        return res.status(400).json({ error: 'Envie o vídeo do episódio e espere ele ficar pronto antes de enviar para aprovação.' });
+      }
+      const trava = videoAutor.travaDeEnvio(episode);
+      if (trava) return res.status(400).json({ error: videoAutor.mensagemDaTrava(trava), liberaEm: trava });
+    } else if (!episode.panels || episode.panels.length === 0) {
       return res.status(400).json({ error: 'Adicione ao menos um painel antes de enviar para aprovação.' });
     }
     if (!series.isPublished && !series.submittedAt) {
@@ -560,7 +582,7 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
       });
     }
 
-    if (!episode.thumbnail) {
+    if (!episode.thumbnail && !deVideo) {
       episode.thumbnail = episode.panels[0].image_url;
     }
     episode.submittedAt = new Date();

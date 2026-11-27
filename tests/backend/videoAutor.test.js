@@ -207,11 +207,11 @@ describe('autorização de envio do vídeo (TUS assinado): só o dono', () => {
     const res = await pedirAutorizacao(episode, autor.token, { tamanho: 50 * 1024 * 1024, tipo: 'video/mp4' });
     expect(res.status).toBe(200);
     const a = res.body;
-    expect(a).toMatchObject({ libraryId: BIBLIOTECA, endpoint: 'https://video.bunnycdn.com/tusupload', validadeSegundos: 7200, tamanhoMaximo: 800 * 1024 * 1024 });
+    expect(a).toMatchObject({ libraryId: BIBLIOTECA, endpoint: 'https://video.bunnycdn.com/tusupload', validadeSegundos: 900, tamanhoMaximo: 800 * 1024 * 1024 });
     expect(a.videoId).toMatch(/^video-falso-\d+$/);
-    // Curta duração: 2 horas a partir de agora.
-    expect(a.expira).toBeGreaterThanOrEqual(antes + 7200);
-    expect(a.expira).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 7200);
+    // Curta duração: para 50 MB, 15 minutos a partir de agora.
+    expect(a.expira).toBeGreaterThanOrEqual(antes + 900);
+    expect(a.expira).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 900);
     // SHA256(biblioteca + chave + validade + vídeo), em hexa: a conta do Bunny.
     expect(a.assinatura).toBe(crypto.createHash('sha256').update(`${BIBLIOTECA}${CHAVE}${a.expira}${a.videoId}`).digest('hex'));
     expect(JSON.stringify(res.body)).not.toContain(CHAVE);
@@ -222,6 +222,32 @@ describe('autorização de envio do vídeo (TUS assinado): só o dono', () => {
     expect(ep).toMatchObject({ status: 'draft', submittedAt: null, bunnyVideoId: a.videoId });
     expect(ep.videoEnvio).toMatchObject({ videoId: a.videoId, estado: 'enviando' });
     expect(ep.video_url).toBeUndefined();
+    // O servidor guarda até quando a autorização vale (item 10: antes disso o episódio não vai para a fila).
+    expect(new Date(ep.videoEnvio.autorizadoAte).getTime()).toBe(a.expira * 1000);
+  });
+
+  it('a validade acompanha o tamanho do arquivo: 15 minutos no mínimo, 2 horas no máximo ou sem tamanho; renovar dá 15 minutos', async () => {
+    const autor = await criarAutor();
+    const MB = 1024 * 1024;
+    const validade = async (body) => {
+      const { episode } = await obraDoAutor(autor, 'vcine');
+      const r = await pedirAutorizacao(episode, autor.token, body);
+      expect(r.status).toBe(200);
+      return { episode, ...r.body };
+    };
+    expect((await validade({ tamanho: 1 * MB, tipo: 'video/mp4' })).validadeSegundos).toBe(900);
+    expect((await validade({ tamanho: 200 * MB, tipo: 'video/mp4' })).validadeSegundos).toBe(900);
+    // 800 MB a 250 KB/s: 3356 segundos (56 minutos).
+    expect((await validade({ tamanho: 800 * MB, tipo: 'video/mp4' })).validadeSegundos).toBe(Math.ceil((800 * MB) / 250000));
+    await Setting.create({ key: 'limite_mb_video', value: '5000' });
+    expect((await validade({ tamanho: 4000 * MB, tipo: 'video/mp4' })).validadeSegundos).toBe(7200);
+    const semTamanho = await validade({});
+    expect(semTamanho.validadeSegundos).toBe(7200);
+
+    // Renovar: 15 minutos, e a validade guardada nunca anda para trás.
+    const renovada = await pedirAutorizacao(semTamanho.episode, autor.token, { renovar: true });
+    expect(renovada.body.validadeSegundos).toBe(900);
+    expect(new Date((await ler(semTamanho.episode)).videoEnvio.autorizadoAte).getTime()).toBe(semTamanho.expira * 1000);
   });
 
   it('sem login 401; conta sem canal 403 (leitor, assinante e admin); outro autor 404. Em nenhum caso o Bunny é chamado nem o episódio muda', async () => {

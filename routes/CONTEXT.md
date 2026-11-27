@@ -8,6 +8,16 @@ Endpoints da API REST do Express. Cada arquivo agrupa rotas relacionadas a um do
 
 ## Arquivos e Endpoints
 
+### Obras de vídeo pela Fila de Aprovação (Fase 7, frente A, item 10)
+
+A fila é a mesma; o que mudou foram as regras de entrada e de aprovação para obra de `vcine`/`hqcine` (`services/videoAutorService.js`: `temVideoPronto`, `travaDeEnvio`).
+- `portal.js` · `POST /series/:id/enviar`: obra de vídeo exige capa e ao menos um episódio com o vídeo pronto (Hi-Qua continua exigindo episódio com painéis). `POST /episodios/:id/enviar`: episódio de obra de vídeo exige o vídeo pronto (no lugar do painel) e que a autorização de envio do autor já tenha vencido (400 com `liberaEm`): enquanto ela vale, o autor poderia trocar o arquivo no Bunny por fora do servidor.
+- A validade da autorização (item 9) passou a acompanhar o tamanho do arquivo: tamanho a 250 KB/s, mínimo de 15 minutos, máximo de 2 horas (2 horas sem tamanho; 15 minutos no `renovar`). O servidor guarda o último vencimento em `videoEnvio.autorizadoAte`.
+- `adminPortal.js` · `GET /aprovacoes`: item de série e de episódio ganham `content_type`; episódio de obra de vídeo ganha `video { videoId, pronto, estado }`. `POST /aprovacoes/episodes/:id/aprovar`: em obra de vídeo, 400 se o vídeo não está pronto ou se a autorização do autor ainda vale. O resto da aprovação (publica, avisa, recalcula) é o de sempre.
+- O moderador assiste pelo player do site: `GET /api/bunny/signed-url` já entregava a URL do rascunho ao admin e ao dono (404 para os demais); nenhuma rota nova.
+- `videoAutorService.aplicarStatusDoBunny`: vídeo de autor que já estava pronto e muda no Bunny (voltou a processar, erro) tira o episódio da fila (`submittedAt` limpo); em episódio já publicado só registra no log (`logger.error`), não tira do ar.
+- Testes: `tests/backend/videoFilaAprovacao.test.js` (12) e `tests/frontend/videoFilaAprovacao.test.tsx` (14).
+
 ### Vídeo do autor: V-Show e Anicom no portal (Fase 7, frente A, item 9)
 
 Sem arquivo de rotas próprio: rotas novas em `portal.js` e um desvio em `bunnyWebhook.js`. Regras em `services/videoAutorService.js`; o Bunny Stream fica atrás de `utils/bunnyStream.js` (trocável por um falso nos testes; em `NODE_ENV=test` sem o falso, lança). Variáveis de ambiente: as que o envio de vídeo do admin já usa (`BUNNY_API_KEY`, `BUNNY_LIBRARY_ID`, `BUNNY_CDN_HOSTNAME`, `BUNNY_WEBHOOK_SECRET`); nenhuma nova.

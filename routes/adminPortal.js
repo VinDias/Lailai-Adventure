@@ -26,6 +26,8 @@ const CasoCuradoria = require('../models/CasoCuradoria');
 // Fase 7, frente A, item 7: edição de episódio publicado, à espera de aprovação.
 const RevisaoEpisodio = require('../models/RevisaoEpisodio');
 const revisaoService = require('../services/revisaoEpisodioService');
+// Fase 7, frente A, item 10: obras de V-Show e Anicom passam pela mesma fila.
+const videoAutor = require('../services/videoAutorService');
 const { responderCastError } = require('../utils/routeErrors');
 
 const REF_TIPOS = ['series', 'episode'];
@@ -187,10 +189,10 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
   try {
     const [seriesPendentes, episodiosPendentes, naoClassificadas] = await Promise.all([
       Series.find({ submittedAt: { $ne: null }, isPublished: false })
-        .select('title description cover_image content_rating_sugerida content_rating genre tags channelId submittedAt')
+        .select('title description cover_image content_type content_rating_sugerida content_rating genre tags channelId submittedAt')
         .lean(),
       Episode.find({ submittedAt: { $ne: null }, status: { $ne: 'published' } })
-        .select('title description thumbnail panels seriesId submittedAt')
+        .select('title description thumbnail panels seriesId submittedAt bunnyVideoId video_url videoEnvio')
         .lean(),
       Series.countDocuments({ isPublished: true, content_rating: null }),
     ]);
@@ -232,7 +234,7 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
     // deve orientar "aprove a série primeiro"). Uma query só, sem N+1.
     const seriesIdsDosEpisodios = [...new Set(episodiosPendentes.map(e => String(e.seriesId)))];
     const seriesDosEpisodios = seriesIdsDosEpisodios.length
-      ? await Series.find({ _id: { $in: seriesIdsDosEpisodios } }).select('title isPublished channelId').lean()
+      ? await Series.find({ _id: { $in: seriesIdsDosEpisodios } }).select('title isPublished channelId content_type').lean()
       : [];
     const seriePorId = new Map(seriesDosEpisodios.map(s => [String(s._id), s]));
 
@@ -256,6 +258,8 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
       title: s.title,
       description: s.description ?? null,
       cover_image: s.cover_image ?? null,
+      // Item 10: o tipo da obra (hiqua, vcine = V-Show, hqcine = Anicom).
+      content_type: s.content_type ?? 'hiqua',
       content_rating_sugerida: s.content_rating_sugerida ?? null,
       content_rating: s.content_rating ?? null,
       genre: s.genre ?? null,
@@ -277,6 +281,13 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
         serie: serie ? { id: serie._id, title: serie.title, isPublished: !!serie.isPublished } : null,
         canal: previewCanal(serie && serie.channelId),
         submittedAt: e.submittedAt,
+        // Item 10: episódio de obra de vídeo. O moderador assiste pelo player
+        // do site (a URL assinada já é entregue ao admin para rascunho:
+        // GET /api/bunny/signed-url).
+        content_type: (serie && serie.content_type) ?? 'hiqua',
+        ...(videoAutor.ehObraDeVideo(serie)
+          ? { video: { videoId: e.bunnyVideoId ?? null, pronto: videoAutor.temVideoPronto(e), estado: videoAutor.resumo(e).estado } }
+          : {}),
       };
     });
 
@@ -518,9 +529,22 @@ router.post('/aprovacoes/episodes/:id/aprovar', verifyToken, requireAdmin, async
       return res.status(400).json({ error: 'Episódio já publicado.' });
     }
 
-    const series = await Series.findById(episode.seriesId).select('isPublished').lean();
+    const series = await Series.findById(episode.seriesId).select('isPublished content_type').lean();
     if (!series || !series.isPublished) {
       return res.status(400).json({ error: 'Aprove a série primeiro — este episódio pertence a uma série ainda não publicada.' });
+    }
+
+    // Frente A, item 10: episódio de obra de vídeo só vai ao ar com o vídeo
+    // pronto, e quando o autor já não pode trocá-lo (mesmas regras do envio
+    // para aprovação, repetidas aqui porque é esta rota que publica).
+    if (videoAutor.ehObraDeVideo(series)) {
+      if (!videoAutor.temVideoPronto(episode)) {
+        return res.status(400).json({ error: 'O vídeo deste episódio não está pronto. Não é possível aprovar.' });
+      }
+      const trava = videoAutor.travaDeEnvio(episode);
+      if (trava) {
+        return res.status(400).json({ error: 'O autor ainda pode trocar o vídeo deste episódio (a autorização de envio não venceu). Aprove daqui a alguns minutos.', liberaEm: trava });
+      }
     }
 
     episode.status = 'published';

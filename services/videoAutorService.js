@@ -32,9 +32,22 @@ const TIPOS_DE_VIDEO = ['vcine', 'hqcine'];
 /** Tipos de obra que o autor pode criar no portal. */
 const TIPOS_DO_PORTAL = ['hiqua', ...TIPOS_DE_VIDEO];
 
-// Curta duração: a autorização vale 2 horas e só para um vídeo. Um envio que
-// dure mais pede outra (`renovar`), para o mesmo vídeo.
-const VALIDADE_SEGUNDOS = 2 * 60 * 60;
+// Curta duração: a autorização vale só para um vídeo e pelo tempo que o envio
+// dele deve levar: o tamanho do arquivo a 250 KB/s (2 Mbps de subida), nunca
+// menos de 15 minutos nem mais de 2 horas. Sem o tamanho, 2 horas. Um envio
+// que dure mais pede outra (`renovar`, 15 minutos), para o mesmo vídeo.
+// Quanto menor a validade, menos o autor espera para poder enviar o episódio
+// para aprovação (ver `travaDeEnvio`).
+const VALIDADE_MAXIMA_SEGUNDOS = 2 * 60 * 60;
+const VALIDADE_MINIMA_SEGUNDOS = 15 * 60;
+const BYTES_POR_SEGUNDO_ESPERADOS = 250 * 1000;
+const VALIDADE_SEGUNDOS = VALIDADE_MAXIMA_SEGUNDOS;
+
+function validadePara(tamanho) {
+  if (!Number.isInteger(tamanho) || tamanho <= 0) return VALIDADE_MAXIMA_SEGUNDOS;
+  const estimada = Math.ceil(tamanho / BYTES_POR_SEGUNDO_ESPERADOS);
+  return Math.min(VALIDADE_MAXIMA_SEGUNDOS, Math.max(VALIDADE_MINIMA_SEGUNDOS, estimada));
+}
 // O mesmo teto do envio de vídeo do admin (routes/bunnyWebhook.js, multer de
 // 800 MB), mudável no admin pela chave `limite_mb_video`.
 const CHAVE_LIMITE_MB_VIDEO = 'limite_mb_video';
@@ -74,20 +87,46 @@ function resumo(episode) {
   if (!v || !v.videoId) return { estado: 'sem-video', videoId: null, atualizadoEm: null };
   // Vídeo trocado pelo admin depois: o envio do autor não vale mais.
   if (episode.bunnyVideoId !== v.videoId) return { estado: 'sem-video', videoId: null, atualizadoEm: null };
-  return { estado: v.estado || 'enviando', videoId: v.videoId, atualizadoEm: v.atualizadoEm ?? null };
+  return { estado: v.estado || 'enviando', videoId: v.videoId, atualizadoEm: v.atualizadoEm ?? null, autorizadoAte: v.autorizadoAte ?? null };
 }
 
-function autorizacaoPara(videoId, limiteBytes) {
-  const expira = Math.floor(Date.now() / 1000) + VALIDADE_SEGUNDOS;
+function autorizacaoPara(videoId, limiteBytes, validadeSegundos) {
+  const expira = Math.floor(Date.now() / 1000) + validadeSegundos;
   return {
     videoId,
     libraryId: bunnyStream.libraryId(),
     endpoint: bunnyStream.ENDPOINT_TUS,
     assinatura: bunnyStream.assinaturaTus(videoId, expira),
     expira,
-    validadeSegundos: VALIDADE_SEGUNDOS,
+    validadeSegundos,
     tamanhoMaximo: limiteBytes,
   };
+}
+
+/** Vídeo pronto para ir à fila: o do autor, pronto; ou um que o admin pôs e já tem endereço. */
+function temVideoPronto(episode) {
+  const r = resumo(episode);
+  if (r.estado === 'pronto') return true;
+  return r.estado === 'sem-video' && !!episode.video_url;
+}
+
+/**
+ * Até quando o autor ainda tem em mãos uma autorização válida para enviar
+ * arquivo a ESTE vídeo (ou null). Enquanto ela vale, ele poderia trocar o
+ * arquivo no Bunny sem passar pelo servidor; por isso o episódio só vai para
+ * aprovação (e só é aprovado) depois desse instante: o moderador vê o vídeo
+ * quando ele já não pode ser trocado por fora.
+ */
+function travaDeEnvio(episode) {
+  const v = episode && episode.videoEnvio;
+  if (!v || !v.videoId || v.videoId !== episode.bunnyVideoId || !v.autorizadoAte) return null;
+  const ate = new Date(v.autorizadoAte);
+  return ate.getTime() > Date.now() ? ate : null;
+}
+
+function mensagemDaTrava(ate) {
+  const minutos = Math.max(1, Math.ceil((ate.getTime() - Date.now()) / 60000));
+  return `O vídeo acabou de ser enviado. Por segurança, este episódio poderá ir para aprovação em ${minutos} minuto(s), quando a autorização de envio do vídeo terminar.`;
 }
 
 /**
@@ -116,7 +155,13 @@ async function autorizarEnvio({ episode, series, tamanho, tipo, renovar = false 
   if (renovar) {
     const atual = resumo(episode);
     if (atual.estado !== 'enviando') throw erro(409, 'Não há envio de vídeo em andamento neste episódio. Comece o envio de novo.');
-    return autorizacaoPara(atual.videoId, limiteBytes);
+    const renovada = autorizacaoPara(atual.videoId, limiteBytes, VALIDADE_MINIMA_SEGUNDOS);
+    const gravou = await Episode.updateOne(
+      { _id: episode._id, status: 'draft', submittedAt: null, bunnyVideoId: atual.videoId, 'videoEnvio.estado': 'enviando' },
+      { $max: { 'videoEnvio.autorizadoAte': new Date(renovada.expira * 1000) } }
+    );
+    if (gravou.matchedCount === 0) throw erro(409, 'Não há envio de vídeo em andamento neste episódio. Comece o envio de novo.');
+    return renovada;
   }
 
   if (tamanho !== undefined && tamanho !== null) {
@@ -137,13 +182,18 @@ async function autorizarEnvio({ episode, series, tamanho, tipo, renovar = false 
     throw erro(502, 'Não foi possível preparar o envio do vídeo. Tente de novo.');
   }
 
+  const autorizacao = autorizacaoPara(videoId, limiteBytes, validadePara(tamanho));
+
   // A guarda de rascunho vai no filtro do próprio update: um "Enviar para
   // aprovação" feito no meio do caminho não é atropelado. `status` NÃO muda:
   // o episódio do autor nunca passa por 'processing'.
   const antigo = await Episode.findOneAndUpdate(
     { _id: episode._id, status: 'draft', submittedAt: null },
     {
-      $set: { bunnyVideoId: videoId, videoEnvio: { videoId, estado: 'enviando', atualizadoEm: new Date() } },
+      $set: {
+        bunnyVideoId: videoId,
+        videoEnvio: { videoId, estado: 'enviando', atualizadoEm: new Date(), autorizadoAte: new Date(autorizacao.expira * 1000) },
+      },
       $unset: { video_url: 1 },
     },
     { new: false }
@@ -160,7 +210,7 @@ async function autorizarEnvio({ episode, series, tamanho, tipo, renovar = false 
     await bunnyStream.deleteVideo(anterior).catch(e => logger.error(`[VideoAutor] Falha ao apagar o vídeo anterior ${anterior}`, e));
   }
 
-  return autorizacaoPara(videoId, limiteBytes);
+  return autorizacao;
 }
 
 /**
@@ -178,7 +228,23 @@ async function aplicarStatusDoBunny(videoGuid, statusDoBunny) {
   const set = { 'videoEnvio.estado': estado, 'videoEnvio.atualizadoEm': new Date() };
   const cdn = process.env.BUNNY_CDN_HOSTNAME;
   if (estado === 'pronto' && cdn) set.video_url = `https://${cdn}/${videoGuid}/playlist.m3u8`;
-  return Episode.findOneAndUpdate(filtro, { $set: set }, { new: true });
+  const antes = await Episode.findOneAndUpdate(filtro, { $set: set }, { new: false }).select('videoEnvio status submittedAt title').lean();
+  if (!antes) return null;
+
+  // O vídeo já estava pronto e o Bunny diz que ele mudou (voltou a processar,
+  // deu erro): o arquivo foi trocado depois de pronto. Se o episódio está na
+  // fila, sai dela e volta para o autor, que envia de novo quando o vídeo
+  // estiver pronto: o moderador não aprova um vídeo diferente do que viu.
+  // Publicado não é tirado do ar daqui (pode ser reprocessamento pedido no
+  // painel do Bunny): fica o registro no log.
+  const deixouDeEstarPronto = antes.videoEnvio && antes.videoEnvio.estado === 'pronto' && estado !== 'pronto';
+  if (deixouDeEstarPronto && antes.status === 'published') {
+    logger.error(`[VideoAutor] O vídeo ${videoGuid} do episódio PUBLICADO "${antes.title}" mudou no Bunny depois de pronto (estado ${statusDoBunny}). Conferir o vídeo no ar.`);
+  } else if (deixouDeEstarPronto && antes.submittedAt) {
+    await Episode.updateOne({ _id: antes._id, status: { $ne: 'published' }, 'videoEnvio.videoId': String(videoGuid) }, { $set: { submittedAt: null } });
+    logger.warn(`[VideoAutor] O vídeo ${videoGuid} mudou depois de enviado para aprovação: episódio "${antes.title}" saiu da fila.`);
+  }
+  return Episode.findById(antes._id);
 }
 
 /**
@@ -209,6 +275,10 @@ module.exports = {
   aplicarStatusDoBunny,
   consultarEstado,
   resumo,
+  temVideoPronto,
+  travaDeEnvio,
+  mensagemDaTrava,
+  validadePara,
   ehObraDeVideo,
   lerLimiteBytes,
   TIPOS_DE_VIDEO,
