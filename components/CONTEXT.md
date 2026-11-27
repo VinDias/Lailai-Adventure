@@ -24,6 +24,8 @@ Todos os componentes React da interface do usuário. É a maior camada do fronte
 | `VerticalPlayer.tsx` | Player de vídeo avançado com HLS.js, múltiplas trilhas de áudio, troca de qualidade, sistema de votação e exibição de anúncios para usuários não-premium |
 | `WebtoonReader.tsx` | Leitor de webtoon com navegação entre capítulos, suporte a múltiplos idiomas (PT/EN/ES/ZH) via camadas de tradução sobre os painéis |
 
+O texto de cada botão de idioma do player vem de `utils/rotulosDeAudio.ts` (nome do admin, idioma quando distingue a faixa, nome do vídeo, ordem combinada PT-BR/English/Español/中文, "Faixa N"): dois botões nunca saem iguais. Não volte a escolher o texto no JSX (já regrediu uma vez: REGRESSOES.md, 27/11/2026).
+
 > Atenção: `VerticalPlayer.tsx` e `WebtoonReader.tsx` são componentes de alto volume de código, contendo toda a lógica de reprodução/leitura.
 
 ## Autenticação e Usuário

@@ -30,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (branch `fix/retorno-vin-27-11`, item 1) | 2026-11-27 | player de video mostrava quatro botoes de idioma com o mesmo texto ("English"): o Bunny marca todas as faixas com o mesmo idioma e o player traduzia o codigo faixa por faixa; o video enviado pelo AUTOR (frente A, item 9) nao tem os nomes que o admin digita (`hlsAudioLabels`). **Segunda vez**: `136b916` (28/03) consertou e `1073485` (10 minutos depois) apagou o conserto, sem teste | `tests/frontend/rotulosDeAudio.test.tsx` — _video do autor com quatro faixas "en" NAO mostra quatro botoes "English"_ (e mais 10) | voltou, coberto-novo | medio |
 | (branch `fix/sem-barreira-de-mb`) | 2026-11-27 | o autor era barrado pelo peso do episodio (padrao de 20 MB no Setting `limite_mb_episodio`) no envio da pasta, na conferencia e na troca de arquivo pela grade, contra o pedido do cliente de 26/11 ("nao barrar o autor pela quantidade de megabytes") | `tests/backend/envioEpisodio.test.js` — _sem limite de MB por episodio no padrao_ (5 testes); `tests/backend/edicaoPaineis.test.js` — _sem Setting NAO ha limite de MB_ (e mais 2); `tests/backend/organizacaoEpisodio.test.js` — _pasta de 25 MB e de 300 MB passam sem opcao nenhuma_; `tests/frontend/envioPastaEpisodio.test.tsx` — _sem limite de MB (padrao): pasta de 21 MB nao mostra aviso de megabytes_; `tests/frontend/adminLimitePaineis.test.tsx` — _limite de MB por episodio e opcional_ | coberto-novo | alto |
 | (branch `fix/balao-lote-paralelo`) | 2026-11-24 | balao (camada de idioma) enviado em LOTE se perdia: admin e Meu Estudio gravam em paralelo, `setTranslationLayer` salvava a lista inteira de paineis e os pedidos seguintes davam VersionError (rota 500; medido 23/11: 1 de 10 gravados pela rota do admin). No admin o arquivo ja aparecia "concluido" e o erro nao aparecia; no reenvio, falhas salteadas iam para o painel vizinho | `tests/backend/balaoLoteParalelo.test.js` — _10 baloes em paralelo, os 10 gravados_ (servico e as duas rotas, mais 5: troca e acrescimo no mesmo painel, idioma duplicado, remover junto, leitura antiga da conflito, validacoes); `tests/frontend/balaoLoteErroAdmin.test.tsx` e `tests/frontend/balaoLoteErroPortal.test.tsx` (erro visivel, so fica ok o que gravou, reenvio no mesmo painel) | coberto-novo | alto |
 | (este PR) | 2026-11-19 | `GET /api/content/series/:id/episodes` devolvia o documento inteiro do episodio Premium (URLs dos paineis e das camadas de idioma, `video_url`, `bunnyVideoId`, faixas de audio) a visitante, conta gratuita e assinatura vencida: o 403 do detalhe e da URL assinada (Fase 6, `363af62`) era contornavel pela lista. A rota nem lia o `isPremium` da serie | `tests/backend/premiumListaEpisodios.test.js` — _visitante sem conta: episodio pago aparece na lista SEM midia_ (e mais 8: conta gratuita, vencida, assinante, dono, admin, obra mista, detalhe e signed-url); `tests/frontend/videoBloqueadoDaLista.test.tsx` (player mostra o convite com o item sem midia) | coberto-novo | alto |
@@ -89,6 +90,45 @@ Os 12 foram aprovados.
 | `4ea593f` | 2026-03-26 | fix: índice de translation layers no batch upload e fallback de CDN | `tests/frontend/adminPaineisIndice.test.tsx` | coberto-novo | medio |
 | `6615c15` | 2026-03-12 | fix: use _id for Series (MongoDB) and deduplicate Stripe customers | `tests/backend/paymentCheckout.test.js` | coberto-novo | medio |
 | `2f30192` | 2026-03-12 | fix: optional chaining on req.cookies in verifyToken to prevent 500 on payment routes | `tests/backend/paymentCheckout.test.js` | coberto-novo | alto |
+
+## Retorno do cliente em 27/11/2026 (branch `fix/retorno-vin-27-11`)
+
+Cinco apontamentos do Vin depois da publicacao da frente A (99, 27/11, 18:17 a 19:14). Um commit por item.
+
+### Item 1: quatro botoes "English" no player de video (VOLTOU)
+
+**O que o cliente viu (print-4).** "Parece que a orientacao de audio quebrou
+tambem. So aparece a lingua inglesa." Quatro botoes de idioma, todos "English".
+
+**Causa.** O Bunny Stream marca todas as faixas de audio com o mesmo idioma
+(`en`) quando o arquivo nao diz o idioma de cada uma. O `VerticalPlayer`
+escolhia o texto do botao assim: nome digitado pelo admin (`hlsAudioLabels`),
+senao a traducao do codigo do idioma, faixa por faixa. Nos videos que o admin
+envia isso ficava escondido, porque ele digita os nomes em "Faixas de Audio".
+O video enviado pelo autor (frente A, item 9, `d5b495e`) nasce sem nomes, e o
+autor nao tem onde digita-los. Os commits da frente A nao mexeram na escolha do
+texto (`5232579` so acrescentou a prop `previa`): o que mudou foi existir video
+sem os nomes.
+
+**Ja tinha acontecido.** `136b916` (28/03/2026, "evitar todos os botoes
+mostrarem English") consertou no player. `1073485`, dez minutos depois, criou
+o editor de nomes e trocou o conserto por `hlsAudioLabels?.[i] || LANG_LABELS[...]`.
+Nao havia teste, entao ninguem viu o conserto sair. Estava na lista "o que
+ainda nao foi inventariado" (player de video).
+
+**Conserto.** A regra saiu do JSX para `utils/rotulosDeAudio.ts`: nome do
+admin; senao o idioma, se nenhuma outra faixa tem o mesmo; senao o nome que
+veio do video, se for unico; senao a ordem combinada da plataforma (1a PT-BR,
+2a English, 3a Espanol, 4a chines, a mesma dos exemplos do editor do admin);
+senao "Faixa N". Dois botoes nunca saem iguais. Um botao por faixa do video.
+
+**Prova.** Com o `VerticalPlayer.tsx` de `origin/main` (1486a0e) numa copia no
+scratchpad, 4 dos 11 testes falham (os 4 que montam o player com faixas
+iguais); com o conserto, 11 de 11.
+
+**Sem teste (so no aparelho ou no Bunny).** Se a 1a faixa do arquivo do autor
+e mesmo a de portugues. Quando nao for, o admin corrige em Gerenciar Conteudo,
+"Faixas de Audio". O autor ainda nao tem esse campo no Meu Estudio.
 
 ## 27/11/2026: o autor barrado por megabytes (limite de 20 MB por episodio como padrao)
 
@@ -402,7 +442,7 @@ cobrança, autenticação, navegação ou cabeçalho de segurança.
 ### player de vídeo e sincronia de áudio (15)
 
 - >> `97b5fb2` 2026-07-10 — fix(pacote2): dark-mode forcado, anuncio em video, banner, metricas e premium expirado
-- `136b916` 2026-03-28 — fix: fallback de label quando faixas de áudio HLS têm mesmo lang code
+- `136b916` 2026-03-28 — fix: fallback de label quando faixas de áudio HLS têm mesmo lang code (**voltou em 27/11/2026**, desfeito por `1073485`; agora coberto por `tests/frontend/rotulosDeAudio.test.tsx`)
 - `c202dbb` 2026-03-26 — fix: auto-hide controls, audio track init e padding do WebtoonReader
 - `74c351e` 2026-03-20 — fix: áudio como clock mestre — vídeo ajusta playbackRate para sincronizar
 - `2733691` 2026-03-20 — fix: unifica sync de áudio no timeupdate do vídeo (remove setInterval)
