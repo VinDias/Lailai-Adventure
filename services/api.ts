@@ -1148,6 +1148,12 @@ class ApiService {
     return this.request<any>(`/admin/aprovacoes/episodes/${id}/aprovar`, { method: 'POST' });
   }
 
+  // Frente A, item 8: o episódio enviado para aprovação, inteiro, para o
+  // moderador ler no WebtoonReader (rota só de admin, routes/adminPortal.js).
+  async getLeituraAprovacao(id: string) {
+    return this.request<any>(`/admin/aprovacoes/episodes/${id}/leitura`);
+  }
+
   // tipo aceita 'series' | 'episode' | 'episodes' (o backend normaliza o
   // plural — ver routes/adminPortal.js) — a UI sempre manda o `item.tipo`
   // devolvido por getAdminAprovacoes, que já é singular.

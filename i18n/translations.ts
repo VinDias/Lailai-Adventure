@@ -97,6 +97,7 @@ const pt = {
   'reader.chapterShort': 'Cap.',
   'reader.like': 'Curtir',
   'reader.dislike': 'Não curtir',
+  'reader.preview': 'PRÉVIA DA FILA',
 
   // Player (VCine / HQCine)
   'player.unavailable': 'Vídeo indisponível',
@@ -474,6 +475,7 @@ const en: Record<keyof typeof pt, string> = {
   'reader.chapterShort': 'Ch.',
   'reader.like': 'Like',
   'reader.dislike': 'Dislike',
+  'reader.preview': 'QUEUE PREVIEW',
 
   'player.unavailable': 'Video unavailable',
   'player.unavailableHint': "We couldn't load this video right now. Please try again shortly.",
@@ -828,6 +830,7 @@ const es: Record<keyof typeof pt, string> = {
   'reader.chapterShort': 'Cap.',
   'reader.like': 'Me gusta',
   'reader.dislike': 'No me gusta',
+  'reader.preview': 'VISTA PREVIA DE LA COLA',
 
   'player.unavailable': 'Video no disponible',
   'player.unavailableHint': 'No pudimos cargar este video ahora. Inténtalo de nuevo en unos instantes.',
@@ -1182,6 +1185,7 @@ const zh: Record<keyof typeof pt, string> = {
   'reader.chapterShort': '第',
   'reader.like': '点赞',
   'reader.dislike': '不喜欢',
+  'reader.preview': '审核预览',
 
   'player.unavailable': '视频不可用',
   'player.unavailableHint': '暂时无法加载该视频，请稍后重试。',

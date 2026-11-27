@@ -951,3 +951,93 @@ describe('Integração: fluxo completo série -> episódio pela Fila de Aprovaç
     }
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Frente A, item 8 — GET /api/admin/aprovacoes/episodes/:id/leitura
+// O moderador lê o episódio ENVIADO inteiro, no leitor, antes de aprovar.
+// A rota entrega o rascunho só a admin: o que estes testes garantem é a
+// negação a qualquer outra conta (inclusive o autor e outro autor) e que só
+// item que está na fila é servido. Não garantem nada da tela (ver
+// tests/frontend/adminAprovacoesPanel.test.tsx).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('GET /api/admin/aprovacoes/episodes/:id/leitura (item 8)', () => {
+  const paineis = [
+    { image_url: 'https://cdn.exemplo/p1.jpg', order: 0, translationLayers: [
+      { language: 'pt', imageUrl: 'https://cdn.exemplo/p1-pt.png' },
+      { language: 'en', imageUrl: 'https://cdn.exemplo/p1-en.png' },
+      { language: 'es', imageUrl: 'https://cdn.exemplo/p1-es.png' },
+      { language: 'zh', imageUrl: 'https://cdn.exemplo/p1-zh.png' },
+    ] },
+    { image_url: 'https://cdn.exemplo/p2.jpg', order: 1, translationLayers: [
+      { language: 'en', imageUrl: 'https://cdn.exemplo/p2-en.png' },
+    ] },
+    { image_url: 'https://cdn.exemplo/p3.jpg', order: 2 },
+  ];
+  const rota = id => `/api/admin/aprovacoes/episodes/${id}/leitura`;
+
+  it('moderador recebe o rascunho enviado inteiro, com os balões de cada idioma', async () => {
+    const dono = await criarDono('Leitura Moderador');
+    const { serie, episode } = await episodioSubmetidoDeSeriePublicada(dono, { panels: paineis });
+
+    for (const papel of ['admin', 'superadmin']) {
+      const res = await request(app).get(rota(episode._id)).set('Authorization', `Bearer ${auth.getToken(papel)}`);
+      expect(res.status).toBe(200);
+      expect(res.body.title).toBe('Cap Submetido');
+      expect(res.body.status).toBe('draft');
+      expect(res.body.serie).toEqual({ id: String(serie._id), title: serie.title });
+      expect(res.body.panels.map(p => p.image_url)).toEqual(paineis.map(p => p.image_url));
+      expect(res.body.panels[0].translationLayers.map(c => c.language).sort()).toEqual(['en', 'es', 'pt', 'zh']);
+      expect(res.body.panels[1].translationLayers[0]).toMatchObject({ language: 'en', imageUrl: 'https://cdn.exemplo/p2-en.png' });
+      expect(res.body.porIdioma).toEqual({ pt: 1, en: 2, es: 1, zh: 1 });
+    }
+  });
+
+  it('NEGA a qualquer outro: sem login 401; leitor comum, assinante, o autor e outro autor 403, sem painel nenhum na resposta', async () => {
+    const dono = await criarDono('Leitura Autor');
+    const outro = await criarDono('Leitura Outro Autor');
+    const { episode } = await episodioSubmetidoDeSeriePublicada(dono, { panels: paineis });
+
+    const semLogin = await request(app).get(rota(episode._id));
+    expect(semLogin.status).toBe(401);
+    expect(JSON.stringify(semLogin.body)).not.toContain('cdn.exemplo');
+
+    const contas = {
+      'leitor comum': auth.getToken('user'),
+      assinante: auth.getToken('premium'),
+      'o autor': dono.token,
+      'outro autor': outro.token,
+    };
+    for (const [quem, token] of Object.entries(contas)) {
+      const res = await request(app).get(rota(episode._id)).set('Authorization', `Bearer ${token}`);
+      expect(res.status, quem).toBe(403);
+      expect(JSON.stringify(res.body), quem).not.toContain('cdn.exemplo');
+    }
+  });
+
+  it('só serve o que está na fila: rascunho não enviado, episódio publicado e id que não existe dão 404', async () => {
+    const dono = await criarDono('Leitura Fora Da Fila');
+    const { serie, episode: naoEnviado } = await episodioSubmetidoDeSeriePublicada(dono, { panels: paineis, submittedAt: null });
+    const publicado = await Episode.create({
+      seriesId: serie._id, episode_number: 2, title: 'Cap No Ar', status: 'published', panels: paineis,
+    });
+
+    for (const id of [naoEnviado._id, publicado._id, '64b000000000000000000000', 'nao-e-id']) {
+      const res = await request(app).get(rota(id)).set('Authorization', ADMIN_HEADER());
+      expect(res.status, String(id)).toBe(404);
+      expect(JSON.stringify(res.body)).not.toContain('cdn.exemplo');
+    }
+  });
+
+  it('ler na fila não conta visualização nem muda o episódio', async () => {
+    const dono = await criarDono('Leitura Sem Efeito');
+    const { episode } = await episodioSubmetidoDeSeriePublicada(dono, { panels: paineis });
+    const antes = await Episode.findById(episode._id).lean();
+    await request(app).get(rota(episode._id)).set('Authorization', ADMIN_HEADER());
+    const depois = await Episode.findById(episode._id).lean();
+    expect(depois.views).toBe(antes.views);
+    expect(depois.status).toBe('draft');
+    expect(depois.submittedAt).toEqual(antes.submittedAt);
+    expect(depois.__v).toBe(antes.__v);
+  });
+});

@@ -295,3 +295,87 @@ describe('AprovacoesPanel — Devolver', () => {
     await waitFor(() => expect(onCountChange).toHaveBeenLastCalledWith(0));
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Frente A, item 8 — o moderador lê o episódio da fila no WebtoonReader (o
+// leitor de verdade, sem mock), com os 4 idiomas. Garante: o botão existe só
+// em item de episódio, o leitor abre pela rota de admin (getLeituraAprovacao,
+// nunca a pública), mostra os 4 idiomas com a contagem de balões, trocar de
+// idioma troca o balão do painel, e a prévia não pede anúncio, voto nem
+// progresso (a api mockada só tem as 5 funções acima e a de leitura: qualquer
+// outra chamada quebraria o teste). Não garante a guarda da rota (backend).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('AprovacoesPanel — ler o episódio na fila (item 8)', () => {
+  const leitura = {
+    _id: 'e1', title: 'Cap Submetido', status: 'draft',
+    panels: [
+      { _id: 'p1', image_url: 'https://cdn/p1.jpg', order: 0, translationLayers: [
+        { language: 'pt', imageUrl: 'https://cdn/p1-pt.png' },
+        { language: 'en', imageUrl: 'https://cdn/p1-en.png' },
+        { language: 'es', imageUrl: 'https://cdn/p1-es.png' },
+        { language: 'zh', imageUrl: 'https://cdn/p1-zh.png' },
+      ] },
+      { _id: 'p2', image_url: 'https://cdn/p2.jpg', order: 1, translationLayers: [
+        { language: 'en', imageUrl: 'https://cdn/p2-en.png' },
+      ] },
+    ],
+  };
+  const baloes = () => Array.from(document.querySelectorAll('[data-testid="painel-leitor"] img[aria-hidden="true"]'))
+    .map(img => img.getAttribute('src'));
+
+  beforeEach(() => {
+    (api as any).getLeituraAprovacao = vi.fn().mockResolvedValue(leitura);
+  });
+
+  it('item de série não tem "Ler episódio"; item de episódio tem', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemSerie] } as any);
+    const { unmount } = render(<AprovacoesPanel />);
+    await screen.findByText('Obra Submetida');
+    expect(screen.queryByRole('button', { name: /Ler episódio/ })).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemEpisodioSeriePublicada] } as any);
+    render(<AprovacoesPanel />);
+    expect(await screen.findByRole('button', { name: /Ler episódio/ })).toBeInTheDocument();
+  });
+
+  it('abre o leitor com os 4 idiomas e troca o balão ao trocar de idioma', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemEpisodioSeriePublicada] } as any);
+    render(<AprovacoesPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Ler episódio/ }));
+
+    await waitFor(() => expect((api as any).getLeituraAprovacao).toHaveBeenCalledWith('e1'));
+    // Os dois painéis, na ordem, sem anúncio na frente.
+    expect(await screen.findByAltText('Página 1')).toHaveAttribute('src', 'https://cdn/p1.jpg');
+    expect(screen.getByAltText('Página 2')).toHaveAttribute('src', 'https://cdn/p2.jpg');
+    expect(screen.getByText(/PRÉVIA DA FILA/)).toBeInTheDocument();
+
+    // 4 idiomas, cada um com quantos painéis têm balão.
+    for (const rotulo of ['Port 1/2', 'Eng 2/2', 'Esp 1/2', 'Zhon 1/2']) {
+      expect(screen.getByRole('button', { name: rotulo })).toBeInTheDocument();
+    }
+
+    // Português (idioma inicial): balão só no painel 1.
+    expect(baloes()).toEqual(['https://cdn/p1-pt.png']);
+    fireEvent.click(screen.getByRole('button', { name: 'Eng 2/2' }));
+    expect(baloes()).toEqual(['https://cdn/p1-en.png', 'https://cdn/p2-en.png']);
+    fireEvent.click(screen.getByRole('button', { name: 'Esp 1/2' }));
+    expect(baloes()).toEqual(['https://cdn/p1-es.png']);
+    fireEvent.click(screen.getByRole('button', { name: 'Zhon 1/2' }));
+    expect(baloes()).toEqual(['https://cdn/p1-zh.png']);
+    // Trocar o balão na prévia não muda o idioma guardado do aparelho.
+    expect(localStorage.getItem('lorflux_language')).toBeNull();
+  });
+
+  it('fechar o leitor volta para a fila, com Aprovar e Devolver no lugar', async () => {
+    vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [itemEpisodioSeriePublicada] } as any);
+    render(<AprovacoesPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: /Ler episódio/ }));
+    await screen.findByAltText('Página 1');
+    fireEvent.click(screen.getByRole('button', { name: 'CONCLUIR' }));
+    await waitFor(() => expect(screen.queryByAltText('Página 1')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /Aprovar/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Devolver/ })).toBeInTheDocument();
+  });
+});

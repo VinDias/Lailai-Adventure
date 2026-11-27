@@ -24,6 +24,13 @@ interface ReaderProps {
   // o leitor decide para onde levam os convites de conta e de assinatura.
   onCriarConta?: () => void;
   onAssinar?: () => void;
+  // Frente A, item 8: o moderador lê na Fila de Aprovação o episódio enviado
+  // (ou, no item 7, a edição de um publicado) neste MESMO leitor. Em prévia o
+  // episódio vem de `carregar` (rota só de admin) em vez da rota pública, e o
+  // leitor não mostra anúncio nem voto, não grava progresso de leitura, não
+  // troca o idioma da interface e sempre oferece os 4 idiomas, com quantos
+  // painéis têm balão em cada um.
+  previa?: { carregar: () => Promise<any> };
 }
 
 interface TranslationLayer {
@@ -50,14 +57,15 @@ const DEFAULT_LANG_LABELS: Record<string, string> = {
 // leitura de verdade — usado para decidir se o usuário já começou sozinho.
 const LIMIAR_SCROLL_PROPRIO = 40;
 
-const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate, onCriarConta, onAssinar }) => {
+const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpisode, nextEpisode, onNavigate, onCriarConta, onAssinar, previa }) => {
+  const emPrevia = !!previa;
   const [paineis, setPaineis] = useState<PanelItem[]>([]);
   // 403 do servidor (Fase 6) não é erro, é oferta: guarda motivo e obra para a
   // tela de convite, em vez de cair no estado vazio de "nenhum painel".
   const [bloqueio, setBloqueio] = useState<{ motivo: MotivoBloqueio; obra?: any } | null>(null);
   const [loading, setLoading] = useState(true);
   // Usuário free vê um interstitial antes de cada capítulo (assinante não vê)
-  const [showAd, setShowAd] = useState(!isPremiumActive(user));
+  const [showAd, setShowAd] = useState(!emPrevia && !isPremiumActive(user));
   const t = useT();
   const { lang: uiLang, setLang: setUiLang } = useI18n();
   // O idioma dos balões parte do idioma da interface (mesma chave de storage).
@@ -75,8 +83,9 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
   // webtoon.seriesId. Fallback para webtoon.id cobre chamadores antigos/testes
   // que ainda não preenchem seriesId.
   const { report } = useProgress({
-    seriesId: String(webtoon?.seriesId ?? webtoon?.id ?? ''),
-    episodeId: String(webtoon?.episodeId ?? webtoon?.id ?? ''),
+    // Sem ids o hook não grava nada (prévia do moderador não é leitura).
+    seriesId: emPrevia ? '' : String(webtoon?.seriesId ?? webtoon?.id ?? ''),
+    episodeId: emPrevia ? '' : String(webtoon?.episodeId ?? webtoon?.id ?? ''),
     contentType: 'hiqua',
   });
   const jaRestaurou = useRef(false);
@@ -107,7 +116,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
   // container rolável (scrollRef) nem existe no DOM ainda — restaurar antes
   // disso marcaria "já restaurei" sem nunca ter restaurado de fato.
   useEffect(() => {
-    if (jaRestaurou.current || loading || paineis.length === 0 || showAd) return;
+    if (emPrevia || jaRestaurou.current || loading || paineis.length === 0 || showAd) return;
     jaRestaurou.current = true;
     const episodeIdAtual = webtoon?.episodeId ?? webtoon?.id;
     // A navegação entre capítulos (onNavigate) não desmonta o componente — só
@@ -153,12 +162,12 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     // de gravação fecha de novo até a restauração do capítulo novo resolver.
     jaRestaurou.current = false;
     restauracaoResolvida.current = false;
-    setShowAd(!isPremiumActive(user));
+    setShowAd(!emPrevia && !isPremiumActive(user));
     loadPanels(episodeId);
   }, [webtoon.id]);
 
   useEffect(() => {
-    if (!user || !webtoon.id) return;
+    if (emPrevia || !user || !webtoon.id) return;
     const episodeId = webtoon.episodeId || webtoon.id;
     api.getMyVote(episodeId).then(v => setMyVote(v?.type ?? null));
   }, [webtoon.id, user]);
@@ -171,7 +180,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
       // fetch cru. Sem credenciais, o backend trata a requisição como anônima e
       // remove os painéis (panels: []) de qualquer episódio premium — era o que
       // causava "0 painéis / Nenhum painel disponível" mesmo para admins/assinantes.
-      const episode: any = await api.getEpisode(episodeId);
+      const episode: any = previa ? await previa.carregar() : await api.getEpisode(episodeId);
       if (episode) {
         if (episode.panels && episode.panels.length > 0) {
           const mapped = episode.panels
@@ -194,12 +203,22 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
           // original). Os rótulos por episódio (webtoonLanguageLabels) foram
           // aposentados junto com o editor do admin — o campo segue no banco
           // por compatibilidade, mas não é mais lido.
-          setAvailableLanguages(
-            Array.from(langSet).map(code => ({
+          if (emPrevia) {
+            // Moderador: os 4 idiomas sempre, com a contagem de painéis que têm
+            // balão em cada um (idioma incompleto aparece antes de aprovar).
+            const comBalao = (code: string) => mapped.filter((p: PanelItem) => p.translationLayers?.some(tl => tl.language === code)).length;
+            setAvailableLanguages(UI_LANGS.map(code => ({
               code,
-              label: DEFAULT_LANG_LABELS[code] || code.toUpperCase()
-            }))
-          );
+              label: `${DEFAULT_LANG_LABELS[code]} ${comBalao(code)}/${mapped.length}`,
+            })));
+          } else {
+            setAvailableLanguages(
+              Array.from(langSet).map(code => ({
+                code,
+                label: DEFAULT_LANG_LABELS[code] || code.toUpperCase()
+              }))
+            );
+          }
 
           setLoading(false);
           return;
@@ -221,6 +240,8 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
 
   const changeLanguage = (lang: string) => {
     setLanguage(lang);
+    // Prévia do moderador: troca só os balões, não o idioma do painel do admin.
+    if (emPrevia) return;
     try { localStorage.setItem('lorflux_language', lang); } catch { /* storage indisponível */ }
     // Idiomas do conjunto da UI sincronizam a interface inteira junto.
     if (UI_LANGS.includes(lang as Lang)) setUiLang(lang as Lang);
@@ -277,7 +298,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
         </div>
         <div className="text-center">
           <h1 className="text-xs font-black text-white uppercase tracking-widest truncate max-w-[200px]">{webtoon.titulo}</h1>
-          <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">HI-QUA READER • {paineis.length} {t('reader.panels')}</p>
+          <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter">{emPrevia ? t('reader.preview') : 'HI-QUA READER'} • {paineis.length} {t('reader.panels')}</p>
         </div>
         <div className="flex items-center gap-2">
           {/* Seletor de idioma */}
@@ -287,6 +308,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
                 <button
                   key={lang.code}
                   onClick={() => changeLanguage(lang.code)}
+                  aria-pressed={language === lang.code}
                   className={`px-2 py-1 text-[10px] font-black rounded-lg transition-all ${language === lang.code ? 'bg-rose-600 text-white' : 'bg-white/10 text-zinc-400 hover:text-white'}`}
                 >
                   {lang.label}
@@ -295,7 +317,7 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
             </div>
           )}
           {/* Like/Dislike */}
-          {user && (
+          {user && !emPrevia && (
             <div className="flex gap-1 ml-2">
               <button
                 onClick={() => handleVote('like')}

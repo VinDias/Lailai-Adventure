@@ -287,6 +287,58 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
   }
 });
 
+/**
+ * O que o leitor da fila precisa de um episódio (frente A, item 8): o mesmo
+ * formato de GET /api/content/episodes/:id que o WebtoonReader já lê
+ * (`panels` com `image_url`, `order` e `translationLayers`), mais a contagem
+ * de painéis com balão por idioma, para o moderador ver de relance se um
+ * idioma veio incompleto.
+ */
+const IDIOMAS_DO_LEITOR = ['pt', 'en', 'es', 'zh'];
+function episodioParaLeitura(episode, serie, panels) {
+  const porIdioma = Object.fromEntries(IDIOMAS_DO_LEITOR.map(l => [l, 0]));
+  for (const p of panels || []) {
+    const idiomas = new Set((p.translationLayers || []).map(c => c.language));
+    for (const l of IDIOMAS_DO_LEITOR) if (idiomas.has(l)) porIdioma[l] += 1;
+  }
+  return {
+    _id: episode._id,
+    title: episode.title,
+    episode_number: episode.episode_number,
+    description: episode.description ?? null,
+    thumbnail: episode.thumbnail ?? null,
+    status: episode.status,
+    submittedAt: episode.submittedAt ?? null,
+    serie: serie ? { id: serie._id, title: serie.title } : null,
+    panels: panels || [],
+    porIdioma,
+  };
+}
+
+// GET /api/admin/aprovacoes/episodes/:id/leitura — o episódio ENVIADO para
+// aprovação, inteiro, para o moderador ler no mesmo leitor do público antes de
+// aprovar (frente A, item 8). Só admin (requireAdmin: 401 sem login, 403 para
+// qualquer outra conta, inclusive o próprio autor, que lê o rascunho dele pelo
+// Meu Estúdio). Só item que está na fila: rascunho não enviado e episódio já
+// publicado respondem 404 (o publicado se lê pela rota pública). Não conta
+// visualização nem gera evento de leitura: não passa por /api/content.
+router.get('/aprovacoes/episodes/:id/leitura', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const episode = await Episode.findById(req.params.id)
+      .select('title episode_number description thumbnail status submittedAt panels seriesId')
+      .lean();
+    if (!episode || !episode.submittedAt || episode.status === 'published') {
+      return res.status(404).json({ error: 'Este episódio não está aguardando aprovação.' });
+    }
+    const serie = await Series.findById(episode.seriesId).select('title').lean();
+    res.json(episodioParaLeitura(episode, serie, episode.panels));
+  } catch (err) {
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[AdminPortal] GET /aprovacoes/episodes/:id/leitura', err);
+    res.status(500).json({ error: 'Erro ao abrir o episódio para leitura.' });
+  }
+});
+
 // POST /api/admin/aprovacoes/series/:id/aprovar — publica uma série
 // submetida. genre/tags/content_rating no body são OPCIONAIS na leitura do
 // pick (o Master pode preenchê-los na mesma ação — a série do portal nasce

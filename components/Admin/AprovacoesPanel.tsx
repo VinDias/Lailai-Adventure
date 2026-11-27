@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardCheck, Check, RotateCcw, X } from 'lucide-react';
+import { ClipboardCheck, Check, RotateCcw, X, BookOpen } from 'lucide-react';
 import { api } from '../../services/api';
 import { TagsChipInput } from './AdminDashboard';
 import ImageWithFallback from '../ImageWithFallback';
+import WebtoonReader from '../WebtoonReader';
 
 /**
  * Fila de Aprovação (Fase 5 Bloco 1, Task 10) — admin, sempre em PT (sem
@@ -63,6 +64,8 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
   const [devolverAlvo, setDevolverAlvo] = useState<ItemAprovacao | null>(null);
   const [devolverTexto, setDevolverTexto] = useState('');
   const [devolvendo, setDevolvendo] = useState(false);
+  // Frente A, item 8: episódio da fila aberto no leitor (o mesmo do público).
+  const [lendo, setLendo] = useState<ItemAprovacao | null>(null);
 
   const chave = (it: ItemAprovacao) => `${it.tipo}:${it.id}`;
 
@@ -248,6 +251,14 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
                     >
                       <Check size={14} /> {ocupado ? 'Aprovando...' : 'Aprovar'}
                     </button>
+                    {it.tipo === 'episode' && (
+                      <button
+                        onClick={() => setLendo(it)}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-[var(--border-color)] rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                      >
+                        <BookOpen size={14} /> Ler episódio
+                      </button>
+                    )}
                     <button
                       onClick={() => abrirDevolver(it)}
                       disabled={ocupado}
@@ -261,6 +272,19 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
             );
           })}
         </div>
+      )}
+
+      {lendo && (
+        <WebtoonReader
+          webtoon={{
+            id: lendo.id, episodeId: lendo.id, seriesId: lendo.serie?.id, titulo: lendo.title,
+            categoria: '', descricao: lendo.description ?? '', numeroPaineis: lendo.panelCount ?? 0,
+            isPremium: false, thumbnailUrl: lendo.thumbnail ?? '', criadoEm: lendo.submittedAt,
+          }}
+          user={null}
+          onClose={() => setLendo(null)}
+          previa={{ carregar: () => api.getLeituraAprovacao(lendo.id) }}
+        />
       )}
 
       {devolverAlvo && (
