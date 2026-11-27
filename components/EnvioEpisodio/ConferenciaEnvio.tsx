@@ -93,7 +93,12 @@ const ConferenciaEnvio: React.FC<{ resultado: ResultadoDaPasta; paineisAtuais?: 
         </p>
         {r.paginasCortadas > 0 && <p>{preencher(t('envio.cortadas'), { n: r.paginasCortadas })}</p>}
         <p>{preencher(t('envio.limitePaineis'), { limite: r.limitePaineis })}</p>
-        <p data-testid="resumo-tamanho">{preencher(t('envio.tamanho'), { total: formatarMB(r.totalBytes), limite: formatarMB(r.limiteBytes) })}</p>
+        {/* Sem limite de MB ligado no admin (padrão), só o tamanho, sem "de X". */}
+        <p data-testid="resumo-tamanho">
+          {r.limiteBytes > 0
+            ? preencher(t('envio.tamanho'), { total: formatarMB(r.totalBytes), limite: formatarMB(r.limiteBytes) })
+            : preencher(t('envio.tamanhoSemLimite'), { total: formatarMB(r.totalBytes) })}
+        </p>
         <p>
           {t('envio.idiomas')}:{' '}
           {IDIOMAS.map(i => `${ROTULO_IDIOMA[i]} ${r.porIdioma[i as 'pt']}`).join(' · ')}

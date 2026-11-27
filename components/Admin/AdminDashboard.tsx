@@ -1590,12 +1590,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                     />
                   </div>
                   <div className="mt-4">
-                    <label htmlFor="limite_mb_episodio" className="text-xs font-bold text-zinc-400 block mb-1">Limite de MB por episódio <span className="text-zinc-600 font-normal">(soma dos arquivos da pasta, antes do corte; vazio = 20)</span></label>
+                    <label htmlFor="limite_mb_episodio" className="text-xs font-bold text-zinc-400 block mb-1">Limite de MB por episódio <span className="text-zinc-600 font-normal">(opcional: vazio ou 0 = sem limite, o autor não é barrado pelo peso; um número liga o limite sobre a soma dos arquivos da pasta, antes do corte)</span></label>
                     <input
                       id="limite_mb_episodio"
                       type="number"
-                      min="1"
-                      placeholder="20"
+                      min="0"
+                      placeholder="sem limite"
                       value={settingsForm.limite_mb_episodio}
                       onChange={e => setSettingsForm(p => ({ ...p, limite_mb_episodio: e.target.value }))}
                       className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"

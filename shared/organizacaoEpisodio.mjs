@@ -31,13 +31,19 @@
  *    autor vê na pasta dele); o corte no navegador regrava as fatias, e o
  *    servidor tem um teto próprio para o que chega de fato
  *    (services/envioEpisodioService.js, FOLGA_DO_CORTE).
+ *  - Em 26/11/2026 o Vin tirou a barreira de megabytes ("mantenha a liberação
+ *    para não barrar o autor pela quantidade de megabytes. Deixe o foco
+ *    apenas no limite dos 100 painéis e na compressão automática"): o padrão
+ *    passou a ser SEM limite de MB por episódio (0). O limite continua
+ *    existindo como opção do admin (Setting `limite_mb_episodio` > 0).
  *  - Arquivo que sobe sem corte (página ou balão de até 1280 px, capa) tem de
  *    caber numa parte do envio (`tamanhoMaximoArquivo`).
  */
 
 export const ALTURA_MAXIMA = 1280;
 export const LIMITE_PAINEIS_PADRAO = 100;
-export const LIMITE_MB_EPISODIO_PADRAO = 20;
+/** 0 = sem limite de MB por episódio (padrão desde 26/11/2026). */
+export const LIMITE_MB_EPISODIO_PADRAO = 0;
 export const BYTES_POR_MB = 1024 * 1024;
 
 /** "4,7 MB": como a tela e as mensagens mostram tamanho. */
@@ -190,7 +196,7 @@ export function nomeNoBunny({ numeroPagina, fatia = 1, totalFatias = 1, idioma =
  *  - totalPaineis, porIdioma ({pt: n painéis com balão}), podeEnviar;
  *  - totalBytes: soma dos originais que entram (páginas, balões usados, capa).
  *
- * Opções: limitePaineis (padrão 100), limiteBytes (padrão 20 MB; 0 desliga),
+ * Opções: limitePaineis (padrão 100), limiteBytes (padrão 0 = sem limite de MB),
  * tamanhoMaximoArquivo (bytes; sem ele não confere), exigirTamanho.
  */
 export function organizarPasta(arquivos, opcoes = {}) {

@@ -148,20 +148,44 @@ describe('limite de painéis, contado depois do corte', () => {
   });
 });
 
-describe('limite de 20 MB por episódio, sobre os arquivos originais', () => {
+// Regressão (26/11/2026, pedido do Vin): "mantenha a liberação para não barrar
+// o autor pela quantidade de megabytes". O padrão é SEM limite de MB.
+describe('sem limite de MB por episódio no padrão (o autor não é barrado pelo peso)', () => {
   const MB = 1024 * 1024;
+  it('pasta de 25 MB e de 300 MB passam sem opção nenhuma; o limite de 100 painéis continua valendo', () => {
+    expect(O.LIMITE_MB_EPISODIO_PADRAO).toBe(0);
+    const r = O.organizarPasta([{ nome: 'Pagina 001.jpg', largura: 800, altura: 25600, tamanho: 25 * MB }]);
+    expect(r.podeEnviar).toBe(true);
+    expect(r.limiteBytes).toBe(0);
+    expect(r.totalBytes).toBe(25 * MB);
+    expect(r.problemas.find(p => p.codigo === 'limite-tamanho')).toBeUndefined();
+    expect(O.organizarPasta([{ nome: 'Pagina 001.jpg', largura: 800, altura: 25600, tamanho: 300 * MB }]).podeEnviar).toBe(true);
+
+    // 101 painéis depois do corte continuam impedindo, com qualquer peso.
+    const muitos = O.organizarPasta([
+      { nome: 'Pagina 001.jpg', largura: 800, altura: 64000, tamanho: 30 * MB },
+      { nome: 'Pagina 002.jpg', largura: 800, altura: 64001, tamanho: 30 * MB },
+    ]);
+    expect(muitos.problemas.map(p => p.codigo)).toEqual(['limite-paineis']);
+    expect(muitos.podeEnviar).toBe(false);
+  });
+});
+
+describe('limite de MB por episódio LIGADO (opção do admin; aqui 20 MB), sobre os arquivos originais', () => {
+  const MB = 1024 * 1024;
+  const LIGADO = { limiteBytes: 20 * MB };
   it('soma páginas, balões usados e capa; 20 MB exatos passam, um byte a mais impede', () => {
     const pasta = [
       { nome: 'Capa.jpg', largura: 600, altura: 900, tamanho: 2 * MB },
       { nome: 'Pagina 001.jpg', largura: 800, altura: 12500, tamanho: 10 * MB },
       { nome: 'Pagina 001_ENG.png', largura: 800, altura: 12500, tamanho: 8 * MB },
     ];
-    const ok = O.organizarPasta(pasta);
+    const ok = O.organizarPasta(pasta, LIGADO);
     expect(ok.totalBytes).toBe(20 * MB);
     expect(ok.limiteBytes).toBe(20 * MB);
     expect(ok.podeEnviar).toBe(true);
 
-    const demais = O.organizarPasta([...pasta.slice(0, 2), { ...pasta[2], tamanho: 8 * MB + 1 }]);
+    const demais = O.organizarPasta([...pasta.slice(0, 2), { ...pasta[2], tamanho: 8 * MB + 1 }], LIGADO);
     expect(demais.podeEnviar).toBe(false);
     const p = demais.problemas.find(x => x.codigo === 'limite-tamanho');
     expect(p.mensagem).toBe('Os arquivos do episódio somam um pouco mais de 20 MB, que é o limite.');
@@ -173,14 +197,14 @@ describe('limite de 20 MB por episódio, sobre os arquivos originais', () => {
       { nome: 'Pagina 001.jpg', largura: 800, altura: 1280, tamanho: 1 * MB },
       { nome: 'Pagina 009_ENG.png', largura: 800, altura: 1280, tamanho: 30 * MB },
       { nome: 'roteiro.psd', tamanho: 300 * MB },
-    ]);
+    ], LIGADO);
     expect(r.totalBytes).toBe(1 * MB);
     expect(r.podeEnviar).toBe(true);
   });
 
   it('o limite é parâmetro (Setting do admin); 0 desliga', () => {
     const pasta = [{ nome: 'Pagina 001.jpg', largura: 800, altura: 25600, tamanho: 25 * MB }];
-    expect(O.organizarPasta(pasta).podeEnviar).toBe(false);
+    expect(O.organizarPasta(pasta, LIGADO).podeEnviar).toBe(false);
     expect(O.organizarPasta(pasta, { limiteBytes: 30 * MB }).podeEnviar).toBe(true);
     expect(O.organizarPasta(pasta, { limiteBytes: 0 }).podeEnviar).toBe(true);
   });

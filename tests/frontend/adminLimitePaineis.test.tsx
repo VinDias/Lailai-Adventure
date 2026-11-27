@@ -47,7 +47,26 @@ it('mostra o limite gravado e salva o valor novo na chave que o servidor lê', a
   await waitFor(() => expect(api.updateSetting).toHaveBeenCalledWith('limite_paineis_episodio', '200', 'Limite de painéis por episódio'));
 });
 
-it('limite de MB por episódio: mostra o gravado e salva na chave limite_mb_episodio', async () => {
+// Regressão (26/11/2026, pedido do Vin): o padrão é SEM limite de MB; o campo
+// continua no admin como opção e diz isso (antes: "vazio = 20").
+it('limite de MB por episódio é opcional: sem valor gravado o campo fica vazio e a ajuda diz que vazio ou 0 é sem limite', async () => {
+  vi.mocked(api.getAdminSettings).mockResolvedValue([{ key: 'limite_paineis_episodio', value: '100' }] as any);
+  render(<AdminDashboard onLogout={() => {}} currentSubView={ViewMode.ADMIN_SETTINGS} setSubView={() => {}} />);
+  const campo = await screen.findByLabelText(/Limite de MB por episódio/);
+  await waitFor(() => expect(screen.getByLabelText(/Limite de painéis por episódio/)).toHaveValue(100));
+  expect(campo).toHaveValue(null);
+  expect(campo).toHaveAttribute('placeholder', 'sem limite');
+  expect(campo).toHaveAttribute('min', '0');
+  const rotulo = document.querySelector('label[for="limite_mb_episodio"]')!.textContent!;
+  expect(rotulo).toMatch(/vazio ou 0 = sem limite/);
+  expect(rotulo).not.toMatch(/vazio = 20/);
+
+  fireEvent.change(campo, { target: { value: '0' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+  await waitFor(() => expect(api.updateSetting).toHaveBeenCalledWith('limite_mb_episodio', '0', 'Limite de MB por episódio'));
+});
+
+it('limite de MB por episódio ligado: mostra o gravado e salva na chave limite_mb_episodio', async () => {
   render(<AdminDashboard onLogout={() => {}} currentSubView={ViewMode.ADMIN_SETTINGS} setSubView={() => {}} />);
   const campo = await screen.findByLabelText(/Limite de MB por episódio/);
   await waitFor(() => expect(campo).toHaveValue(20));

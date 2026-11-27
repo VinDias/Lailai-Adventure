@@ -33,7 +33,7 @@ const EpisodeSchema = new mongoose.Schema({
     altura: Number,
     // Tamanho do arquivo da imagem, em bytes (frente A, 27/11). Opcional: só o
     // que foi gravado pelo envio da pasta ou trocado pela grade tem. É com ele
-    // que a troca de um arquivo confere o limite de MB do episódio.
+    // que a troca de um arquivo confere o limite de MB do episódio (se ligado).
     bytes: Number,
     translationLayers: [{
       language: { type: String, enum: ['pt', 'en', 'es', 'zh'] },

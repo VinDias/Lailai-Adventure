@@ -11,7 +11,7 @@
  * decodifica a fatia de novo e confere largura x altura; nos balões, compara o
  * canal alfa da fatia com o da página original na mesma faixa (balão
  * deslocado de 1 px já aparece). Imprime o tamanho antes e depois do corte
- * (o limite de 20 MB conta os originais; o servidor aceita até 3x de fato).
+ * (o limite de MB, quando o admin liga, conta os originais; o servidor aceita até 3x de fato).
  * Com a pasta de saída, grava as fatias para olhar.
  *
  * Chromium: o do Playwright (PLAYWRIGHT_CHROMIUM=<executável> para escolher).
