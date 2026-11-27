@@ -631,6 +631,7 @@ module.exports = {
   pastaDoEpisodio,
   apagarCaminhos,
   apagarUrlsSemUso,
+  cancelarAbertos,
   carregarRegras,
   lerLimitePaineis,
   lerLimiteBytes,

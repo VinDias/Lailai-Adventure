@@ -3,6 +3,17 @@ import API_URL from '../config/api';
 import { getAnonymousId } from '../utils/anonymousId';
 
 /** Edição de um episódio publicado, sem os painéis (services/revisaoEpisodioService.js `resumo`). */
+/** Resposta de DELETE /api/portal/episodios/:id e /series/:id. */
+export interface ExclusaoDoAutor {
+  excluido: boolean;
+  estado: string;
+  episodios?: number;
+  arquivosApagados: number;
+  naoApagados: string[];
+  videosApagados: number;
+  videosNaoApagados: string[];
+}
+
 export interface RevisaoResumo {
   episodeId: string;
   status: 'editando' | 'enviada';
@@ -1095,12 +1106,15 @@ class ApiService {
    * Bunny: só elas precisam de nova tentativa) e `recusados`. Erro de rede
    * sai sem `status`.
    */
-  async enviarParteEpisodio(envioId: string, itens: Array<{ chave: string; blob: Blob; nome: string }>): Promise<{ recebidos: number; total: number }> {
+  async enviarParteEpisodio(envioId: string, itens: Array<{ chave: string; blob: Blob; nome: string }>, opcoes: { sinal?: AbortSignal } = {}): Promise<{ recebidos: number; total: number }> {
     const formData = new FormData();
     for (const it of itens) formData.append(it.chave, it.blob, it.nome);
+    // `sinal`: quem orquestra (utils/envioPasta.ts) aborta a parte que passou
+    // do tempo ou o envio cancelado; sem isso um pedido parado ficava para sempre.
     const response = await this.fetchAutenticado(`${API_URL}/envio-episodio/${envioId}/partes`, {
       method: 'POST',
       body: formData,
+      ...(opcoes.sinal ? { signal: opcoes.sinal } : {}),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -1182,6 +1196,23 @@ class ApiService {
 
   async enviarRevisaoEpisodio(episodeId: string) {
     return this.request<{ revisao: RevisaoResumo }>(`/portal/episodios/${episodeId}/revisao/enviar`, { method: 'POST' });
+  }
+
+  // ─── Excluir capítulo e obra pelo autor (retorno do cliente em 27/11/2026) ──
+  // Rotas DELETE em routes/portal.js. Em PUBLICADO o servidor exige o título
+  // digitado (`confirmacao`): sem ele responde 400 com `exigeConfirmacao`.
+  async excluirPortalEpisodio(episodeId: string, confirmacao?: string) {
+    return this.request<ExclusaoDoAutor>(`/portal/episodios/${episodeId}`, {
+      method: 'DELETE',
+      ...(confirmacao ? { body: JSON.stringify({ confirmacao }) } : {}),
+    });
+  }
+
+  async excluirPortalSerie(seriesId: string, confirmacao?: string) {
+    return this.request<ExclusaoDoAutor>(`/portal/series/${seriesId}`, {
+      method: 'DELETE',
+      ...(confirmacao ? { body: JSON.stringify({ confirmacao }) } : {}),
+    });
   }
 
   async descartarRevisaoEpisodio(episodeId: string) {

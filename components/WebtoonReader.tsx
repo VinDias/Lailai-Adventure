@@ -10,6 +10,7 @@ import { useI18n, useT } from '../contexts/I18nContext';
 import type { Lang } from '../i18n/translations';
 import { useProgress } from '../hooks/useProgress';
 import { posicaoDeVolta, percentualLido } from '../utils/progressPosition';
+import { useTelaCheiaNaLeitura } from '../hooks/useTelaCheiaNaLeitura';
 
 const UI_LANGS: Lang[] = ['pt', 'en', 'es', 'zh'];
 
@@ -88,6 +89,11 @@ const WebtoonReader: React.FC<ReaderProps> = ({ webtoon, user, onClose, prevEpis
     episodeId: emPrevia ? '' : String(webtoon?.episodeId ?? webtoon?.id ?? ''),
     contentType: 'hiqua',
   });
+  // Tela cheia durante a leitura, no celular e no app Android: esconde a hora
+  // e a bateria (retorno do cliente em 27/11/2026). Só com o leitor de fato
+  // na tela (não no anúncio, não no convite de conteúdo pago) e nunca na
+  // prévia do moderador. O "voltar" que tira da tela cheia fecha o leitor.
+  useTelaCheiaNaLeitura(!emPrevia && !bloqueio && !showAd, onClose);
   const jaRestaurou = useRef(false);
   // Portão: só grava progresso depois que a restauração terminou (sucesso,
   // sem progresso salvo, ou erro — todo caminho abre o portão). Sem isso, um

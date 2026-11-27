@@ -23,6 +23,7 @@ const { addPanels, setTranslationLayer } = require('../services/episodePanelServ
 const RevisaoEpisodio = require('../models/RevisaoEpisodio');
 const revisaoService = require('../services/revisaoEpisodioService');
 const videoAutor = require('../services/videoAutorService');
+const exclusaoAutor = require('../services/exclusaoAutorService');
 
 router.use(verifyToken);
 
@@ -564,15 +565,15 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
       return res.status(400).json({ error: 'Episódio já enviado para aprovação — aguarde a revisão do editor.' });
     }
     // Frente A, item 10: episódio de obra de vídeo vai para a fila com o
-    // vídeo PRONTO, e só depois que a autorização de envio do autor venceu
-    // (services/videoAutorService.js, travaDeEnvio).
+    // vídeo PRONTO. Pronto, vai NA HORA: a espera pela validade da
+    // autorização de envio saiu em 27/11/2026 (o cliente leu como erro). Se o
+    // vídeo mudar no Bunny depois, o episódio sai da fila
+    // (services/videoAutorService.js, aplicarStatusDoBunny).
     const deVideo = videoAutor.ehObraDeVideo(series);
     if (deVideo) {
       if (!videoAutor.temVideoPronto(episode)) {
         return res.status(400).json({ error: 'Envie o vídeo do episódio e espere ele ficar pronto antes de enviar para aprovação.' });
       }
-      const trava = videoAutor.travaDeEnvio(episode);
-      if (trava) return res.status(400).json({ error: videoAutor.mensagemDaTrava(trava), liberaEm: trava });
     } else if (!episode.panels || episode.panels.length === 0) {
       return res.status(400).json({ error: 'Adicione ao menos um painel antes de enviar para aprovação.' });
     }
@@ -703,6 +704,45 @@ router.delete('/episodios/:id/revisao', requireCanalDoUsuario, async (req, res) 
     if (responderCastError(err, res, 'Episódio não encontrado.')) return;
     logger.error('[Portal] DELETE /episodios/:id/revisao', err);
     res.status(500).json({ error: 'Erro ao descartar a edição.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Excluir capítulo e obra pelo autor (retorno do cliente em 27/11/2026).
+// Regras em services/exclusaoAutorService.js: só o dono (o resto é 404);
+// rascunho, enviado e devolvido saem direto; PUBLICADO exige o título no
+// corpo (`confirmacao`); os arquivos que só o excluído usava saem do Bunny; a
+// exclusão fica no AdminLog com quem fez.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// DELETE /api/portal/episodios/:id — body opcional { confirmacao: título }
+router.delete('/episodios/:id', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const achado = await episodioDoDono(req.params.id, req.portalChannelIds);
+    if (!achado) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    res.json(await exclusaoAutor.excluirEpisodio({
+      user: req.user, episode: achado.episode, series: achado.series, confirmacao: req.body?.confirmacao,
+    }));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message, ...(err.exigeConfirmacao ? { exigeConfirmacao: true } : {}) });
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[Portal] DELETE /episodios/:id', err);
+    res.status(500).json({ error: 'Erro ao excluir o capítulo.' });
+  }
+});
+
+// DELETE /api/portal/series/:id — body opcional { confirmacao: título }.
+// Exclui a obra e todos os capítulos dela.
+router.delete('/series/:id', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const series = await serieDoDono(req.params.id, req.portalChannelIds);
+    if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
+    res.json(await exclusaoAutor.excluirObra({ user: req.user, series, confirmacao: req.body?.confirmacao }));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message, ...(err.exigeConfirmacao ? { exigeConfirmacao: true } : {}) });
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
+    logger.error('[Portal] DELETE /series/:id', err);
+    res.status(500).json({ error: 'Erro ao excluir a obra.' });
   }
 });
 

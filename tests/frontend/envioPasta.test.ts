@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { organizarPasta } from '../../shared/organizacaoEpisodio.mjs';
-import { EnvioEmPartes, ErroEnvio, lerPasta, lerTamanhoDaImagem, recorteEhOArquivoInteiro, type ArquivoLido, type Preparador } from '../../utils/envioPasta';
+import { EnvioEmPartes, ErroEnvio, lerPasta, lerTamanhoDaImagem, recorteEhOArquivoInteiro, tempoLimiteDaParte, TAMANHO_ALVO_DA_PARTE, type ArquivoLido, type Preparador, type Progresso } from '../../utils/envioPasta';
 import type { RecorteEnvio } from '../../services/api';
 import { arquivoDeImagem, arquivoQualquer } from './helpers/arquivosDeImagem';
 
@@ -206,5 +206,109 @@ describe('envio em partes', () => {
     await b.envio.executar().catch(() => undefined);
     await b.envio.cancelar();
     expect(b.api.cancelarEnvioEpisodio).toHaveBeenCalledWith('env1');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Retorno do cliente em 27/11/2026: "A primeira vez que tentei, travou, depois
+// não deu mais esse defeito." Os dois caminhos em que o envio ficava PARADO na
+// tela sem erro e sem saída (ver o comentário em utils/envioPasta.ts).
+// ═══════════════════════════════════════════════════════════════════════════
+describe('o envio não fica parado na tela', () => {
+  const KB = 1024;
+  const MB = 1024 * KB;
+
+  async function montarCom(opcoes: { tamanhoDoArquivo?: number; api?: (falsa: ReturnType<typeof apiFalsa>) => void; extra?: Record<string, unknown> } = {}) {
+    const arquivos = dezPaginas();
+    const lidos = await lerPasta(arquivos);
+    const recortes = recortesComoOServidor(lidos);
+    const falsa = apiFalsa(recortes);
+    opcoes.api?.(falsa);
+    const progresso: Progresso[] = [];
+    const envio = new EnvioEmPartes({
+      episodeId: 'ep1', arquivos, lidos,
+      // Os limites do SERVIDOR em produção: 8 MB e 60 arquivos por parte.
+      config: { tamanhoMaximoParte: 8 * MB, arquivosPorParte: 60 },
+      api: falsa.api, preparador: preparadorFalso(opcoes.tamanhoDoArquivo ?? 1000), esperar: semEspera,
+      onProgresso: p => progresso.push(p), ...(opcoes.extra ?? {}),
+    });
+    return { envio, ...falsa, progresso };
+  }
+
+  it('episódio de 6 MB (caberia numa parte só do servidor) sobe em partes de até 2 MB: a barra anda durante o envio em vez de ficar em 0 até o fim', async () => {
+    const { envio, partes, progresso } = await montarCom({ tamanhoDoArquivo: 600 * KB });
+    await envio.executar();
+    expect(partes.map(p => p.length)).toEqual([3, 3, 3, 1]);
+    const andou = progresso.filter(p => p.fase === 'enviando').map(p => p.enviados);
+    expect(andou).toEqual([0, 3, 6, 9, 10]);
+  });
+
+  it('arquivo sozinho maior que 2 MB continua indo (até o máximo do servidor), numa parte só dele', async () => {
+    const { envio, partes } = await montarCom({ tamanhoDoArquivo: 3 * MB });
+    await envio.executar();
+    expect(partes.map(p => p.length)).toEqual(new Array(10).fill(1));
+  });
+
+  it('parte que não responde (conexão parada): vence o prazo, o pedido é abortado, tenta de novo sozinho e conclui', async () => {
+    const sinais: AbortSignal[] = [];
+    let chamadas = 0;
+    const { envio, api } = await montarCom({
+      extra: { tempoLimiteDaParte: () => 25 },
+      api: (falsa) => {
+        const original = falsa.api.enviarParteEpisodio.getMockImplementation()!;
+        falsa.api.enviarParteEpisodio.mockImplementation(async (id: string, itens: any, opcoes?: { sinal?: AbortSignal }) => {
+          chamadas += 1;
+          if (opcoes?.sinal) sinais.push(opcoes.sinal);
+          // A 1a tentativa nunca responde, como uma conexão que parou.
+          if (chamadas === 1) return new Promise(() => {}) as any;
+          return (original as any)(id, itens);
+        });
+      },
+    });
+    const fim = await envio.executar();
+    expect(fim.totalPaineis).toBe(10);
+    expect(api.enviarParteEpisodio).toHaveBeenCalledTimes(2);
+    expect(sinais[0].aborted).toBe(true);
+    expect(sinais[1].aborted).toBe(false);
+  });
+
+  it('nenhuma tentativa responde: para com erro de rede (dá para tentar de novo) em vez de esperar para sempre', async () => {
+    const { envio, api } = await montarCom({
+      extra: { tempoLimiteDaParte: () => 15 },
+      api: (falsa) => { falsa.api.enviarParteEpisodio.mockImplementation(() => new Promise(() => {}) as any); },
+    });
+    const erro = await envio.executar().catch(e => e);
+    expect(erro).toBeInstanceOf(ErroEnvio);
+    expect(erro.tipo).toBe('rede');
+    expect(erro.message).toMatch(/demorou demais/);
+    expect(api.enviarParteEpisodio).toHaveBeenCalledTimes(3);
+    expect(api.concluirEnvioEpisodio).not.toHaveBeenCalled();
+  });
+
+  it('o prazo de uma parte acompanha o tamanho: nunca menos de 1 minuto, e uma parte de 8 MB tem minutos, não segundos', () => {
+    expect(tempoLimiteDaParte(0)).toBe(60_000);
+    expect(tempoLimiteDaParte(2 * MB)).toBeGreaterThan(2 * 60_000);
+    expect(tempoLimiteDaParte(2 * MB)).toBeLessThan(4 * 60_000);
+    expect(tempoLimiteDaParte(8 * MB)).toBeGreaterThan(6 * 60_000);
+    expect(TAMANHO_ALVO_DA_PARTE).toBe(2 * MB);
+  });
+
+  it('cancelar DURANTE o envio aborta o pedido em curso, termina como cancelado e apaga o envio aberto no servidor', async () => {
+    let sinal: AbortSignal | undefined;
+    const { envio, api } = await montarCom({
+      api: (falsa) => {
+        falsa.api.enviarParteEpisodio.mockImplementation((_id: string, _itens: any, opcoes?: { sinal?: AbortSignal }) => { sinal = opcoes?.sinal; return new Promise(() => {}) as any; });
+      },
+    });
+    const execucao = envio.executar().catch(e => e);
+    await vi.waitFor(() => expect(api.enviarParteEpisodio).toHaveBeenCalledTimes(1));
+    await envio.cancelar();
+    const erro = await execucao;
+    expect(erro).toBeInstanceOf(ErroEnvio);
+    expect(erro.tipo).toBe('cancelado');
+    expect(sinal?.aborted).toBe(true);
+    expect(api.cancelarEnvioEpisodio).toHaveBeenCalledWith('env1');
+    expect(api.enviarParteEpisodio).toHaveBeenCalledTimes(1);
+    expect(api.concluirEnvioEpisodio).not.toHaveBeenCalled();
   });
 });

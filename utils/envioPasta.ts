@@ -86,7 +86,7 @@ export async function lerPasta(arquivos: File[]): Promise<ArquivoLido[]> {
 
 // ─── erros ──────────────────────────────────────────────────────────────────
 
-export type TipoDeErro = 'decodificar' | 'recusado' | 'rede';
+export type TipoDeErro = 'decodificar' | 'recusado' | 'rede' | 'cancelado';
 
 export class ErroEnvio extends Error {
   tipo: TipoDeErro;
@@ -186,7 +186,8 @@ export function preparadorDoNavegador(): Preparador {
 
 export interface ApiDoEnvio {
   iniciarEnvioEpisodio(episodeId: string, arquivos: ArquivoLido[]): Promise<EnvioIniciado>;
-  enviarParteEpisodio(envioId: string, itens: Array<{ chave: string; blob: Blob; nome: string }>): Promise<{ recebidos: number; total: number }>;
+  /** `sinal`: aborta o pedido (parte que passou do tempo, ou envio cancelado). */
+  enviarParteEpisodio(envioId: string, itens: Array<{ chave: string; blob: Blob; nome: string }>, opcoes?: { sinal?: AbortSignal }): Promise<{ recebidos: number; total: number }>;
   concluirEnvioEpisodio(envioId: string): Promise<{ episode: any; totalPaineis: number }>;
   cancelarEnvioEpisodio(envioId: string): Promise<any>;
 }
@@ -207,6 +208,10 @@ export interface OpcoesDoEnvio {
   onProgresso?: (p: Progresso) => void;
   /** Tentativas por parte antes de parar e devolver o erro (padrão 3). */
   tentativas?: number;
+  /** Bytes por parte que a tela procura não passar (padrão TAMANHO_ALVO_DA_PARTE). */
+  tamanhoAlvoDaParte?: number;
+  /** Tempo máximo (ms) de UM pedido de parte, pelo tamanho dela; trocado nos testes. */
+  tempoLimiteDaParte?: (bytes: number) => number;
   /** Espera entre tentativas (ms), por tentativa; trocado nos testes. */
   esperar?: (ms: number) => Promise<void>;
 }
@@ -214,6 +219,32 @@ export interface OpcoesDoEnvio {
 type Item = { chave: string; blob: Blob; nome: string };
 
 const ESPERAS = [1000, 3000, 9000];
+
+/**
+ * Retorno do cliente em 27/11/2026: "A primeira vez que tentei, travou,
+ * depois não deu mais esse defeito." Dois caminhos deixavam o envio PARADO NA
+ * TELA sem erro e sem saída:
+ *
+ * 1. O servidor aceita partes de até 8 MB e 60 arquivos, e a tela juntava
+ *    tudo o que coubesse. Um episódio de 6 MB ia numa parte SÓ: a barra
+ *    ficava em "0 de N" o envio inteiro (em conexão lenta, mais de um minuto)
+ *    e pulava para o fim. Agora a tela fecha a parte em 2 MB: a barra anda.
+ *    Um arquivo sozinho maior que isso continua indo (até o máximo do
+ *    servidor).
+ * 2. O pedido de uma parte não tinha tempo máximo. Conexão que para no meio
+ *    (celular trocando de rede, Wi-Fi que cai sem fechar a conexão) deixava o
+ *    envio esperando para sempre, com o botão de cancelar desligado. Agora
+ *    cada pedido tem um prazo pelo tamanho da parte (velocidade mínima de
+ *    20 KB/s, mais 1 minuto para o servidor repassar ao Bunny); passou, o
+ *    pedido é abortado e conta como queda de rede: tenta de novo sozinho e,
+ *    se não der, para com "Tentar de novo".
+ */
+export const TAMANHO_ALVO_DA_PARTE = 2 * 1024 * 1024;
+const FOLGA_DO_SERVIDOR_MS = 60 * 1000;
+const BYTES_POR_SEGUNDO_MINIMOS = 20 * 1000;
+export function tempoLimiteDaParte(bytes: number): number {
+  return FOLGA_DO_SERVIDOR_MS + Math.ceil((Math.max(0, bytes) / BYTES_POR_SEGUNDO_MINIMOS) * 1000);
+}
 const esperaPadrao = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 /** Status em que tentar de novo não adianta: o servidor recusou de verdade. */
@@ -230,6 +261,11 @@ export class EnvioEmPartes {
   private preparador: Preparador;
   private tentativas: number;
   private esperar: (ms: number) => Promise<void>;
+  private alvoDaParte: number;
+  private tempoLimite: (bytes: number) => number;
+  /** Interrompe o pedido de parte em curso (cancelar). */
+  private interromper: (() => void) | null = null;
+  cancelado = false;
   envioId: string | null = null;
   recortes: RecorteEnvio[] = [];
   readonly recebidas = new Set<string>();
@@ -240,6 +276,12 @@ export class EnvioEmPartes {
     this.preparador = o.preparador ?? preparadorDoNavegador();
     this.tentativas = o.tentativas ?? 3;
     this.esperar = o.esperar ?? esperaPadrao;
+    this.alvoDaParte = o.tamanhoAlvoDaParte ?? TAMANHO_ALVO_DA_PARTE;
+    this.tempoLimite = o.tempoLimiteDaParte ?? tempoLimiteDaParte;
+  }
+
+  private conferirCancelamento() {
+    if (this.cancelado) throw new ErroEnvio('cancelado', 'Envio cancelado.');
   }
 
   private avisar(fase: Progresso['fase']) {
@@ -256,13 +298,17 @@ export class EnvioEmPartes {
       const r = await this.o.api.iniciarEnvioEpisodio(this.o.episodeId, this.o.lidos);
       this.envioId = r.envioId;
       this.recortes = r.arquivos;
+      // Cancelado enquanto o servidor abria o envio: não deixa ele aberto lá.
+      if (this.cancelado) await this.o.api.cancelarEnvioEpisodio(r.envioId).catch(() => undefined);
     }
+    this.conferirCancelamento();
     this.avisar('enviando');
     try {
       await this.enviarPendentes();
     } finally {
       this.preparador.liberar();
     }
+    this.conferirCancelamento();
     this.avisar('concluindo');
     const fim = await this.o.api.concluirEnvioEpisodio(this.envioId as string);
     this.concluido = true;
@@ -271,12 +317,16 @@ export class EnvioEmPartes {
   }
 
   async cancelar(): Promise<void> {
+    this.cancelado = true;
+    this.interromper?.();
     this.preparador.liberar();
     if (this.envioId && !this.concluido) await this.o.api.cancelarEnvioEpisodio(this.envioId).catch(() => undefined);
   }
 
   private async enviarPendentes() {
     const { tamanhoMaximoParte, arquivosPorParte } = this.o.config;
+    // A parte fecha no menor dos dois: o máximo do servidor e o alvo da tela.
+    const bytesPorParte = Math.min(tamanhoMaximoParte, this.alvoDaParte);
     // Ordem dos arquivos de origem (e da fatia dentro dele): uma imagem
     // decodificada por vez. O servidor não depende da ordem de chegada.
     const pendentes = this.recortes
@@ -295,7 +345,8 @@ export class EnvioEmPartes {
       if (blob.size > tamanhoMaximoParte) {
         throw new ErroEnvio('recusado', `${nomeDoArquivo(arquivo)} passa do tamanho máximo de uma parte do envio.`, { nomeDoArquivo: nomeDoArquivo(arquivo) });
       }
-      if (parte.length > 0 && (bytes + blob.size > tamanhoMaximoParte || parte.length >= arquivosPorParte)) {
+      this.conferirCancelamento();
+      if (parte.length > 0 && (bytes + blob.size > bytesPorParte || parte.length >= arquivosPorParte)) {
         await this.mandarParte(parte);
         parte = [];
         bytes = 0;
@@ -306,17 +357,50 @@ export class EnvioEmPartes {
     if (parte.length > 0) await this.mandarParte(parte);
   }
 
+  /**
+   * Um pedido de parte, com prazo. Rejeita com erro de rede (sem `status`) se
+   * o prazo vencer, e com ErroEnvio 'cancelado' se o envio for cancelado; nos
+   * dois casos o pedido é abortado.
+   */
+  private pedirParte(itens: Item[]): Promise<unknown> {
+    const controle = typeof AbortController === 'function' ? new AbortController() : null;
+    const bytes = itens.reduce((s, it) => s + it.blob.size, 0);
+    return new Promise((resolve, reject) => {
+      let acabou = false;
+      const fim = (f: () => void) => {
+        if (acabou) return;
+        acabou = true;
+        clearTimeout(prazo);
+        this.interromper = null;
+        f();
+      };
+      const prazo = setTimeout(() => {
+        controle?.abort();
+        fim(() => reject(new Error('a parte demorou demais para subir')));
+      }, this.tempoLimite(bytes));
+      this.interromper = () => {
+        controle?.abort();
+        fim(() => reject(new ErroEnvio('cancelado', 'Envio cancelado.')));
+      };
+      this.o.api.enviarParteEpisodio(this.envioId as string, itens, controle ? { sinal: controle.signal } : undefined)
+        .then(r => fim(() => resolve(r)), e => fim(() => reject(e)));
+    });
+  }
+
   /** Manda uma parte; nas falhas, tenta de novo só o que não chegou. */
   private async mandarParte(itens: Item[]) {
     let faltam = itens;
     let ultimo: any = null;
     for (let tentativa = 0; tentativa < this.tentativas && faltam.length > 0; tentativa++) {
       if (tentativa > 0) await this.esperar(ESPERAS[Math.min(tentativa - 1, ESPERAS.length - 1)]);
+      this.conferirCancelamento();
       try {
-        await this.o.api.enviarParteEpisodio(this.envioId as string, faltam);
+        await this.pedirParte(faltam);
         for (const it of faltam) this.recebidas.add(it.chave);
         faltam = [];
       } catch (e: any) {
+        if (e instanceof ErroEnvio && e.tipo === 'cancelado') throw e;
+        if (this.cancelado) throw new ErroEnvio('cancelado', 'Envio cancelado.');
         ultimo = e;
         if (e?.status && RECUSA_DEFINITIVA.has(e.status)) {
           throw new ErroEnvio('recusado', e.message || 'O servidor recusou esta parte do envio.', { status: e.status });

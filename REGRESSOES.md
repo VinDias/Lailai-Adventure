@@ -30,6 +30,11 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (branch `fix/retorno-vin-27-11`, item 5) | 2026-11-27 | envio da pasta de quadrinhos "travou" na primeira tentativa (causa PROVAVEL, nao reproduzida em producao): episodio pequeno ia numa parte so e a barra ficava em 0 ate o fim; pedido de parte sem prazo ficava esperando para sempre; "Cancelar envio" desligado durante o envio | `tests/frontend/envioPasta.test.ts` — _o envio nao fica parado na tela_ (6 testes); `tests/frontend/envioPastaEpisodio.test.tsx` — _"Cancelar envio" funciona DURANTE o envio_ | coberto-novo (causa presumida) | medio |
+| (branch `fix/retorno-vin-27-11`, item 4) | 2026-11-27 | (funcao nova, promessa antiga) a hora e a bateria apareciam durante a leitura do quadrinho no app Android | `tests/frontend/leitorTelaCheia.test.tsx` — _abrir o leitor pede tela cheia para a pagina inteira_ (e mais 11: computador, previa, anuncio, voltar, troca de app, rolagem) | coberto-novo (jsdom); **aparelho: sem teste** | medio |
+| (branch `fix/retorno-vin-27-11`, item 3) | 2026-11-27 | (funcao nova, nao conserto) o autor nao tinha como excluir capitulo nem obra depois de enviar; so o admin apagava, e sem apagar arquivo | `tests/backend/exclusaoAutor.test.js` (15: dono, outro autor 404, rascunho/na fila/devolvido/publicado, titulo exigido no publicado, arquivos do Bunny, video do autor x do admin, fila limpa, log); `tests/frontend/exclusaoAutor.test.tsx` (10); `tests/frontend/api.portalT10.test.ts` (3) | coberto-novo | alto |
+| (branch `fix/retorno-vin-27-11`, item 2) | 2026-11-27 | video do autor pronto e "Enviar capitulo" recusado com aviso em vermelho ("podera ir para aprovacao em 13 minuto(s)"); nada na Fila de Aprovacao. Era a espera pela validade da autorizacao de envio (item 10), que os testes nunca exercitaram porque venciam a autorizacao a mao antes de cada envio | `tests/backend/videoFilaAprovacao.test.js` — _video pronto: o episodio vai para a fila NA HORA_ e _caso do print-2 e do print-3_ (e mais 3 da conferencia na aprovacao); `tests/backend/videoAutor.test.js` (validade minima); `tests/frontend/videoFilaAprovacao.test.tsx` — _a confirmacao sai em verde_ | coberto-novo | alto |
+| (branch `fix/retorno-vin-27-11`, item 1) | 2026-11-27 | player de video mostrava quatro botoes de idioma com o mesmo texto ("English"): o Bunny marca todas as faixas com o mesmo idioma e o player traduzia o codigo faixa por faixa; o video enviado pelo AUTOR (frente A, item 9) nao tem os nomes que o admin digita (`hlsAudioLabels`). **Segunda vez**: `136b916` (28/03) consertou e `1073485` (10 minutos depois) apagou o conserto, sem teste | `tests/frontend/rotulosDeAudio.test.tsx` — _video do autor com quatro faixas "en" NAO mostra quatro botoes "English"_ (e mais 10) | voltou, coberto-novo | medio |
 | (branch `fix/sem-barreira-de-mb`) | 2026-11-27 | o autor era barrado pelo peso do episodio (padrao de 20 MB no Setting `limite_mb_episodio`) no envio da pasta, na conferencia e na troca de arquivo pela grade, contra o pedido do cliente de 26/11 ("nao barrar o autor pela quantidade de megabytes") | `tests/backend/envioEpisodio.test.js` — _sem limite de MB por episodio no padrao_ (5 testes); `tests/backend/edicaoPaineis.test.js` — _sem Setting NAO ha limite de MB_ (e mais 2); `tests/backend/organizacaoEpisodio.test.js` — _pasta de 25 MB e de 300 MB passam sem opcao nenhuma_; `tests/frontend/envioPastaEpisodio.test.tsx` — _sem limite de MB (padrao): pasta de 21 MB nao mostra aviso de megabytes_; `tests/frontend/adminLimitePaineis.test.tsx` — _limite de MB por episodio e opcional_ | coberto-novo | alto |
 | (branch `fix/balao-lote-paralelo`) | 2026-11-24 | balao (camada de idioma) enviado em LOTE se perdia: admin e Meu Estudio gravam em paralelo, `setTranslationLayer` salvava a lista inteira de paineis e os pedidos seguintes davam VersionError (rota 500; medido 23/11: 1 de 10 gravados pela rota do admin). No admin o arquivo ja aparecia "concluido" e o erro nao aparecia; no reenvio, falhas salteadas iam para o painel vizinho | `tests/backend/balaoLoteParalelo.test.js` — _10 baloes em paralelo, os 10 gravados_ (servico e as duas rotas, mais 5: troca e acrescimo no mesmo painel, idioma duplicado, remover junto, leitura antiga da conflito, validacoes); `tests/frontend/balaoLoteErroAdmin.test.tsx` e `tests/frontend/balaoLoteErroPortal.test.tsx` (erro visivel, so fica ok o que gravou, reenvio no mesmo painel) | coberto-novo | alto |
 | (este PR) | 2026-11-19 | `GET /api/content/series/:id/episodes` devolvia o documento inteiro do episodio Premium (URLs dos paineis e das camadas de idioma, `video_url`, `bunnyVideoId`, faixas de audio) a visitante, conta gratuita e assinatura vencida: o 403 do detalhe e da URL assinada (Fase 6, `363af62`) era contornavel pela lista. A rota nem lia o `isPremium` da serie | `tests/backend/premiumListaEpisodios.test.js` — _visitante sem conta: episodio pago aparece na lista SEM midia_ (e mais 8: conta gratuita, vencida, assinante, dono, admin, obra mista, detalhe e signed-url); `tests/frontend/videoBloqueadoDaLista.test.tsx` (player mostra o convite com o item sem midia) | coberto-novo | alto |
@@ -89,6 +94,174 @@ Os 12 foram aprovados.
 | `4ea593f` | 2026-03-26 | fix: índice de translation layers no batch upload e fallback de CDN | `tests/frontend/adminPaineisIndice.test.tsx` | coberto-novo | medio |
 | `6615c15` | 2026-03-12 | fix: use _id for Series (MongoDB) and deduplicate Stripe customers | `tests/backend/paymentCheckout.test.js` | coberto-novo | medio |
 | `2f30192` | 2026-03-12 | fix: optional chaining on req.cookies in verifyToken to prevent 500 on payment routes | `tests/backend/paymentCheckout.test.js` | coberto-novo | alto |
+
+## Retorno do cliente em 27/11/2026 (branch `fix/retorno-vin-27-11`)
+
+Cinco apontamentos do Vin depois da publicacao da frente A (99, 27/11, 18:17 a 19:14). Um commit por item.
+
+### Item 1: quatro botoes "English" no player de video (VOLTOU)
+
+**O que o cliente viu (print-4).** "Parece que a orientacao de audio quebrou
+tambem. So aparece a lingua inglesa." Quatro botoes de idioma, todos "English".
+
+**Causa.** O Bunny Stream marca todas as faixas de audio com o mesmo idioma
+(`en`) quando o arquivo nao diz o idioma de cada uma. O `VerticalPlayer`
+escolhia o texto do botao assim: nome digitado pelo admin (`hlsAudioLabels`),
+senao a traducao do codigo do idioma, faixa por faixa. Nos videos que o admin
+envia isso ficava escondido, porque ele digita os nomes em "Faixas de Audio".
+O video enviado pelo autor (frente A, item 9, `d5b495e`) nasce sem nomes, e o
+autor nao tem onde digita-los. Os commits da frente A nao mexeram na escolha do
+texto (`5232579` so acrescentou a prop `previa`): o que mudou foi existir video
+sem os nomes.
+
+**Ja tinha acontecido.** `136b916` (28/03/2026, "evitar todos os botoes
+mostrarem English") consertou no player. `1073485`, dez minutos depois, criou
+o editor de nomes e trocou o conserto por `hlsAudioLabels?.[i] || LANG_LABELS[...]`.
+Nao havia teste, entao ninguem viu o conserto sair. Estava na lista "o que
+ainda nao foi inventariado" (player de video).
+
+**Conserto.** A regra saiu do JSX para `utils/rotulosDeAudio.ts`: nome do
+admin; senao o idioma, se nenhuma outra faixa tem o mesmo; senao o nome que
+veio do video, se for unico; senao a ordem combinada da plataforma (1a PT-BR,
+2a English, 3a Espanol, 4a chines, a mesma dos exemplos do editor do admin);
+senao "Faixa N". Dois botoes nunca saem iguais. Um botao por faixa do video.
+
+**Prova.** Com o `VerticalPlayer.tsx` de `origin/main` (1486a0e) numa copia no
+scratchpad, 4 dos 11 testes falham (os 4 que montam o player com faixas
+iguais); com o conserto, 11 de 11.
+
+**Sem teste (so no aparelho ou no Bunny).** Se a 1a faixa do arquivo do autor
+e mesmo a de portugues. Quando nao for, o admin corrige em Gerenciar Conteudo,
+"Faixas de Audio". O autor ainda nao tem esse campo no Meu Estudio.
+
+### Item 2: "Enviar capitulo" de video recusado por 13 minutos, fila vazia
+
+**O que o cliente viu (print-2 e print-3).** Video pronto, clicou "Enviar
+capitulo" e apareceu em vermelho "O video acabou de ser enviado. Por
+seguranca, este episodio podera ir para aprovacao em 13 minuto(s)...". Na Fila
+de Aprovacao, "Nenhum item pendente". Ele leu como erro.
+
+**Nao voltou: era regra nossa (item 10, `5232579`), decidida sem perguntar.**
+O episodio so ia para a fila depois de vencer a autorizacao de envio do autor
+(15 minutos no minimo). A fila estava vazia porque o envio tinha sido
+RECUSADO: o episodio do print-2 ainda era rascunho. A consulta da fila
+(`GET /api/admin/aprovacoes`) nunca filtrou por obra publicada nem por dono.
+
+**Por que os testes nao pegaram.** `obraComEpisodio` vencia a autorizacao a
+mao (`vencerAutorizacao`) antes de cada envio; so um teste olhava o caso real,
+e ele PINAVA a espera como comportamento certo. Consertado: o ajudante deixou
+de vencer a autorizacao, entao o arquivo inteiro passa pelo caso real.
+
+**Conserto.** A espera saiu de `POST /api/portal/episodios/:id/enviar` e de
+`POST /api/admin/aprovacoes/episodes/:id/aprovar`; `travaDeEnvio` e
+`mensagemDaTrava` foram apagadas. Ficou, e foi reforcado, o que protege o
+moderador de aprovar um video trocado por fora: (1) validade da autorizacao de
+envio com minimo de 5 minutos (era 15; sem tamanho era 2 horas, agora 5
+minutos; renovacao 5 minutos); (2) `aplicarStatusDoBunny`: video que muda no
+Bunny depois de pronto tira o episodio da fila, e em publicado so registra no
+log; (3) novo `conferirAntesDeAprovar`: a aprovacao consulta o Bunny e recusa
+(409, episodio sai da fila) se o video deixou de estar pronto; Bunny sem
+resposta nao trava a moderacao. No Meu Estudio o envio que deu certo mostra
+uma confirmacao em verde (`role="status"`).
+
+**Prova.** Com `videoAutorService.js`, `portal.js` e `adminPortal.js` de
+`origin/main` numa copia: 14 dos 38 testes de backend falham. Com o
+`PortalEstudio.tsx` de `origin/main`: 2 dos 14 de frontend falham.
+
+**O que nenhum teste garante.** O Bunny de verdade: se ele aceita um segundo
+arquivo para um video que ja tem um, se avisa (webhook) quando isso acontece,
+e se aceita a renovacao da assinatura no meio de um envio longo (com a
+validade menor, video acima de ~75 MB em conexao lenta depende dela). Troca
+cujo aviso se perde E que termina de processar antes de o moderador aprovar
+nao e detectada.
+
+### Item 3: o autor exclui capitulo e obra (funcao nova)
+
+**Pedido.** "os arquivos depois de enviados o autor nao consegue apagar.
+Deveria ter uma tecla excluir. Porque muitas vezes o autor desiste e quer
+excluir a serie ou algum capitulo."
+
+**O que entrou.** `DELETE /api/portal/episodios/:id` e
+`DELETE /api/portal/series/:id` (`services/exclusaoAutorService.js`) e, no Meu
+Estudio, "Excluir capitulo" e "Excluir obra" com modal de confirmacao.
+Rascunho, na fila e devolvido saem direto; PUBLICADO exige o titulo digitado
+(na tela E no servidor). Outro autor recebe 404. Saem do Bunny os arquivos que
+so o excluido usava e o video que o autor enviou. Fica no `AdminLog` quem
+excluiu.
+
+**O que cada regra tem de teste que falha sem ela** (mutacao numa copia no
+scratchpad): sem exigir o titulo, 2 falham; sem a limpeza dos arquivos, 4;
+apagando tambem o video do admin, 2; sem o log, 4; sem apagar a edicao
+pendente, 1. Sem as rotas, os 15; sem os botoes, os 10 da tela.
+
+**Nao coberto.** O Bunny de verdade (Storage e Stream sao falsos nos testes).
+Progresso de leitura (`ReadingProgress`) e eventos de engajamento de obra
+excluida ficam no banco, como ja ficavam no DELETE do admin.
+
+### Item 4: hora e bateria aparecendo durante a leitura (funcao nova)
+
+**Pedido (print-1, app Android, TWA).** "esconder a hora e a duracao da
+bateria no momento da leitura".
+
+**O que entrou.** `hooks/useTelaCheiaNaLeitura.ts`, usado pelo
+`WebtoonReader`: tela cheia da PAGINA (Fullscreen API) enquanto o leitor esta
+na tela, so em aparelho de toque. Sai ao fechar o leitor. O "voltar" do
+Android, que em tela cheia so tira da tela cheia, fecha o leitor de uma vez;
+troca de app nao fecha.
+
+**`public/manifest.json` nao mudou** (`"display": "standalone"`):
+`fullscreen` esconderia a barra de status no app inteiro (PWA instalada), nao
+so na leitura, e nao muda a TWA ja publicada (o modo da TWA vem do APK).
+
+**Prova.** Com o `WebtoonReader.tsx` de `origin/main` numa copia, 6 dos 12
+testes falham.
+
+**SEM TESTE, so no aparelho** (jsdom nao tem Fullscreen API nem barra de
+status; a API e falsa nos testes): (1) se a hora e a bateria somem de fato no
+app instalado da Play; (2) o aviso do Chrome ao entrar em tela cheia; (3) se
+um "voltar" fecha o leitor (depende de o Chrome avisar a pagina da saida da
+tela cheia com ela visivel); (4) se sair do app e voltar no meio da leitura
+mantem o leitor aberto; (5) o topo do painel atras do recorte da camera
+(`viewport-fit=cover`); (6) leitor gratuito cujo anuncio fecha sozinho: a tela
+cheia so entra no primeiro toque na leitura.
+
+### Item 5: o envio de quadrinhos "travou" na primeira tentativa (causa provavel)
+
+**O que o cliente disse.** "A primeira vez que tentei, travou, depois nao deu
+mais esse defeito." Sem print, sem horario, sem mensagem de erro.
+
+**Nao foi reproduzido.** Nao ha log de producao nesta sessao. O que segue e o
+que a leitura do codigo achou de caminhos em que a tela FICA PARADA sem erro:
+
+1. A tela juntava numa parte tudo o que coubesse no limite do servidor (8 MB,
+   60 arquivos). Um episodio de ate 8 MB (o HaQa Stone EP3 dele tem 6,8 MB
+   depois do corte) ia numa parte SO: "Enviando 0 de N" o envio inteiro, e a
+   barra pulava para o fim. O progresso so conta parte confirmada.
+2. O pedido de uma parte nao tinha prazo (`fetch` sem tempo maximo). Conexao
+   que para sem fechar deixava o envio esperando para sempre.
+3. "Cancelar envio" ficava desligado durante o envio: sem saida a nao ser
+   fechar o app. Na segunda tentativa, tudo de novo do zero, funcionava.
+
+**Conserto** (`utils/envioPasta.ts`, `services/api.ts`,
+`EnvioPastaEpisodio.tsx`): a tela fecha a parte em 2 MB (a barra anda); cada
+pedido de parte tem prazo pelo tamanho (20 KB/s no minimo, mais 1 minuto), e
+vencido o prazo o pedido e abortado e conta como queda de rede (tenta de novo
+sozinho, e para com "Tentar de novo" se nao der); "Cancelar envio" funciona
+durante o envio e aborta o pedido em curso.
+
+**Prova.** Com os tres arquivos de `origin/main` numa copia, 7 testes falham;
+3 deles por tempo esgotado do proprio teste (o envio fica mesmo parado).
+
+**Olhado e NAO mexido.** (a) Limite global de 300 pedidos por 15 minutos por
+IP (`server.js`): um 429 no meio do envio vira erro em vermelho com "Tentar de
+novo", nao tela parada; mas com video processando o Meu Estudio consulta o
+servidor a cada 8 a 10 segundos (uns 100 pedidos em 15 minutos por episodio),
+e celular e computador da mesma casa somam no mesmo IP. Com partes de 2 MB um
+episodio de 60 MB passa de 8 para 30 pedidos. (b) `iniciar` e `concluir` nao
+tentam de novo sozinhos (erro visivel, "Tentar de novo" continua). (c) O
+servidor repassa ao Bunny sem prazo proprio (o `fetch` do Node espera ate 5
+minutos); o nginx corta em 60 s e a tela tenta de novo. (d) Falha ao ler os
+limites (`GET /config`) deixa o modal so com o erro; fechar e abrir resolve.
 
 ## 27/11/2026: o autor barrado por megabytes (limite de 20 MB por episodio como padrao)
 
@@ -402,7 +575,7 @@ cobrança, autenticação, navegação ou cabeçalho de segurança.
 ### player de vídeo e sincronia de áudio (15)
 
 - >> `97b5fb2` 2026-07-10 — fix(pacote2): dark-mode forcado, anuncio em video, banner, metricas e premium expirado
-- `136b916` 2026-03-28 — fix: fallback de label quando faixas de áudio HLS têm mesmo lang code
+- `136b916` 2026-03-28 — fix: fallback de label quando faixas de áudio HLS têm mesmo lang code (**voltou em 27/11/2026**, desfeito por `1073485`; agora coberto por `tests/frontend/rotulosDeAudio.test.tsx`)
 - `c202dbb` 2026-03-26 — fix: auto-hide controls, audio track init e padding do WebtoonReader
 - `74c351e` 2026-03-20 — fix: áudio como clock mestre — vídeo ajusta playbackRate para sincronizar
 - `2733691` 2026-03-20 — fix: unifica sync de áudio no timeupdate do vídeo (remove setInterval)

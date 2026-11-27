@@ -92,6 +92,10 @@ function estadoDoDocumento(doc: { isPublished?: boolean; status?: string; submit
   return 'rascunho';
 }
 
+// A mesma comparação do servidor (services/exclusaoAutorService.js): sem
+// diferença de maiúsculas nem de espaços a mais.
+const tituloNormalizado = (texto: unknown) => String(texto ?? '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+
 const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const t = useT();
   const [aba, setAba] = useState<Aba>('numeros');
@@ -157,6 +161,10 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [seriesList, setSeriesList] = useState<any[]>([]);
   const [seriesLoading, setSeriesLoading] = useState(false);
   const [envioErro, setEnvioErro] = useState<string | null>(null);
+  // Confirmação do que deu CERTO (enviado para a fila): em verde, nunca no
+  // lugar do erro. Retorno do cliente em 27/11/2026: aviso de estado normal
+  // em vermelho foi lido como defeito.
+  const [envioAviso, setEnvioAviso] = useState<string | null>(null);
   const [enviandoId, setEnviandoId] = useState<string | null>(null);
 
   const carregarSeries = useCallback(async () => {
@@ -293,9 +301,11 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const handleEnviarObra = async (id: string) => {
     if (!window.confirm(t('portal.works.submitConfirm'))) return;
     setEnvioErro(null);
+    setEnvioAviso(null);
     setEnviandoId(id);
     try {
       await api.enviarPortalSerie(id);
+      setEnvioAviso(t('portal.works.workSubmitted'));
       await carregarSeries();
     } catch (err: any) {
       setEnvioErro(err?.message || t('portal.errors.generic'));
@@ -387,14 +397,58 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const handleEnviarEpisodio = async (episodeId: string, seriesId: string) => {
     if (!window.confirm(t('portal.works.submitChapterConfirm'))) return;
     setEnvioErro(null);
+    setEnvioAviso(null);
     setEnviandoId(episodeId);
     try {
       await api.enviarPortalEpisodio(episodeId);
+      setEnvioAviso(t('portal.works.chapterSubmitted'));
       await carregarEpisodios(seriesId);
     } catch (err: any) {
       setEnvioErro(err?.message || t('portal.errors.generic'));
     } finally {
       setEnviandoId(null);
+    }
+  };
+
+  // Excluir capítulo ou obra (retorno do cliente em 27/11/2026: "deveria ter
+  // uma tecla excluir"). Sempre com confirmação num modal próprio; no que está
+  // PUBLICADO o botão só libera depois de o autor digitar o título (o servidor
+  // exige o mesmo: services/exclusaoAutorService.js).
+  const [exclusao, setExclusao] = useState<{ tipo: 'episodio' | 'obra'; doc: any; seriesId: string; publicado: boolean } | null>(null);
+  const [exclusaoTexto, setExclusaoTexto] = useState('');
+  const [exclusaoErro, setExclusaoErro] = useState<string | null>(null);
+  const [excluindo, setExcluindo] = useState(false);
+  useCamadaVoltar(!!exclusao, () => setExclusao(null));
+
+  const abrirExclusao = (tipo: 'episodio' | 'obra', doc: any, seriesId: string) => {
+    setExclusaoTexto('');
+    setExclusaoErro(null);
+    setExclusao({ tipo, doc, seriesId, publicado: estadoDoDocumento(doc) === 'publicada' });
+  };
+  const tituloConfere = !!exclusao && tituloNormalizado(exclusaoTexto) !== '' && tituloNormalizado(exclusaoTexto) === tituloNormalizado(exclusao.doc.title);
+  const podeExcluir = !!exclusao && !excluindo && (!exclusao.publicado || tituloConfere);
+
+  const handleExcluir = async () => {
+    if (!exclusao || !podeExcluir) return;
+    setExcluindo(true);
+    setExclusaoErro(null);
+    try {
+      const confirmacao = exclusao.publicado ? exclusaoTexto : undefined;
+      if (exclusao.tipo === 'obra') {
+        await api.excluirPortalSerie(exclusao.doc._id, confirmacao);
+        if (selectedSeriesId === exclusao.doc._id) { setSelectedSeriesId(null); setEpisodesOfSelected([]); }
+        await carregarSeries();
+      } else {
+        await api.excluirPortalEpisodio(exclusao.doc._id, confirmacao);
+        await carregarEpisodios(exclusao.seriesId);
+      }
+      setEnvioErro(null);
+      setEnvioAviso(t(exclusao.tipo === 'obra' ? 'excluir.feitoObra' : 'excluir.feitoCapitulo'));
+      setExclusao(null);
+    } catch (err: any) {
+      setExclusaoErro(err?.message || t('portal.errors.generic'));
+    } finally {
+      setExcluindo(false);
     }
   };
 
@@ -854,7 +908,8 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
 
       {aba === 'obras' && (
         <section className="px-8 space-y-4">
-          {envioErro && <p className="text-rose-500 text-sm font-bold">{envioErro}</p>}
+          {envioErro && <p role="alert" data-testid="portal-envio-erro" className="text-rose-500 text-sm font-bold">{envioErro}</p>}
+          {envioAviso && !envioErro && <p role="status" data-testid="portal-envio-aviso" className="text-emerald-400 text-sm font-bold">{envioAviso}</p>}
 
           <button
             onClick={abrirCriarObra}
@@ -911,6 +966,17 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                         </button>
                       </div>
                     )}
+
+                    <div className="flex justify-end mt-2">
+                      <button
+                        type="button"
+                        data-testid={`portal-excluir-obra-${s._id}`}
+                        onClick={() => abrirExclusao('obra', s, s._id)}
+                        className="py-2 px-2 text-[10px] font-black text-zinc-500 uppercase tracking-widest hover:text-rose-500"
+                      >
+                        {t('excluir.obra')}
+                      </button>
+                    </div>
 
                     {selectedSeriesId === s._id && (
                       <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
@@ -1061,6 +1127,16 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                                     )}
                                   </div>
                                 )}
+                                <div className="flex justify-end mt-1">
+                                  <button
+                                    type="button"
+                                    data-testid={`portal-excluir-ep-${ep._id}`}
+                                    onClick={() => abrirExclusao('episodio', ep, s._id)}
+                                    className="py-2 px-2 text-[10px] font-black text-zinc-500 uppercase tracking-widest hover:text-rose-500"
+                                  >
+                                    {t('excluir.capitulo')}
+                                  </button>
+                                </div>
                               </div>
                             );
                           })
@@ -1298,6 +1374,45 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
               <button type="button" onClick={() => setCreatingEpisodioFor(null)} className="flex-1 py-3 font-bold text-zinc-500">{t('portal.works.cancel')}</button>
               <button type="submit" disabled={creatingEpisodio} className="flex-1 py-3 bg-rose-600 text-white font-black rounded-2xl disabled:opacity-50">
                 {creatingEpisodio ? '...' : t('portal.works.create')}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ─── Modal: excluir capítulo ou obra ─── */}
+      {exclusao && (
+        <div className="fixed inset-0 z-[1200] bg-black/70 backdrop-blur-md flex items-center justify-center p-6" role="dialog" aria-modal="true" aria-labelledby="portal-exclusao-titulo" data-testid="portal-exclusao">
+          <form
+            onSubmit={e => { e.preventDefault(); handleExcluir(); }}
+            className="w-full max-w-md bg-[var(--card-bg,#18181b)] border border-white/10 p-8 rounded-[2.5rem] space-y-4"
+          >
+            <div>
+              <p id="portal-exclusao-titulo" className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+                {t(exclusao.tipo === 'obra' ? 'excluir.tituloObra' : 'excluir.tituloCapitulo')}
+              </p>
+              <h2 data-testid="portal-exclusao-nome" className="text-xl font-black text-[var(--text-color)] break-words">{exclusao.doc.title}</h2>
+            </div>
+            <p className="text-sm text-zinc-400">{t(exclusao.tipo === 'obra' ? 'excluir.avisoObra' : 'excluir.avisoCapitulo')}</p>
+            {exclusao.publicado && (
+              <div className="space-y-2">
+                <p data-testid="portal-exclusao-publicado" className="text-sm font-bold text-amber-400">{t('excluir.avisoPublicado')}</p>
+                <label htmlFor="portal-exclusao-input" className="text-xs text-zinc-400 block">{t('excluir.digite')}</label>
+                <input
+                  id="portal-exclusao-input"
+                  data-testid="portal-exclusao-input"
+                  value={exclusaoTexto}
+                  onChange={e => setExclusaoTexto(e.target.value)}
+                  autoComplete="off"
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-[var(--text-color)]"
+                />
+              </div>
+            )}
+            {exclusaoErro && <p role="alert" className="text-rose-500 text-sm font-bold">{exclusaoErro}</p>}
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setExclusao(null)} disabled={excluindo} className="flex-1 py-3 font-bold text-zinc-500 disabled:opacity-40">{t('excluir.cancelar')}</button>
+              <button type="submit" data-testid="portal-exclusao-confirmar" disabled={!podeExcluir} className="flex-1 py-3 bg-rose-600 text-white font-black rounded-2xl disabled:opacity-40">
+                {excluindo ? '...' : t('excluir.confirmar')}
               </button>
             </div>
           </form>

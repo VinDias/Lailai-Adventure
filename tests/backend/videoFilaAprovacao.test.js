@@ -18,10 +18,13 @@
  *   do site usa; visitante e outro autor recebem 404;
  * - a fila não aceita obra de vídeo sem episódio com vídeo pronto, nem
  *   episódio sem vídeo, com vídeo processando ou com erro;
- * - o episódio só vai para a fila (e só é aprovado) depois que a autorização
- *   de envio do autor venceu: o moderador vê o vídeo quando ele já não pode
- *   ser trocado por fora do servidor;
- * - vídeo que muda no Bunny depois de pronto tira o episódio da fila;
+ * - RETORNO DO CLIENTE EM 27/11/2026 (print-2 e print-3): vídeo pronto, o
+ *   episódio vai para a fila NA HORA, com a autorização de envio do autor
+ *   ainda valendo, sem mensagem de espera; e aparece na Fila de Aprovação,
+ *   inclusive quando a obra já está PUBLICADA e é do próprio admin com canal;
+ * - vídeo que muda no Bunny depois de pronto tira o episódio da fila; em
+ *   episódio já publicado só registra no log; na hora de aprovar o Bunny é
+ *   consultado, e vídeo que deixou de estar pronto não é aprovado;
  * - devolver funciona como nos quadrinhos; Hi-Qua continua exigindo painéis.
  *
  * Bunny FALSO, como em videoAutor.test.js: nenhuma chamada de rede.
@@ -111,11 +114,14 @@ const aprovarObra = (s, body = { genre: 'Drama', content_rating: 'teen' }) => co
 const aprovarEpisodio = (e) => com(request(app).post(`/api/admin/aprovacoes/episodes/${e._id}/aprovar`), admin());
 const assinada = (videoId, token) => com(request(app).get(`/api/bunny/signed-url?videoId=${videoId}`), token);
 
-/** A autorização de envio do autor já venceu (na vida real: alguns minutos depois do envio). */
-const vencerAutorizacao = (e) => Episode.updateOne({ _id: e._id }, { $set: { 'videoEnvio.autorizadoAte': new Date(Date.now() - 1000) } });
-
-/** Obra (com capa) e episódio criados pelo portal; `video`: até onde o vídeo chega. */
-async function obraComEpisodio(autor, tipo, { video = 'pronto', vencida = true } = {}) {
+/**
+ * Obra (com capa) e episódio criados pelo portal; `video`: até onde o vídeo
+ * chega. A autorização de envio do autor fica VALENDO (é o caso real: ele
+ * manda o capítulo logo depois de o vídeo ficar pronto). Até 27/11/2026 este
+ * arquivo vencia a autorização à mão antes de cada envio, e por isso não viu
+ * a espera de 15 minutos que o cliente encontrou.
+ */
+async function obraComEpisodio(autor, tipo, { video = 'pronto' } = {}) {
   contador += 1;
   const obra = await com(request(app).post('/api/portal/series'), autor.token)
     .send({ title: `Obra ${tipo} ${contador}`, content_type: tipo, cover_image: 'https://exemplo.test/capa.jpg' });
@@ -129,7 +135,6 @@ async function obraComEpisodio(autor, tipo, { video = 'pronto', vencida = true }
     videoId = a.body.videoId;
     const status = { enviando: null, processando: 3, pronto: 4, erro: 5 }[video];
     if (status !== null) expect((await webhook(videoId, status)).status).toBe(200);
-    if (vencida) await vencerAutorizacao(ep.body);
   }
   return { series: obra.body, episode: ep.body, videoId };
 }
@@ -284,24 +289,58 @@ describe('o que a fila exige de uma obra de vídeo', () => {
     expect(res.body.error).toMatch(/envie a série primeiro/);
   });
 
-  it('enquanto a autorização de envio do autor vale, o episódio não vai para a fila; vencida, vai', async () => {
+  it('vídeo pronto: o episódio vai para a fila NA HORA, com a autorização de envio ainda valendo, e pode ser aprovado em seguida (27/11/2026)', async () => {
+    espiarAvisos();
     const autor = await criarAutor();
-    const { series, episode } = await obraComEpisodio(autor, 'vcine', { vencida: false });
+    const { series, episode } = await obraComEpisodio(autor, 'vcine');
+    // A autorização acabou de ser dada: vale por minutos ainda.
+    expect(new Date((await ler(episode)).videoEnvio.autorizadoAte).getTime()).toBeGreaterThan(Date.now() + 60 * 1000);
     expect((await enviarObra(series, autor.token)).status).toBe(200);
 
-    const cedo = await enviarEpisodio(episode, autor.token);
-    expect(cedo.status).toBe(400);
-    expect(cedo.body.error).toMatch(/poderá ir para aprovação em 15 minuto\(s\)/);
-    expect(new Date(cedo.body.liberaEm).getTime()).toBeGreaterThan(Date.now());
-    expect((await ler(episode)).submittedAt).toBeNull();
-    expect(await naFila(episode._id)).toBeUndefined();
+    const envio = await enviarEpisodio(episode, autor.token);
+    expect(envio.status).toBe(200);
+    expect(envio.body.liberaEm).toBeUndefined();
+    expect(JSON.stringify(envio.body)).not.toMatch(/minuto\(s\)|Por segurança/);
+    expect((await ler(episode)).submittedAt).toBeTruthy();
+    expect((await naFila(episode._id)).video).toMatchObject({ pronto: true, estado: 'pronto' });
 
-    await vencerAutorizacao(episode);
-    expect((await enviarEpisodio(episode, autor.token)).status).toBe(200);
-    expect(await naFila(episode._id)).toBeTruthy();
+    expect((await aprovarObra(series)).status).toBe(200);
+    const aprovado = await aprovarEpisodio(episode);
+    expect(aprovado.status).toBe(200);
+    expect((await ler(episode)).status).toBe('published');
   });
 
-  it('aprovar recusa episódio de vídeo sem vídeo pronto ou com a autorização ainda valendo (mesmo que tenha entrado na fila por fora)', async () => {
+  it('caso do print-2 e do print-3: obra JÁ PUBLICADA, do próprio admin com canal, capítulo novo com vídeo pronto. Enviado, aparece na Fila de Aprovação', async () => {
+    const tokenAdmin = admin();
+    const canal = await Channel.create({ ownerId: auth.getId('admin'), name: `Canal do Admin ${Date.now()}` });
+    try {
+      const dono = { token: tokenAdmin, canal };
+      const { series, episode } = await obraComEpisodio(dono, 'vcine');
+      await Series.updateOne({ _id: series._id }, { $set: { isPublished: true, genre: 'Drama', content_rating: 'teen' } });
+
+      // Antes de "Enviar capítulo": rascunho, fora da fila (era o print-3).
+      expect(await naFila(episode._id)).toBeUndefined();
+
+      const envio = await enviarEpisodio(episode, tokenAdmin);
+      expect(envio.status).toBe(200);
+
+      const item = await naFila(episode._id);
+      expect(item).toMatchObject({
+        tipo: 'episode', content_type: 'vcine', title: 'Episódio 1',
+        serie: { title: series.title, isPublished: true },
+        canal: { name: canal.name },
+        video: { pronto: true, estado: 'pronto' },
+      });
+      // O Meu Estúdio conta o capítulo como pendente de aprovação.
+      const estudio = await com(request(app).get('/api/portal/meu-estudio'), tokenAdmin);
+      expect(estudio.body.canais.find(c => String(c.channelId) === String(canal._id)).pendentes).toBe(1);
+    } finally {
+      // O admin dos outros testes deste arquivo não tem canal.
+      await Channel.deleteOne({ _id: canal._id });
+    }
+  });
+
+  it('aprovar recusa episódio de vídeo sem vídeo pronto (mesmo que tenha entrado na fila por fora)', async () => {
     const { push } = espiarAvisos();
     const autor = await criarAutor();
     const semVideo = await obraComEpisodio(autor, 'vcine', { video: 'processando' });
@@ -311,16 +350,60 @@ describe('o que a fila exige de uma obra de vídeo', () => {
     expect(r1.status).toBe(400);
     expect(r1.body.error).toMatch(/não está pronto/);
     expect((await naFila(semVideo.episode._id)).video).toMatchObject({ pronto: false, estado: 'processando' });
-
-    const comTrava = await obraComEpisodio(autor, 'vcine', { vencida: false });
-    await Series.updateOne({ _id: comTrava.series._id }, { $set: { isPublished: true, genre: 'Drama', content_rating: 'teen' } });
-    await Episode.updateOne({ _id: comTrava.episode._id }, { $set: { submittedAt: new Date() } });
-    const r2 = await aprovarEpisodio(comTrava.episode);
-    expect(r2.status).toBe(400);
-    expect(r2.body.error).toMatch(/ainda pode trocar o vídeo/);
-
-    for (const e of [semVideo.episode, comTrava.episode]) expect((await ler(e)).status).toBe('draft');
+    expect((await ler(semVideo.episode)).status).toBe('draft');
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('na hora de aprovar o Bunny é consultado: vídeo trocado depois de enviado (voltou a processar, aviso perdido) NÃO é aprovado e o episódio sai da fila', async () => {
+    const { push } = espiarAvisos();
+    const autor = await criarAutor();
+    const { series, episode, videoId } = await obraComEpisodio(autor, 'vcine');
+    await enviarObra(series, autor.token);
+    expect((await aprovarObra(series)).status).toBe(200);
+    expect((await enviarEpisodio(episode, autor.token)).status).toBe(200);
+
+    // O autor trocou o arquivo com a autorização ainda válida e o webhook do
+    // Bunny não chegou: para o servidor o vídeo continua "pronto".
+    const consultados = [];
+    bunnyStream.__setClientForTests({
+      createVideo: async () => 'nao-usado',
+      getVideo: async (id) => { consultados.push(id); return { status: 3 }; },
+      deleteVideo: async () => {},
+    });
+    const r = await aprovarEpisodio(episode);
+    expect(r.status).toBe(409);
+    expect(r.body.error).toMatch(/mudou depois de enviado/);
+    expect(consultados).toEqual([videoId]);
+    expect(await ler(episode)).toMatchObject({ status: 'draft', submittedAt: null, videoEnvio: { estado: 'processando' } });
+    expect(await naFila(episode._id)).toBeUndefined();
+    expect(push).not.toHaveBeenCalled();
+    expect((await episodiosPublicos(series._id)).some(e => String(e._id) === String(episode._id))).toBe(false);
+  });
+
+  it('Bunny fora do ar ou sem resposta na hora de aprovar não trava a moderação: aprova e registra', async () => {
+    espiarAvisos();
+    const autor = await criarAutor();
+    const a = await obraComEpisodio(autor, 'vcine');
+    await enviarObra(a.series, autor.token);
+    await aprovarObra(a.series);
+    await enviarEpisodio(a.episode, autor.token);
+    bunnyStream.__setClientForTests({ createVideo: async () => 'x', getVideo: async () => { throw new Error('Bunny fora do ar'); }, deleteVideo: async () => {} });
+    expect((await aprovarEpisodio(a.episode)).status).toBe(200);
+    expect((await ler(a.episode)).status).toBe('published');
+  });
+
+  it('vídeo que muda no Bunny depois de PUBLICADO: o episódio continua no ar (só registro no log)', async () => {
+    espiarAvisos();
+    const autor = await criarAutor();
+    const { series, episode, videoId } = await obraComEpisodio(autor, 'vcine');
+    await enviarObra(series, autor.token);
+    await aprovarObra(series);
+    await enviarEpisodio(episode, autor.token);
+    expect((await aprovarEpisodio(episode)).status).toBe(200);
+
+    expect((await webhook(videoId, 3)).status).toBe(200);
+    expect(await ler(episode)).toMatchObject({ status: 'published' });
+    expect((await episodiosPublicos(series._id)).some(e => String(e._id) === String(episode._id))).toBe(true);
   });
 
   it('vídeo que muda no Bunny depois de pronto, com o episódio na fila: o episódio sai da fila e volta para o autor', async () => {

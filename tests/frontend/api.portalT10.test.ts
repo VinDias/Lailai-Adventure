@@ -212,3 +212,34 @@ describe('getAdminMensagensCanal / sendAdminMensagem', () => {
     expect(JSON.parse(opts.body)).toEqual({ texto: 'Devolvido', refTipo: 'series', refId: 's1' });
   });
 });
+
+// Retorno do cliente em 27/11/2026: o autor exclui capítulo e obra.
+describe('excluirPortalEpisodio / excluirPortalSerie', () => {
+  it('DELETE /portal/episodios/:id sem corpo quando não há título a confirmar', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ excluido: true, estado: 'rascunho' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const r = await api.excluirPortalEpisodio('e1');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:3000/portal/episodios/e1');
+    expect(opts.method).toBe('DELETE');
+    expect(opts.body).toBeUndefined();
+    expect(r).toEqual({ excluido: true, estado: 'rascunho' });
+  });
+
+  it('DELETE /portal/series/:id manda o título digitado em `confirmacao` (obra publicada)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ excluido: true, estado: 'publicada' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    await api.excluirPortalSerie('s1', 'Em Breve');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:3000/portal/series/s1');
+    expect(opts.method).toBe('DELETE');
+    expect(JSON.parse(opts.body)).toEqual({ confirmacao: 'Em Breve' });
+  });
+
+  it('400 do servidor (faltou o título) vira Error com a mensagem dele', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 400, json: () => Promise.resolve({ error: 'Este capítulo está no ar. Para excluir, digite o título exatamente como aparece.', exigeConfirmacao: true }),
+    }));
+    await expect(api.excluirPortalEpisodio('e3')).rejects.toThrow(/digite o título/);
+  });
+});

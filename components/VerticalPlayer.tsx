@@ -8,6 +8,7 @@ import ConteudoBloqueado, { MotivoBloqueio } from './ConteudoBloqueado';
 import { api } from '../services/api';
 import { isPremiumActive } from '../utils/premium';
 import { useT } from '../contexts/I18nContext';
+import { rotulosDasFaixas } from '../utils/rotulosDeAudio';
 import { useProgress } from '../hooks/useProgress';
 
 interface PlayerProps {
@@ -30,12 +31,6 @@ const fmt = (s: number) => {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${sec.toString().padStart(2, '0')}`;
-};
-
-const LANG_LABELS: Record<string, string> = {
-  'pt-br': 'PT-BR', 'pt': 'PT-BR', 'en': 'English', 'es': 'Español',
-  'ja': '日本語', 'zh': '中文', 'ko': '한국어',
-  'fr': 'Français', 'de': 'Deutsch', 'it': 'Italiano',
 };
 
 // Acima disso, o vídeo já avançou por conta própria (autoplay ou interação) —
@@ -367,6 +362,8 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarCo
   }
 
   const hasMultiAudio = audioTracks.length > 1;
+  // Um nome por faixa, nunca dois botões iguais (utils/rotulosDeAudio.ts).
+  const rotulosDeAudio = rotulosDasFaixas(audioTracks, video.hlsAudioLabels, n => `${t('player.track')} ${n}`);
   const hasQuality = qualityLevels.length > 0;
   const pct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -408,7 +405,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarCo
                   onClick={() => changeAudioTrack(track.id ?? i)}
                   className={`text-[10px] font-black px-3 py-1.5 rounded-full transition-all ${currentAudioTrack === (track.id ?? i) ? 'bg-rose-600 text-white' : 'text-white/70 hover:text-white'}`}
                 >
-                  {video.hlsAudioLabels?.[i] || LANG_LABELS[track.lang?.toLowerCase()] || track.name || `${t('player.track')} ${i + 1}`}
+                  {rotulosDeAudio[i]}
                 </button>
               ))}
             </div>

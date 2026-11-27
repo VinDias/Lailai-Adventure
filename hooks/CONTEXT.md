@@ -22,6 +22,15 @@ Registra onde o usuário parou (leitura/reprodução) sem inundar o servidor. Us
 - Descarrega o pendente incondicionalmente ao desmontar E quando `document.visibilityState` vira `'hidden'` (Android: sair quase nunca é desmontar o React — é apertar Home)
 - `WebtoonReader`/`VerticalPlayer` NÃO desmontam ao trocar de capítulo/vídeo (só trocam a prop) — o hook trata isso explicitamente no cleanup do efeito de saída, que roda a cada troca
 
+### `useTelaCheiaNaLeitura.ts` (retorno do cliente, 27/11/2026)
+Põe a PÁGINA em tela cheia enquanto o `WebtoonReader` está na tela, para esconder a hora e a bateria no celular e no app Android (TWA).
+- Só em aparelho de toque (`pointer: coarse`) e onde `documentElement.requestFullscreen` existe; no computador e no iPhone não faz nada
+- Pede ao montar; se o navegador recusar (sem toque recente), pede de novo no primeiro toque na área de leitura (toque em botão não pede)
+- Sai da tela cheia ao desmontar, só se foi ele que entrou
+- O "voltar" do Android em tela cheia só tira da tela cheia: com a página visível, o hook chama `aoSairPeloSistema` (o leitor passa o `onClose`), para o leitor fechar com um voltar; com a página oculta ou recém-voltada (troca de app), não fecha
+- Não usado no `VerticalPlayer` (lá a tela cheia é do botão) nem na prévia do moderador
+- `public/manifest.json` continua `"display": "standalone"` de propósito: `fullscreen` esconderia a barra no app INTEIRO (PWA instalada) e não muda a TWA sem gerar outro APK
+
 ---
 
 ## Observações
