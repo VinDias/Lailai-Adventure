@@ -8,6 +8,17 @@ Endpoints da API REST do Express. Cada arquivo agrupa rotas relacionadas a um do
 
 ## Arquivos e Endpoints
 
+### O autor exclui capítulo e obra (retorno do cliente em 27/11/2026)
+
+Rotas novas em `portal.js`; regras em `services/exclusaoAutorService.js`.
+- `DELETE /api/portal/episodios/:id` e `DELETE /api/portal/series/:id` (body opcional `{ confirmacao }`): só o DONO do canal da obra (outro autor 404; conta sem canal, admin inclusive, 403; sem login 401).
+- Rascunho, enviado (na fila) e devolvido: exclui direto. PUBLICADO (obra `isPublished`, capítulo `status: 'published'`): 400 com `exigeConfirmacao` enquanto `confirmacao` não for o título (sem diferença de maiúsculas e de espaços). Obra fora do ar com capítulos ainda "publicados" (removida pela curadoria) não pede título.
+- Sai junto: a edição pendente (`RevisaoEpisodio`), envios de pasta abertos (`EnvioEpisodio`), votos do episódio; na obra, também favoritos, votos, sinalizações, casos de curadoria e `SeriesScore` (a mesma lista do `DELETE /api/content/series/:id` do admin). A obra é apagada por último.
+- Arquivos: Bunny Storage pelo `apagarUrlsSemUso` (só do nosso CDN e que nada mais usa; a capa da obra entra depois de a obra sair do banco); Bunny Stream só o vídeo que o autor enviou (`videoEnvio.videoId` = `bunnyVideoId`), nunca o do admin. Falha ao apagar arquivo não desfaz a exclusão (volta em `naoApagados` / `videosNaoApagados` e vai para o log).
+- `AdminLog`: `AUTOR_EXCLUIU_EPISODIO` e `AUTOR_EXCLUIU_OBRA`, com `adminId` = id do autor.
+- O `DELETE` do admin em `content.js` NÃO mudou: continua sem apagar os arquivos do episódio.
+- Testes: `tests/backend/exclusaoAutor.test.js` (15), `tests/frontend/exclusaoAutor.test.tsx` (10), `tests/frontend/api.portalT10.test.ts` (3).
+
 ### Obras de vídeo pela Fila de Aprovação (Fase 7, frente A, item 10)
 
 A fila é a mesma; o que mudou foram as regras de entrada e de aprovação para obra de `vcine`/`hqcine` (`services/videoAutorService.js`: `temVideoPronto`, `conferirAntesDeAprovar`).

@@ -3,6 +3,17 @@ import API_URL from '../config/api';
 import { getAnonymousId } from '../utils/anonymousId';
 
 /** Edição de um episódio publicado, sem os painéis (services/revisaoEpisodioService.js `resumo`). */
+/** Resposta de DELETE /api/portal/episodios/:id e /series/:id. */
+export interface ExclusaoDoAutor {
+  excluido: boolean;
+  estado: string;
+  episodios?: number;
+  arquivosApagados: number;
+  naoApagados: string[];
+  videosApagados: number;
+  videosNaoApagados: string[];
+}
+
 export interface RevisaoResumo {
   episodeId: string;
   status: 'editando' | 'enviada';
@@ -1182,6 +1193,23 @@ class ApiService {
 
   async enviarRevisaoEpisodio(episodeId: string) {
     return this.request<{ revisao: RevisaoResumo }>(`/portal/episodios/${episodeId}/revisao/enviar`, { method: 'POST' });
+  }
+
+  // ─── Excluir capítulo e obra pelo autor (retorno do cliente em 27/11/2026) ──
+  // Rotas DELETE em routes/portal.js. Em PUBLICADO o servidor exige o título
+  // digitado (`confirmacao`): sem ele responde 400 com `exigeConfirmacao`.
+  async excluirPortalEpisodio(episodeId: string, confirmacao?: string) {
+    return this.request<ExclusaoDoAutor>(`/portal/episodios/${episodeId}`, {
+      method: 'DELETE',
+      ...(confirmacao ? { body: JSON.stringify({ confirmacao }) } : {}),
+    });
+  }
+
+  async excluirPortalSerie(seriesId: string, confirmacao?: string) {
+    return this.request<ExclusaoDoAutor>(`/portal/series/${seriesId}`, {
+      method: 'DELETE',
+      ...(confirmacao ? { body: JSON.stringify({ confirmacao }) } : {}),
+    });
   }
 
   async descartarRevisaoEpisodio(episodeId: string) {

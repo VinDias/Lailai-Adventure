@@ -30,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (branch `fix/retorno-vin-27-11`, item 3) | 2026-11-27 | (funcao nova, nao conserto) o autor nao tinha como excluir capitulo nem obra depois de enviar; so o admin apagava, e sem apagar arquivo | `tests/backend/exclusaoAutor.test.js` (15: dono, outro autor 404, rascunho/na fila/devolvido/publicado, titulo exigido no publicado, arquivos do Bunny, video do autor x do admin, fila limpa, log); `tests/frontend/exclusaoAutor.test.tsx` (10); `tests/frontend/api.portalT10.test.ts` (3) | coberto-novo | alto |
 | (branch `fix/retorno-vin-27-11`, item 2) | 2026-11-27 | video do autor pronto e "Enviar capitulo" recusado com aviso em vermelho ("podera ir para aprovacao em 13 minuto(s)"); nada na Fila de Aprovacao. Era a espera pela validade da autorizacao de envio (item 10), que os testes nunca exercitaram porque venciam a autorizacao a mao antes de cada envio | `tests/backend/videoFilaAprovacao.test.js` — _video pronto: o episodio vai para a fila NA HORA_ e _caso do print-2 e do print-3_ (e mais 3 da conferencia na aprovacao); `tests/backend/videoAutor.test.js` (validade minima); `tests/frontend/videoFilaAprovacao.test.tsx` — _a confirmacao sai em verde_ | coberto-novo | alto |
 | (branch `fix/retorno-vin-27-11`, item 1) | 2026-11-27 | player de video mostrava quatro botoes de idioma com o mesmo texto ("English"): o Bunny marca todas as faixas com o mesmo idioma e o player traduzia o codigo faixa por faixa; o video enviado pelo AUTOR (frente A, item 9) nao tem os nomes que o admin digita (`hlsAudioLabels`). **Segunda vez**: `136b916` (28/03) consertou e `1073485` (10 minutos depois) apagou o conserto, sem teste | `tests/frontend/rotulosDeAudio.test.tsx` — _video do autor com quatro faixas "en" NAO mostra quatro botoes "English"_ (e mais 10) | voltou, coberto-novo | medio |
 | (branch `fix/sem-barreira-de-mb`) | 2026-11-27 | o autor era barrado pelo peso do episodio (padrao de 20 MB no Setting `limite_mb_episodio`) no envio da pasta, na conferencia e na troca de arquivo pela grade, contra o pedido do cliente de 26/11 ("nao barrar o autor pela quantidade de megabytes") | `tests/backend/envioEpisodio.test.js` — _sem limite de MB por episodio no padrao_ (5 testes); `tests/backend/edicaoPaineis.test.js` — _sem Setting NAO ha limite de MB_ (e mais 2); `tests/backend/organizacaoEpisodio.test.js` — _pasta de 25 MB e de 300 MB passam sem opcao nenhuma_; `tests/frontend/envioPastaEpisodio.test.tsx` — _sem limite de MB (padrao): pasta de 21 MB nao mostra aviso de megabytes_; `tests/frontend/adminLimitePaineis.test.tsx` — _limite de MB por episodio e opcional_ | coberto-novo | alto |
@@ -171,6 +172,29 @@ e se aceita a renovacao da assinatura no meio de um envio longo (com a
 validade menor, video acima de ~75 MB em conexao lenta depende dela). Troca
 cujo aviso se perde E que termina de processar antes de o moderador aprovar
 nao e detectada.
+
+### Item 3: o autor exclui capitulo e obra (funcao nova)
+
+**Pedido.** "os arquivos depois de enviados o autor nao consegue apagar.
+Deveria ter uma tecla excluir. Porque muitas vezes o autor desiste e quer
+excluir a serie ou algum capitulo."
+
+**O que entrou.** `DELETE /api/portal/episodios/:id` e
+`DELETE /api/portal/series/:id` (`services/exclusaoAutorService.js`) e, no Meu
+Estudio, "Excluir capitulo" e "Excluir obra" com modal de confirmacao.
+Rascunho, na fila e devolvido saem direto; PUBLICADO exige o titulo digitado
+(na tela E no servidor). Outro autor recebe 404. Saem do Bunny os arquivos que
+so o excluido usava e o video que o autor enviou. Fica no `AdminLog` quem
+excluiu.
+
+**O que cada regra tem de teste que falha sem ela** (mutacao numa copia no
+scratchpad): sem exigir o titulo, 2 falham; sem a limpeza dos arquivos, 4;
+apagando tambem o video do admin, 2; sem o log, 4; sem apagar a edicao
+pendente, 1. Sem as rotas, os 15; sem os botoes, os 10 da tela.
+
+**Nao coberto.** O Bunny de verdade (Storage e Stream sao falsos nos testes).
+Progresso de leitura (`ReadingProgress`) e eventos de engajamento de obra
+excluida ficam no banco, como ja ficavam no DELETE do admin.
 
 ## 27/11/2026: o autor barrado por megabytes (limite de 20 MB por episodio como padrao)
 
