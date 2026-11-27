@@ -16,6 +16,7 @@ import AprovacoesPanel from './AprovacoesPanel';
 import CanaisPanel from './CanaisPanel';
 import CuradoriaPanel from './CuradoriaPanel';
 import EnvioPastaEpisodio from '../EnvioEpisodio/EnvioPastaEpisodio';
+import GradePaineis from '../EnvioEpisodio/GradePaineis';
 // Fonte ÚNICA dos 19 slugs do vocabulário fechado de tags (Fase 5 Bloco 2) —
 // o TagsChipInput (admin/fila) importa o MESMO JSON que o backend
 // (utils/tagsVocabulario.js), nunca uma lista duplicada (spec, "O
@@ -288,24 +289,12 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
   const batchInputRef = useRef<HTMLInputElement>(null);
   const [batchLanguage, setBatchLanguage] = useState<'original' | 'pt' | 'en' | 'es' | 'zh'>('original');
 
-  // Seleção múltipla de painéis
-  const [selectedPanels, setSelectedPanels] = useState<Set<number>>(new Set());
-  const [deletingPanels, setDeletingPanels] = useState(false);
-
   // Editor de labels de faixas de áudio HLS
   const [audioLabelModal, setAudioLabelModal] = useState<{ ep: any } | null>(null);
   const [audioLabelsForm, setAudioLabelsForm] = useState<string[]>([]);
   const [savingAudioLabels, setSavingAudioLabels] = useState(false);
 
   // Editor de labels de idioma do webtoon (HI-QUA)
-
-  // Modal de traduções de painel
-  const [translationModal, setTranslationModal] = useState<{ panelIdx: number; panel: any } | null>(null);
-  const [translationLang, setTranslationLang] = useState<'pt' | 'en' | 'es' | 'zh'>('en');
-  const [translationUrl, setTranslationUrl] = useState('');
-  const [savingTranslation, setSavingTranslation] = useState(false);
-  const [translationMsg, setTranslationMsg] = useState('');
-  const [uploadingTranslation, setUploadingTranslation] = useState(false);
 
   useEffect(() => {
     setSelectedSeries(null);
@@ -455,83 +444,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       setNewPanelUrl('');
     } catch { alert('Erro ao adicionar painel.'); }
     finally { setAddingPanel(false); }
-  };
-
-  const handleDeletePanel = async (index: number) => {
-    if (!selectedEpisode) return;
-    if (!confirm('Remover este painel?')) return;
-    try {
-      await api.deletePanel(selectedEpisode._id || selectedEpisode.id, index);
-      setPanelsList(prev => prev.filter((_, i) => i !== index));
-    } catch { alert('Erro ao remover painel.'); }
-  };
-
-  const openTranslationModal = (panelIdx: number, panel: any) => {
-    setTranslationModal({ panelIdx, panel });
-    setTranslationLang('en');
-    setTranslationUrl('');
-    setTranslationMsg('');
-  };
-
-  const handleSaveTranslation = async () => {
-    if (!selectedEpisode || !translationModal) return;
-    if (!translationUrl.trim()) { setTranslationMsg('Cole a URL da imagem traduzida.'); return; }
-    setSavingTranslation(true);
-    setTranslationMsg('');
-    try {
-      const epId = selectedEpisode._id || selectedEpisode.id;
-      await api.updatePanelTranslation(epId, translationModal.panelIdx, translationLang, translationUrl.trim());
-      // Update local panelsList
-      setPanelsList(prev => prev.map((p, i) => {
-        if (i !== translationModal.panelIdx) return p;
-        const layers = (p.translationLayers ?? []).filter((l: any) => l.language !== translationLang);
-        return { ...p, translationLayers: [...layers, { language: translationLang, imageUrl: translationUrl.trim() }] };
-      }));
-      setTranslationMsg('Tradução salva!');
-      setTranslationUrl('');
-    } catch { setTranslationMsg('Erro ao salvar tradução.'); }
-    setSavingTranslation(false);
-  };
-
-  const handleDeleteTranslation = async () => {
-    if (!selectedEpisode || !translationModal) return;
-    const existing = (translationModal.panel.translationLayers ?? []).find((l: any) => l.language === translationLang);
-    if (!existing) { setTranslationMsg('Nenhuma tradução para remover neste idioma.'); return; }
-    if (!confirm(`Remover a tradução "${translationLang.toUpperCase()}" do painel #${translationModal.panelIdx + 1}?`)) return;
-    setSavingTranslation(true);
-    setTranslationMsg('');
-    try {
-      const epId = selectedEpisode._id || selectedEpisode.id;
-      await api.deletePanelTranslation(epId, translationModal.panelIdx, translationLang);
-      setPanelsList(prev => prev.map((p, i) => {
-        if (i !== translationModal.panelIdx) return p;
-        return { ...p, translationLayers: (p.translationLayers ?? []).filter((l: any) => l.language !== translationLang) };
-      }));
-      setTranslationModal(prev => prev ? {
-        ...prev,
-        panel: { ...prev.panel, translationLayers: (prev.panel.translationLayers ?? []).filter((l: any) => l.language !== translationLang) }
-      } : null);
-      setTranslationMsg('Tradução removida!');
-      setTranslationUrl('');
-    } catch { setTranslationMsg('Erro ao remover tradução.'); }
-    setSavingTranslation(false);
-  };
-
-  const handleTranslationFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || !selectedEpisode || !translationModal) return;
-    setUploadingTranslation(true);
-    setTranslationMsg('Enviando imagem...');
-    try {
-      const epSlug = (selectedEpisode.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-      const url = await api.uploadImageToBunny(file, epSlug);
-      setTranslationUrl(url);
-      setTranslationMsg('Imagem enviada — clique em Salvar para confirmar a tradução.');
-    } catch {
-      setTranslationMsg('Erro ao enviar a imagem.');
-    }
-    setUploadingTranslation(false);
   };
 
   const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -703,30 +615,6 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
       }));
       setBatchUploading(false);
     }
-  };
-
-  const togglePanelSelection = (idx: number) => {
-    setSelectedPanels(prev => {
-      const next = new Set(prev);
-      next.has(idx) ? next.delete(idx) : next.add(idx);
-      return next;
-    });
-  };
-
-  const handleBatchDeletePanels = async () => {
-    if (selectedPanels.size === 0 || !selectedEpisode) return;
-    if (!confirm(`Excluir ${selectedPanels.size} painel${selectedPanels.size !== 1 ? 'is' : ''} permanentemente? Esta ação não pode ser desfeita.`)) return;
-    setDeletingPanels(true);
-    try {
-      const epId = selectedEpisode._id || selectedEpisode.id;
-      // Deleta do maior índice para o menor para não deslocar os índices
-      const indices = Array.from(selectedPanels).sort((a, b) => b - a);
-      for (const i of indices) await api.deletePanel(epId, i);
-      setSelectedPanels(new Set());
-      const full = await api.getEpisode(epId);
-      setPanelsList(full.panels ?? []);
-    } catch { alert('Erro ao excluir painéis.'); }
-    setDeletingPanels(false);
   };
 
   const loadUsers = async (page = usersPage, filter = userFilter) => {
@@ -1532,161 +1420,15 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                 <p className="text-zinc-700 text-xs mt-2">Faça upload de imagens ou cole URLs acima</p>
               </div>
             ) : (
-              <>
-              {/* Controles de seleção múltipla */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setSelectedPanels(selectedPanels.size === panelsList.length ? new Set() : new Set(panelsList.map((_: any, i: number) => i)))}
-                    className="text-[10px] font-black text-zinc-500 hover:text-white uppercase tracking-widest transition-colors"
-                  >
-                    {selectedPanels.size === panelsList.length ? 'Desselecionar todos' : 'Selecionar todos'}
-                  </button>
-                  {selectedPanels.size > 0 && (
-                    <span className="text-[10px] font-black text-zinc-400">{selectedPanels.size} selecionado{selectedPanels.size !== 1 ? 's' : ''}</span>
-                  )}
-                </div>
-                {selectedPanels.size > 0 && (
-                  <button
-                    onClick={handleBatchDeletePanels}
-                    disabled={deletingPanels}
-                    className="flex items-center gap-2 px-4 py-2 bg-rose-600/20 border border-rose-500/30 rounded-xl text-rose-400 text-[11px] font-black uppercase tracking-widest hover:bg-rose-600/40 transition-all disabled:opacity-50"
-                  >
-                    {deletingPanels ? <div className="w-3 h-3 border-2 border-rose-400/30 border-t-rose-400 rounded-full animate-spin" /> : <Trash2 size={13} />}
-                    Excluir {selectedPanels.size}
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {panelsList.map((panel, idx) => {
-                  const langs: string[] = (panel.translationLayers ?? []).map((l: any) => l.language);
-                  return (
-                    <div
-                      key={idx}
-                      className={`relative group rounded-2xl overflow-hidden border bg-zinc-900 flex flex-col transition-all ${selectedPanels.has(idx) ? 'border-rose-500 ring-1 ring-rose-500' : 'border-[var(--border-color)]'}`}
-                    >
-                      <div className="relative">
-                        <img src={panel.image_url} alt={`Painel ${idx + 1}`} className="w-full object-cover" loading="lazy" />
-                        {/* Checkbox de seleção */}
-                        <button
-                          onClick={() => togglePanelSelection(idx)}
-                          className={`absolute top-2 left-2 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${selectedPanels.has(idx) ? 'bg-rose-600 border-rose-500' : 'bg-black/60 border-white/20 opacity-0 group-hover:opacity-100'}`}
-                        >
-                          {selectedPanels.has(idx) && <svg className="w-3 h-3 text-white" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                        </button>
-                        <div className="absolute top-2 left-9 bg-black/60 rounded-lg px-2 py-1 text-[10px] font-black text-zinc-300">
-                          #{idx + 1}
-                        </div>
-                        <button
-                          onClick={() => handleDeletePanel(idx)}
-                          className="absolute top-2 right-2 p-1.5 bg-rose-600/80 rounded-lg text-white opacity-0 group-hover:opacity-100 transition-all hover:bg-rose-600"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                      <div className="p-2 flex flex-wrap gap-1 bg-zinc-900">
-                        {(['pt','en','es','zh'] as const).map(lang => (
-                          <button
-                            key={lang}
-                            onClick={() => openTranslationModal(idx, panel)}
-                            className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${langs.includes(lang) ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-500 hover:bg-white/10'}`}
-                          >
-                            {lang}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Modal de tradução de painel */}
-              {translationModal && (
-                <div className="fixed inset-0 z-[2000] bg-black/80 backdrop-blur-xl flex items-center justify-center p-6">
-                  <div className="bg-[#1C1C1E] rounded-[2.5rem] border border-white/10 p-8 w-full max-w-md">
-                    <div className="flex items-center justify-between mb-6">
-                      <h3 className="text-lg font-black">Painel #{translationModal.panelIdx + 1} — Tradução</h3>
-                      <button onClick={() => setTranslationModal(null)} className="p-2 rounded-full hover:bg-white/10"><X size={18} /></button>
-                    </div>
-
-                    <div className="flex gap-2 mb-4">
-                      {(['pt','en','es','zh'] as const).map(lang => {
-                        const existing = (translationModal.panel.translationLayers ?? []).find((l: any) => l.language === lang);
-                        return (
-                          <button
-                            key={lang}
-                            onClick={() => {
-                              setTranslationLang(lang);
-                              setTranslationUrl(existing?.imageUrl ?? '');
-                              setTranslationMsg('');
-                            }}
-                            className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${translationLang === lang ? 'bg-rose-600 text-white' : existing ? 'bg-white/10 text-white' : 'bg-white/5 text-zinc-500'}`}
-                          >
-                            {lang}{existing ? ' ✓' : ''}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <label className={`flex items-center justify-center gap-2 w-full py-3 mb-3 rounded-2xl border border-dashed border-white/15 bg-white/5 cursor-pointer text-xs font-black uppercase tracking-widest transition-all ${uploadingTranslation ? 'opacity-60 cursor-wait' : 'hover:bg-white/10 hover:border-rose-500/40'}`}>
-                      {uploadingTranslation ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          <span className="text-zinc-300">Enviando…</span>
-                        </>
-                      ) : (
-                        <>
-                          <Upload size={14} />
-                          <span className="text-zinc-200">Selecionar imagem do painel</span>
-                        </>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        disabled={uploadingTranslation}
-                        onChange={handleTranslationFileChange}
-                      />
-                    </label>
-
-                    <div className="text-[10px] uppercase tracking-widest text-zinc-600 mb-2">ou cole uma URL</div>
-                    <input
-                      type="text"
-                      placeholder="URL da imagem traduzida"
-                      value={translationUrl}
-                      onChange={e => setTranslationUrl(e.target.value)}
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none mb-4"
-                    />
-
-                    {translationUrl && (
-                      <img src={translationUrl} className="w-full rounded-xl mb-4 max-h-48 object-cover opacity-80" onError={e => (e.currentTarget.style.display = 'none')} />
-                    )}
-
-                    {translationMsg && (
-                      <p className={`text-xs font-bold mb-3 ${translationMsg.includes('Erro') ? 'text-rose-400' : 'text-emerald-400'}`}>{translationMsg}</p>
-                    )}
-
-                    <div className="flex gap-3">
-                      <button
-                        onClick={handleDeleteTranslation}
-                        disabled={savingTranslation}
-                        className="flex-1 py-3 bg-white/5 border border-white/10 text-zinc-400 rounded-2xl font-black text-sm hover:bg-rose-600/20 hover:text-rose-400 hover:border-rose-500/30 transition-all flex items-center justify-center gap-2"
-                      >
-                        <Trash2 size={14} /> Remover
-                      </button>
-                      <button
-                        onClick={handleSaveTranslation}
-                        disabled={savingTranslation}
-                        className="flex-1 py-3 bg-rose-600 text-white rounded-2xl font-black text-sm hover:bg-rose-500 transition-all flex items-center justify-center"
-                      >
-                        {savingTranslation ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Salvar'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-              </>
+              // Grade única, a mesma do Meu Estúdio (frente A, item 6): apagar um
+              // ou vários, trocar a imagem no lugar, trocar ou remover o balão
+              // de um idioma. Cada ação grava só o painel dela no servidor.
+              <GradePaineis
+                episodeId={selectedEpisode._id || selectedEpisode.id}
+                panels={panelsList}
+                onMudar={atualizar => setPanelsList(prev => atualizar(prev))}
+                permitirUrl
+              />
             )}
           </div>
         )}

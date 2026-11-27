@@ -12,6 +12,11 @@ const EpisodeSchema = new mongoose.Schema({
   panels: [{
     image_url: String,
     order: Number,
+    // Tamanho da imagem do painel, em px (frente A, item 6). Opcional: só os
+    // painéis gravados pelo envio da pasta ou trocados pela grade têm. Com ele
+    // o servidor recusa balão ou imagem nova de tamanho diferente.
+    largura: Number,
+    altura: Number,
     translationLayers: [{
       language: { type: String, enum: ['pt', 'en', 'es', 'zh'] },
       imageUrl: String

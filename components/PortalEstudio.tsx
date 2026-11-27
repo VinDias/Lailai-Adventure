@@ -8,6 +8,7 @@ import { NOME_ABA } from '../utils/contentTypeLabels';
 import { formatarValorMonetario } from '../utils/currency';
 import ImageWithFallback from './ImageWithFallback';
 import EnvioPastaEpisodio from './EnvioEpisodio/EnvioPastaEpisodio';
+import GradePaineis from './EnvioEpisodio/GradePaineis';
 // Fonte ÚNICA dos 19 slugs do vocabulário fechado de tags (Fase 5 Bloco 2) —
 // MESMO JSON que o backend (utils/tagsVocabulario.js) e o TagsChipInput do
 // admin (spec, "O vocabulário": chips sempre pelo IMPORT do JSON, nunca uma
@@ -393,6 +394,17 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   // antes continua para ajustes avulsos.
   const [envioPastaFor, setEnvioPastaFor] = useState<any | null>(null);
   useCamadaVoltar(!!envioPastaFor, () => setEnvioPastaFor(null));
+
+  // Frente A, item 6: grade de painéis do capítulo (a mesma do admin): apagar,
+  // trocar a imagem de um painel, trocar ou remover o balão de um idioma.
+  const [gradeFor, setGradeFor] = useState<any | null>(null);
+  useCamadaVoltar(!!gradeFor, () => setGradeFor(null));
+  const mudarPaineisDaGrade = (atualizar: (paineis: any[]) => any[]) => {
+    if (!gradeFor) return;
+    const id = gradeFor._id;
+    setGradeFor((prev: any) => (prev && prev._id === id ? { ...prev, panels: atualizar(prev.panels ?? []) } : prev));
+    setEpisodesOfSelected(prev => prev.map(ep => (ep._id === id ? { ...ep, panels: atualizar(ep.panels ?? []) } : ep)));
+  };
 
   const abrirPanelsModal = (ep: any) => {
     if (!selectedSeriesId) return;
@@ -845,6 +857,14 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                                     </button>
                                     {(ep.panels?.length ?? 0) > 0 && (
                                       <button
+                                        onClick={() => setGradeFor(ep)}
+                                        className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                      >
+                                        {t('grade.botao')}
+                                      </button>
+                                    )}
+                                    {(ep.panels?.length ?? 0) > 0 && (
+                                      <button
                                         onClick={() => handleEnviarEpisodio(ep._id, s._id)}
                                         disabled={enviandoId === ep._id}
                                         className="text-[10px] font-black text-emerald-400 uppercase tracking-widest disabled:opacity-50"
@@ -1098,6 +1118,23 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
             setEpisodesOfSelected(prev => prev.map(ep => (ep._id === atualizado._id ? { ...ep, ...atualizado } : ep)));
           }}
         />
+      )}
+
+      {/* ─── Modal: grade de painéis (frente A, item 6) ─── */}
+      {gradeFor && (
+        <div className="fixed inset-0 z-[1200] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto bg-[var(--card-bg,#18181b)] border border-white/10 p-6 rounded-[2.5rem] space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('grade.titulo')}</p>
+                <h2 className="text-xl font-black text-[var(--text-color)]">{gradeFor.title}</h2>
+                <p className="text-xs text-zinc-500 mt-1">{t('grade.dica')}</p>
+              </div>
+              <button type="button" onClick={() => setGradeFor(null)} className="shrink-0 py-2 px-4 font-bold text-zinc-500">{t('portal.works.close')}</button>
+            </div>
+            <GradePaineis episodeId={gradeFor._id} panels={gradeFor.panels ?? []} onMudar={mudarPaineisDaGrade} />
+          </div>
+        </div>
       )}
 
       {/* ─── Modal: painéis do capítulo ─── */}

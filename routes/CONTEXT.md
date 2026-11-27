@@ -8,6 +8,17 @@ Endpoints da API REST do Express. Cada arquivo agrupa rotas relacionadas a um do
 
 ## Arquivos e Endpoints
 
+### `edicaoPaineis.js` — Edição dos painéis um a um (Fase 7, frente A, item 6)
+Montado em `/api/edicao-paineis`, tudo com `verifyToken`. Serve a grade única (`components/EnvioEpisodio/GradePaineis.tsx`) do Meu Estúdio e do Gerenciar Conteúdo. Guarda e regras em `services/edicaoPaineisService.js`: admin em qualquer episódio; dono do canal só em rascunho não enviado (403 em análise ou publicado); quem não é dono recebe **404** (mesma `acessoAoEpisodio` do envio da pasta).
+- `GET /:episodeId` — `{ modo, podeEditar, motivo, panels, alturaMaxima, tamanhoMaximoArquivo }`. Dá `_id` a painel antigo que não tem (um update por painel, condicionado à imagem daquele índice).
+- `POST /:episodeId/apagar` — `{ paineis: [id] }`, um ou vários num único `$pull`.
+- `PUT /:episodeId/paineis/:painelId/imagem` — multipart, campo `arquivo` (JPEG ou PNG, até 8 MB). Troca a imagem NO LUGAR. Autor: até 1280 px de altura. Painel com balão e tamanho conhecido: a imagem nova tem de ter o mesmo tamanho.
+- `PUT /:episodeId/paineis/:painelId/baloes/:idioma` — multipart, campo `arquivo` (PNG). Põe ou troca o balão do idioma; do tamanho do painel quando o tamanho é conhecido (`largura`/`altura` do painel, gravados pelo envio da pasta e pela troca de imagem).
+- `DELETE /:episodeId/paineis/:painelId/baloes/:idioma` — remove o balão do idioma (repetir não é erro).
+- **Gravação atômica por painel, achado pelo `_id`** (nunca a lista inteira, nunca o índice): é a regra que impede a volta do defeito do balão em lote (REGRESSOES.md, 24/11/2026). A condição de rascunho do autor vai no filtro do próprio update (409 se o episódio foi enviado para aprovação no meio). O servidor monta o nome no Bunny (subpasta nova a cada troca) e, depois de gravar, apaga o arquivo que saiu com `envioEpisodioService.apagarUrlsSemUso` (só URL do nosso CDN que nenhum episódio, capa ou obra usa).
+- Testes: `tests/backend/edicaoPaineis.test.js` (26; os de paralelo seguram os envios e soltam juntos, e falham com a gravação da lista inteira de volta).
+- As rotas antigas por ÍNDICE continuam (`DELETE /api/content/episodes/:id/panels/:index`, `PUT/DELETE .../translations`, `PUT /api/portal/episodios/:id/paineis/:indice/traducoes`): o envio em lote de balões e o link colado do admin ainda usam. A grade não usa mais o `DELETE` por índice, que salva a lista inteira.
+
 ### `envioEpisodio.js` — Envio da pasta do episódio (Fase 7, frente A, item 3)
 Montado em `/api/envio-episodio`, tudo com `verifyToken`; a guarda (admin em qualquer episódio; dono do canal só em rascunho não enviado) e as regras ficam em `services/envioEpisodioService.js`, que importa `shared/organizacaoEpisodio.mjs` (as MESMAS regras da tela; não copiar).
 - `GET /config` — `{ limitePaineis, limiteBytes, alturaMaxima, tamanhoMaximoParte, arquivosPorParte }`. Limites nos Settings `limite_paineis_episodio` (padrão 100, contado depois do corte) e `limite_mb_episodio` (padrão 20, soma dos arquivos ORIGINAIS da pasta), os dois na tela Configurações do admin. Números do Vin em 25/11/2026.

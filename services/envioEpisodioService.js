@@ -105,7 +105,7 @@ async function configuracao() {
  * Episódio + série, se o usuário pode trocar os painéis dele. Mesmo critério
  * 404 (nunca confirma episódio alheio) e as mesmas mensagens 403 do portal.
  */
-async function acessoAoEpisodio(user, episodeId) {
+async function acessoAoEpisodio(user, episodeId, { leitura = false } = {}) {
   let episode;
   try {
     episode = await Episode.findById(episodeId);
@@ -123,6 +123,9 @@ async function acessoAoEpisodio(user, episodeId) {
     ? await Channel.findOne({ _id: series.channelId, ownerId: user.id, isActive: true }).select('_id').lean()
     : null;
   if (!canal) throw erro(404, 'Episódio não encontrado.');
+  // `leitura`: o dono só quer VER os painéis (grade do Meu Estúdio); as travas
+  // de rascunho valem para quem vai mudar alguma coisa.
+  if (leitura) return { episode, series, porAdmin: false };
   if (episode.status !== 'draft') {
     throw erro(403, 'Só é possível enviar a pasta de um episódio em rascunho.');
   }
@@ -141,6 +144,38 @@ function pastaDoEpisodio(series, episode, envioId) {
   const obra = toSlug(series.title) || String(series._id);
   const ep = `ep-${String(episode.episode_number ?? 0).padStart(2, '0')}`;
   return `lorflux/series/${obra}/${ep}/${carimbo()}-${String(envioId).slice(-6)}`;
+}
+
+/**
+ * Das URLs que acabaram de sair de um episódio (painel apagado, imagem ou
+ * balão trocado: item 6), apaga do Bunny as que são do nosso CDN e que NADA
+ * mais usa: nenhum painel, balão ou capa de episódio (inclusive o próprio,
+ * conferido DEPOIS da gravação) e nenhuma capa de obra. Link externo colado à
+ * mão nunca é apagado. Mesma regra do `urlsParaApagar` do reenvio da pasta.
+ */
+async function apagarUrlsSemUso(urls) {
+  const nossas = [...new Set((urls || []).filter(u => bunnyStorage.caminhoDaUrl(u)))];
+  if (nossas.length === 0) return { apagados: 0, falhas: [] };
+  const [episodios, obras] = await Promise.all([
+    Episode.find({
+      $or: [
+        { 'panels.image_url': { $in: nossas } },
+        { 'panels.translationLayers.imageUrl': { $in: nossas } },
+        { thumbnail: { $in: nossas } },
+      ],
+    }).select('panels thumbnail').lean(),
+    Series.find({ cover_image: { $in: nossas } }).select('cover_image').lean(),
+  ]);
+  const emUso = new Set();
+  for (const e of episodios) {
+    if (e.thumbnail) emUso.add(e.thumbnail);
+    for (const p of e.panels || []) {
+      emUso.add(p.image_url);
+      for (const c of p.translationLayers || []) emUso.add(c.imageUrl);
+    }
+  }
+  for (const s of obras) emUso.add(s.cover_image);
+  return apagarCaminhos(nossas.filter(u => !emUso.has(u)).map(u => bunnyStorage.caminhoDaUrl(u)));
 }
 
 /** Apaga do Bunny, sem derrubar quem chamou: devolve o que não deu. */
@@ -406,7 +441,9 @@ async function concluirEnvio({ user, envioId }) {
   const paineis = [];
   for (const a of travado.arquivos) {
     if (a.tipo !== 'pagina') continue;
-    paineis[a.ordem] = { image_url: a.url, order: a.ordem, translationLayers: [] };
+    // largura/altura: o item 6 usa para conferir a imagem ou o balão trocado
+    // depois (o balão tem de ter o tamanho do painel).
+    paineis[a.ordem] = { image_url: a.url, order: a.ordem, largura: a.largura, altura: a.altura, translationLayers: [] };
   }
   for (const a of travado.arquivos) {
     if (a.tipo === 'balao') paineis[a.ordem].translationLayers.push({ language: a.idioma, imageUrl: a.url });
@@ -473,6 +510,11 @@ module.exports = {
   concluirEnvio,
   cancelarEnvio,
   configuracao,
+  acessoAoEpisodio,
+  pastaDoEpisodio,
+  apagarCaminhos,
+  apagarUrlsSemUso,
+  carregarRegras,
   lerLimitePaineis,
   lerLimiteBytes,
   CHAVE_LIMITE,

@@ -1092,6 +1092,47 @@ class ApiService {
     return this.request<{ cancelado: boolean }>(`/envio-episodio/${envioId}`, { method: 'DELETE' });
   }
 
+  // ─── Fase 7, frente A, item 6: edição dos painéis um a um ──────────────────
+  // Rota routes/edicaoPaineis.js (dono em rascunho, ou admin). O painel é
+  // achado pelo _id; cada pedido grava só o painel dele.
+  async getPaineisEdicao(episodeId: string) {
+    return this.request<{
+      episodeId: string; modo: string; podeEditar: boolean; motivo: string | null;
+      panels: any[]; alturaMaxima: number; tamanhoMaximoArquivo: number; revisao?: any;
+    }>(`/edicao-paineis/${episodeId}`);
+  }
+
+  async apagarPaineisEdicao(episodeId: string, paineis: string[]) {
+    return this.request<{ removidos: string[]; totalPaineis: number; apagadosDoBunny: number; naoApagados: string[] }>(
+      `/edicao-paineis/${episodeId}/apagar`, { method: 'POST', body: JSON.stringify({ paineis }) });
+  }
+
+  /** PUT multipart de UM arquivo (campo "arquivo"); erro com `status`, como o envio em partes. */
+  private async enviarArquivoDePainel(caminho: string, arquivo: Blob, nome: string): Promise<{ panel: any }> {
+    const formData = new FormData();
+    formData.append('arquivo', arquivo, nome);
+    const response = await this.fetchAutenticado(`${API_URL}${caminho}`, { method: 'PUT', body: formData });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error: any = new Error(body.error || `Erro ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return body;
+  }
+
+  async trocarImagemPainel(episodeId: string, painelId: string, arquivo: File) {
+    return this.enviarArquivoDePainel(`/edicao-paineis/${episodeId}/paineis/${painelId}/imagem`, arquivo, arquivo.name || 'painel');
+  }
+
+  async trocarBalaoPainel(episodeId: string, painelId: string, idioma: string, arquivo: File) {
+    return this.enviarArquivoDePainel(`/edicao-paineis/${episodeId}/paineis/${painelId}/baloes/${idioma}`, arquivo, arquivo.name || 'balao.png');
+  }
+
+  async removerBalaoPainel(episodeId: string, painelId: string, idioma: string) {
+    return this.request<{ panel: any; removido: boolean }>(`/edicao-paineis/${episodeId}/paineis/${painelId}/baloes/${idioma}`, { method: 'DELETE' });
+  }
+
   // ─── Fase 5 Bloco 1, Task 10: canal público (leitor) ───────────────────────
   // GET /api/channels/:id — shape pinado: followersCount (número) + isFollowing
   // (bool, false se anônimo), SEM o array followers[] (dado pessoal). Público
