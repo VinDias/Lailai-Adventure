@@ -157,6 +157,10 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [seriesList, setSeriesList] = useState<any[]>([]);
   const [seriesLoading, setSeriesLoading] = useState(false);
   const [envioErro, setEnvioErro] = useState<string | null>(null);
+  // Confirmação do que deu CERTO (enviado para a fila): em verde, nunca no
+  // lugar do erro. Retorno do cliente em 27/11/2026: aviso de estado normal
+  // em vermelho foi lido como defeito.
+  const [envioAviso, setEnvioAviso] = useState<string | null>(null);
   const [enviandoId, setEnviandoId] = useState<string | null>(null);
 
   const carregarSeries = useCallback(async () => {
@@ -293,9 +297,11 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const handleEnviarObra = async (id: string) => {
     if (!window.confirm(t('portal.works.submitConfirm'))) return;
     setEnvioErro(null);
+    setEnvioAviso(null);
     setEnviandoId(id);
     try {
       await api.enviarPortalSerie(id);
+      setEnvioAviso(t('portal.works.workSubmitted'));
       await carregarSeries();
     } catch (err: any) {
       setEnvioErro(err?.message || t('portal.errors.generic'));
@@ -387,9 +393,11 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const handleEnviarEpisodio = async (episodeId: string, seriesId: string) => {
     if (!window.confirm(t('portal.works.submitChapterConfirm'))) return;
     setEnvioErro(null);
+    setEnvioAviso(null);
     setEnviandoId(episodeId);
     try {
       await api.enviarPortalEpisodio(episodeId);
+      setEnvioAviso(t('portal.works.chapterSubmitted'));
       await carregarEpisodios(seriesId);
     } catch (err: any) {
       setEnvioErro(err?.message || t('portal.errors.generic'));
@@ -854,7 +862,8 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
 
       {aba === 'obras' && (
         <section className="px-8 space-y-4">
-          {envioErro && <p className="text-rose-500 text-sm font-bold">{envioErro}</p>}
+          {envioErro && <p role="alert" data-testid="portal-envio-erro" className="text-rose-500 text-sm font-bold">{envioErro}</p>}
+          {envioAviso && !envioErro && <p role="status" data-testid="portal-envio-aviso" className="text-emerald-400 text-sm font-bold">{envioAviso}</p>}
 
           <button
             onClick={abrirCriarObra}

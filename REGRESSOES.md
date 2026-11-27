@@ -30,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (branch `fix/retorno-vin-27-11`, item 2) | 2026-11-27 | video do autor pronto e "Enviar capitulo" recusado com aviso em vermelho ("podera ir para aprovacao em 13 minuto(s)"); nada na Fila de Aprovacao. Era a espera pela validade da autorizacao de envio (item 10), que os testes nunca exercitaram porque venciam a autorizacao a mao antes de cada envio | `tests/backend/videoFilaAprovacao.test.js` — _video pronto: o episodio vai para a fila NA HORA_ e _caso do print-2 e do print-3_ (e mais 3 da conferencia na aprovacao); `tests/backend/videoAutor.test.js` (validade minima); `tests/frontend/videoFilaAprovacao.test.tsx` — _a confirmacao sai em verde_ | coberto-novo | alto |
 | (branch `fix/retorno-vin-27-11`, item 1) | 2026-11-27 | player de video mostrava quatro botoes de idioma com o mesmo texto ("English"): o Bunny marca todas as faixas com o mesmo idioma e o player traduzia o codigo faixa por faixa; o video enviado pelo AUTOR (frente A, item 9) nao tem os nomes que o admin digita (`hlsAudioLabels`). **Segunda vez**: `136b916` (28/03) consertou e `1073485` (10 minutos depois) apagou o conserto, sem teste | `tests/frontend/rotulosDeAudio.test.tsx` — _video do autor com quatro faixas "en" NAO mostra quatro botoes "English"_ (e mais 10) | voltou, coberto-novo | medio |
 | (branch `fix/sem-barreira-de-mb`) | 2026-11-27 | o autor era barrado pelo peso do episodio (padrao de 20 MB no Setting `limite_mb_episodio`) no envio da pasta, na conferencia e na troca de arquivo pela grade, contra o pedido do cliente de 26/11 ("nao barrar o autor pela quantidade de megabytes") | `tests/backend/envioEpisodio.test.js` — _sem limite de MB por episodio no padrao_ (5 testes); `tests/backend/edicaoPaineis.test.js` — _sem Setting NAO ha limite de MB_ (e mais 2); `tests/backend/organizacaoEpisodio.test.js` — _pasta de 25 MB e de 300 MB passam sem opcao nenhuma_; `tests/frontend/envioPastaEpisodio.test.tsx` — _sem limite de MB (padrao): pasta de 21 MB nao mostra aviso de megabytes_; `tests/frontend/adminLimitePaineis.test.tsx` — _limite de MB por episodio e opcional_ | coberto-novo | alto |
 | (branch `fix/balao-lote-paralelo`) | 2026-11-24 | balao (camada de idioma) enviado em LOTE se perdia: admin e Meu Estudio gravam em paralelo, `setTranslationLayer` salvava a lista inteira de paineis e os pedidos seguintes davam VersionError (rota 500; medido 23/11: 1 de 10 gravados pela rota do admin). No admin o arquivo ja aparecia "concluido" e o erro nao aparecia; no reenvio, falhas salteadas iam para o painel vizinho | `tests/backend/balaoLoteParalelo.test.js` — _10 baloes em paralelo, os 10 gravados_ (servico e as duas rotas, mais 5: troca e acrescimo no mesmo painel, idioma duplicado, remover junto, leitura antiga da conflito, validacoes); `tests/frontend/balaoLoteErroAdmin.test.tsx` e `tests/frontend/balaoLoteErroPortal.test.tsx` (erro visivel, so fica ok o que gravou, reenvio no mesmo painel) | coberto-novo | alto |
@@ -129,6 +130,47 @@ iguais); com o conserto, 11 de 11.
 **Sem teste (so no aparelho ou no Bunny).** Se a 1a faixa do arquivo do autor
 e mesmo a de portugues. Quando nao for, o admin corrige em Gerenciar Conteudo,
 "Faixas de Audio". O autor ainda nao tem esse campo no Meu Estudio.
+
+### Item 2: "Enviar capitulo" de video recusado por 13 minutos, fila vazia
+
+**O que o cliente viu (print-2 e print-3).** Video pronto, clicou "Enviar
+capitulo" e apareceu em vermelho "O video acabou de ser enviado. Por
+seguranca, este episodio podera ir para aprovacao em 13 minuto(s)...". Na Fila
+de Aprovacao, "Nenhum item pendente". Ele leu como erro.
+
+**Nao voltou: era regra nossa (item 10, `5232579`), decidida sem perguntar.**
+O episodio so ia para a fila depois de vencer a autorizacao de envio do autor
+(15 minutos no minimo). A fila estava vazia porque o envio tinha sido
+RECUSADO: o episodio do print-2 ainda era rascunho. A consulta da fila
+(`GET /api/admin/aprovacoes`) nunca filtrou por obra publicada nem por dono.
+
+**Por que os testes nao pegaram.** `obraComEpisodio` vencia a autorizacao a
+mao (`vencerAutorizacao`) antes de cada envio; so um teste olhava o caso real,
+e ele PINAVA a espera como comportamento certo. Consertado: o ajudante deixou
+de vencer a autorizacao, entao o arquivo inteiro passa pelo caso real.
+
+**Conserto.** A espera saiu de `POST /api/portal/episodios/:id/enviar` e de
+`POST /api/admin/aprovacoes/episodes/:id/aprovar`; `travaDeEnvio` e
+`mensagemDaTrava` foram apagadas. Ficou, e foi reforcado, o que protege o
+moderador de aprovar um video trocado por fora: (1) validade da autorizacao de
+envio com minimo de 5 minutos (era 15; sem tamanho era 2 horas, agora 5
+minutos; renovacao 5 minutos); (2) `aplicarStatusDoBunny`: video que muda no
+Bunny depois de pronto tira o episodio da fila, e em publicado so registra no
+log; (3) novo `conferirAntesDeAprovar`: a aprovacao consulta o Bunny e recusa
+(409, episodio sai da fila) se o video deixou de estar pronto; Bunny sem
+resposta nao trava a moderacao. No Meu Estudio o envio que deu certo mostra
+uma confirmacao em verde (`role="status"`).
+
+**Prova.** Com `videoAutorService.js`, `portal.js` e `adminPortal.js` de
+`origin/main` numa copia: 14 dos 38 testes de backend falham. Com o
+`PortalEstudio.tsx` de `origin/main`: 2 dos 14 de frontend falham.
+
+**O que nenhum teste garante.** O Bunny de verdade: se ele aceita um segundo
+arquivo para um video que ja tem um, se avisa (webhook) quando isso acontece,
+e se aceita a renovacao da assinatura no meio de um envio longo (com a
+validade menor, video acima de ~75 MB em conexao lenta depende dela). Troca
+cujo aviso se perde E que termina de processar antes de o moderador aprovar
+nao e detectada.
 
 ## 27/11/2026: o autor barrado por megabytes (limite de 20 MB por episodio como padrao)
 

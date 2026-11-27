@@ -34,17 +34,23 @@ const TIPOS_DO_PORTAL = ['hiqua', ...TIPOS_DE_VIDEO];
 
 // Curta duração: a autorização vale só para um vídeo e pelo tempo que o envio
 // dele deve levar: o tamanho do arquivo a 250 KB/s (2 Mbps de subida), nunca
-// menos de 15 minutos nem mais de 2 horas. Sem o tamanho, 2 horas. Um envio
-// que dure mais pede outra (`renovar`, 15 minutos), para o mesmo vídeo.
-// Quanto menor a validade, menos o autor espera para poder enviar o episódio
-// para aprovação (ver `travaDeEnvio`).
+// menos de 5 minutos nem mais de 2 horas. Sem o tamanho, 5 minutos (a tela
+// sempre manda o tamanho). Um envio que dure mais pede outra (`renovar`,
+// 5 minutos), para o mesmo vídeo; a tela renova sozinha quando faltam 2
+// minutos (utils/envioVideoTus.ts).
+//
+// Desde 27/11/2026 o episódio NÃO espera mais esta validade vencer para ir à
+// fila (o cliente leu a espera como erro). O que protege o moderador de
+// aprovar um vídeo trocado por fora é: (1) a validade curta; (2) o Bunny
+// avisar que o vídeo mudou (`aplicarStatusDoBunny` tira o episódio da fila);
+// (3) a conferência com o Bunny na hora de aprovar (`conferirAntesDeAprovar`).
 const VALIDADE_MAXIMA_SEGUNDOS = 2 * 60 * 60;
-const VALIDADE_MINIMA_SEGUNDOS = 15 * 60;
+const VALIDADE_MINIMA_SEGUNDOS = 5 * 60;
 const BYTES_POR_SEGUNDO_ESPERADOS = 250 * 1000;
 const VALIDADE_SEGUNDOS = VALIDADE_MAXIMA_SEGUNDOS;
 
 function validadePara(tamanho) {
-  if (!Number.isInteger(tamanho) || tamanho <= 0) return VALIDADE_MAXIMA_SEGUNDOS;
+  if (!Number.isInteger(tamanho) || tamanho <= 0) return VALIDADE_MINIMA_SEGUNDOS;
   const estimada = Math.ceil(tamanho / BYTES_POR_SEGUNDO_ESPERADOS);
   return Math.min(VALIDADE_MAXIMA_SEGUNDOS, Math.max(VALIDADE_MINIMA_SEGUNDOS, estimada));
 }
@@ -111,22 +117,30 @@ function temVideoPronto(episode) {
 }
 
 /**
- * Até quando o autor ainda tem em mãos uma autorização válida para enviar
- * arquivo a ESTE vídeo (ou null). Enquanto ela vale, ele poderia trocar o
- * arquivo no Bunny sem passar pelo servidor; por isso o episódio só vai para
- * aprovação (e só é aprovado) depois desse instante: o moderador vê o vídeo
- * quando ele já não pode ser trocado por fora.
+ * Última conferência antes de publicar um episódio com vídeo de AUTOR: pergunta
+ * ao Bunny como o vídeo está AGORA. Se ele deixou de estar pronto (voltou a
+ * processar, deu erro: o arquivo foi trocado depois de o moderador ver), o
+ * episódio sai da fila e volta para o autor, pelo mesmo caminho do webhook
+ * (`aplicarStatusDoBunny`), e a aprovação é recusada. Cobre o aviso do Bunny
+ * que se perdeu no caminho.
+ *
+ * Não trava a moderação por causa do Bunny: sem resposta (fora do ar, vídeo
+ * não encontrado na consulta), a aprovação segue, com registro no log.
+ * Vídeo posto pelo admin não passa por aqui.
  */
-function travaDeEnvio(episode) {
-  const v = episode && episode.videoEnvio;
-  if (!v || !v.videoId || v.videoId !== episode.bunnyVideoId || !v.autorizadoAte) return null;
-  const ate = new Date(v.autorizadoAte);
-  return ate.getTime() > Date.now() ? ate : null;
-}
-
-function mensagemDaTrava(ate) {
-  const minutos = Math.max(1, Math.ceil((ate.getTime() - Date.now()) / 60000));
-  return `O vídeo acabou de ser enviado. Por segurança, este episódio poderá ir para aprovação em ${minutos} minuto(s), quando a autorização de envio do vídeo terminar.`;
+async function conferirAntesDeAprovar(episode) {
+  const atual = resumo(episode);
+  if (!atual.videoId || !bunnyStream.isConfigured()) return { ok: true };
+  let video;
+  try {
+    video = await bunnyStream.getVideo(atual.videoId);
+  } catch (e) {
+    logger.error(`[VideoAutor] Aprovação sem conferir o vídeo ${atual.videoId} no Bunny (consulta falhou)`, e);
+    return { ok: true };
+  }
+  if (!video || ESTADO_POR_STATUS[video.status] === undefined || ESTADO_POR_STATUS[video.status] === 'pronto') return { ok: true };
+  await aplicarStatusDoBunny(atual.videoId, video.status);
+  return { ok: false, mensagem: 'O vídeo deste episódio mudou depois de enviado para aprovação. O episódio saiu da fila e voltou para o autor.' };
 }
 
 /**
@@ -276,8 +290,7 @@ module.exports = {
   consultarEstado,
   resumo,
   temVideoPronto,
-  travaDeEnvio,
-  mensagemDaTrava,
+  conferirAntesDeAprovar,
   validadePara,
   ehObraDeVideo,
   lerLimiteBytes,

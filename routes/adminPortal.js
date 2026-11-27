@@ -535,16 +535,17 @@ router.post('/aprovacoes/episodes/:id/aprovar', verifyToken, requireAdmin, async
     }
 
     // Frente A, item 10: episódio de obra de vídeo só vai ao ar com o vídeo
-    // pronto, e quando o autor já não pode trocá-lo (mesmas regras do envio
-    // para aprovação, repetidas aqui porque é esta rota que publica).
+    // pronto (mesma regra do envio para aprovação, repetida aqui porque é
+    // esta rota que publica). Desde 27/11/2026 não há mais espera pela
+    // validade da autorização de envio; no lugar, o Bunny é consultado agora:
+    // vídeo que deixou de estar pronto (trocado depois de enviado) tira o
+    // episódio da fila e a aprovação não acontece.
     if (videoAutor.ehObraDeVideo(series)) {
       if (!videoAutor.temVideoPronto(episode)) {
         return res.status(400).json({ error: 'O vídeo deste episódio não está pronto. Não é possível aprovar.' });
       }
-      const trava = videoAutor.travaDeEnvio(episode);
-      if (trava) {
-        return res.status(400).json({ error: 'O autor ainda pode trocar o vídeo deste episódio (a autorização de envio não venceu). Aprove daqui a alguns minutos.', liberaEm: trava });
-      }
+      const conferido = await videoAutor.conferirAntesDeAprovar(episode);
+      if (!conferido.ok) return res.status(409).json({ error: conferido.mensagem, saiuDaFila: true });
     }
 
     episode.status = 'published';

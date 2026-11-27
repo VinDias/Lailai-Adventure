@@ -564,15 +564,15 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
       return res.status(400).json({ error: 'Episódio já enviado para aprovação — aguarde a revisão do editor.' });
     }
     // Frente A, item 10: episódio de obra de vídeo vai para a fila com o
-    // vídeo PRONTO, e só depois que a autorização de envio do autor venceu
-    // (services/videoAutorService.js, travaDeEnvio).
+    // vídeo PRONTO. Pronto, vai NA HORA: a espera pela validade da
+    // autorização de envio saiu em 27/11/2026 (o cliente leu como erro). Se o
+    // vídeo mudar no Bunny depois, o episódio sai da fila
+    // (services/videoAutorService.js, aplicarStatusDoBunny).
     const deVideo = videoAutor.ehObraDeVideo(series);
     if (deVideo) {
       if (!videoAutor.temVideoPronto(episode)) {
         return res.status(400).json({ error: 'Envie o vídeo do episódio e espere ele ficar pronto antes de enviar para aprovação.' });
       }
-      const trava = videoAutor.travaDeEnvio(episode);
-      if (trava) return res.status(400).json({ error: videoAutor.mensagemDaTrava(trava), liberaEm: trava });
     } else if (!episode.panels || episode.panels.length === 0) {
       return res.status(400).json({ error: 'Adicione ao menos um painel antes de enviar para aprovação.' });
     }

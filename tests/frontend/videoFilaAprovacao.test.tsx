@@ -14,7 +14,7 @@
  * - aprovar e devolver um episódio de vídeo chamam as rotas de sempre;
  * - o player do público continua mostrando o anúncio (a prévia é opcional);
  * - Meu Estúdio: com o vídeo pronto aparece "Enviar capítulo"; antes, não; a
- *   recusa do servidor (ex.: aguardar a autorização vencer) aparece na tela.
+ *   confirmação do envio sai em verde; recusa de verdade do servidor aparece como erro.
  *
  * O QUE NÃO GARANTEM: quem pode pedir a URL assinada e quando o episódio
  * entra na fila ou vai ao ar: tests/backend/videoFilaAprovacao.test.js.
@@ -168,13 +168,13 @@ describe('Fila de Aprovação — obras de vídeo', () => {
     await waitFor(() => expect(api.devolverAprovacao).toHaveBeenCalledWith('episode', 'e-video', 'O áudio está baixo.'));
   });
 
-  it('a recusa do servidor ao aprovar (ex.: o autor ainda pode trocar o vídeo) aparece no card', async () => {
+  it('a recusa do servidor ao aprovar (ex.: o vídeo mudou depois de enviado) aparece no card', async () => {
     vi.mocked(api.getAdminAprovacoes).mockResolvedValue({ itens: [epVideo()] } as any);
-    vi.mocked(api.aprovarEpisodioAdmin).mockRejectedValue(new Error('O autor ainda pode trocar o vídeo deste episódio (a autorização de envio não venceu). Aprove daqui a alguns minutos.'));
+    vi.mocked(api.aprovarEpisodioAdmin).mockRejectedValue(new Error('O vídeo deste episódio mudou depois de enviado para aprovação. O episódio saiu da fila e voltou para o autor.'));
     render(<AprovacoesPanel />);
     await screen.findByText('Episódio 1 da novela');
     fireEvent.click(screen.getByRole('button', { name: /Aprovar/ }));
-    expect(await screen.findByText(/ainda pode trocar o vídeo/)).toBeInTheDocument();
+    expect(await screen.findByText(/mudou depois de enviado/)).toBeInTheDocument();
   });
 });
 
@@ -233,18 +233,27 @@ describe('Meu Estúdio — enviar o episódio de vídeo para aprovação', () =>
     expect(within(linha).queryByRole('button', { name: 'Enviar capítulo' })).not.toBeInTheDocument();
   });
 
-  it('vídeo pronto: "Enviar capítulo" manda o episódio para aprovação e a lista é recarregada', async () => {
+  it('vídeo pronto: "Enviar capítulo" manda o episódio para aprovação NA HORA, a lista é recarregada e a confirmação sai em verde, não em vermelho (27/11/2026)', async () => {
     vi.mocked(api.enviarPortalEpisodio).mockResolvedValue({} as any);
     const linha = await abrir('pronto');
-    fireEvent.click(within(linha).getByRole('button', { name: 'Enviar capítulo' }));
+    const botao = within(linha).getByRole('button', { name: 'Enviar capítulo' });
+    expect(botao).toBeEnabled();
+    fireEvent.click(botao);
     await waitFor(() => expect(api.enviarPortalEpisodio).toHaveBeenCalledWith('ev1'));
     await waitFor(() => expect(api.getEpisodesBySeries).toHaveBeenCalledTimes(2));
+    const aviso = await screen.findByTestId('portal-envio-aviso');
+    expect(aviso).toHaveTextContent('Capítulo enviado. Ele já está na Fila de Aprovação.');
+    expect(aviso).toHaveAttribute('role', 'status');
+    expect(aviso.className).not.toMatch(/rose|red/);
+    expect(screen.queryByTestId('portal-envio-erro')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('a recusa do servidor (aguardar a autorização do vídeo vencer) aparece na tela', async () => {
-    vi.mocked(api.enviarPortalEpisodio).mockRejectedValue(new Error('O vídeo acabou de ser enviado. Por segurança, este episódio poderá ir para aprovação em 9 minuto(s), quando a autorização de envio do vídeo terminar.'));
+  it('uma recusa de verdade do servidor continua aparecendo como erro, e sem a confirmação verde', async () => {
+    vi.mocked(api.enviarPortalEpisodio).mockRejectedValue(new Error('A série deste episódio ainda não foi enviada para aprovação — envie a série primeiro.'));
     const linha = await abrir('pronto');
     fireEvent.click(within(linha).getByRole('button', { name: 'Enviar capítulo' }));
-    expect(await screen.findByText(/poderá ir para aprovação em 9 minuto/)).toBeInTheDocument();
+    expect(await screen.findByTestId('portal-envio-erro')).toHaveTextContent(/envie a série primeiro/);
+    expect(screen.queryByTestId('portal-envio-aviso')).not.toBeInTheDocument();
   });
 });
