@@ -275,6 +275,10 @@ async function iniciarEnvio({ user, episodeId, arquivos }) {
   }));
 
   const { episode, series, porAdmin, publicado } = await acessoAoEpisodio(user, episodeId, { aceitaPublicado: true });
+  // Obra de vídeo (V-Show, Anicom; item 9): o episódio do autor recebe vídeo.
+  if (!porAdmin && ['vcine', 'hqcine'].includes(series.content_type)) {
+    throw erro(400, 'Esta obra é de vídeo: envie o vídeo do episódio, não a pasta de painéis.');
+  }
   // Autor em episódio publicado: a pasta vai para a revisão (item 7). Com uma
   // edição já na fila, espera a aprovação ou a devolução.
   const paraRevisao = !porAdmin && publicado;

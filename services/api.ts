@@ -12,6 +12,25 @@ export interface RevisaoResumo {
   updatedAt?: string | null;
 }
 
+/** Estado do vídeo que o autor enviou (services/videoAutorService.js `resumo`). */
+export interface EstadoVideoEpisodio {
+  estado: 'sem-video' | 'enviando' | 'processando' | 'pronto' | 'erro';
+  videoId: string | null;
+  atualizadoEm: string | null;
+  pronto: boolean;
+}
+
+/** Autorização de curta duração para o envio TUS direto ao Bunny Stream. */
+export interface AutorizacaoEnvioVideo {
+  videoId: string;
+  libraryId: string;
+  endpoint: string;
+  assinatura: string;
+  expira: number;
+  validadeSegundos: number;
+  tamanhoMaximo: number;
+}
+
 /** GET /api/envio-episodio/config (services/envioEpisodioService.js). */
 export interface EnvioConfig {
   limitePaineis: number;
@@ -967,7 +986,7 @@ class ApiService {
   // `tags` (Fase 5 Bloco 2, Task 6): até 8 slugs do vocabulário fechado —
   // PORTAL_SERIES_FIELDS passou a aceitar (INVERSÃO deliberada do contrato
   // do Bloco 1, ver routes/portal.js).
-  async createPortalSeries(data: { title: string; description?: string; content_rating_sugerida?: 'kids' | 'teen' | 'young' | null; channelId?: string; tags?: string[] }) {
+  async createPortalSeries(data: { title: string; description?: string; content_rating_sugerida?: 'kids' | 'teen' | 'young' | null; channelId?: string; tags?: string[]; content_type?: 'hiqua' | 'vcine' | 'hqcine' }) {
     return this.request<any>('/portal/series', { method: 'POST', body: JSON.stringify(data) });
   }
 
@@ -1141,6 +1160,17 @@ class ApiService {
 
   async removerBalaoPainel(episodeId: string, painelId: string, idioma: string) {
     return this.request<{ panel: any; removido: boolean }>(`/edicao-paineis/${episodeId}/paineis/${painelId}/baloes/${idioma}`, { method: 'DELETE' });
+  }
+
+  // ─── Fase 7, frente A, item 9: vídeo do episódio de V-Show e Anicom ────────
+  // routes/portal.js. O arquivo vai do navegador direto ao Bunny Stream
+  // (utils/envioVideoTus.ts); aqui só a autorização e o estado do vídeo.
+  async autorizarEnvioVideo(episodeId: string, dados: { tamanho?: number; tipo?: string; renovar?: boolean } = {}) {
+    return this.request<AutorizacaoEnvioVideo>(`/portal/episodios/${episodeId}/video/autorizacao`, { method: 'POST', body: JSON.stringify(dados) });
+  }
+
+  async getEstadoVideoEpisodio(episodeId: string) {
+    return this.request<EstadoVideoEpisodio>(`/portal/episodios/${episodeId}/video`);
   }
 
   // ─── Fase 7, frente A, item 7: edição de episódio publicado (lado do autor) ─

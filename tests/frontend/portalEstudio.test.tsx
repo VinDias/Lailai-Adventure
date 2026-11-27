@@ -1,6 +1,7 @@
 /**
  * Testes — PortalEstudio (Fase 5 Bloco 1, Task 9): tela "Meu Estúdio" com
- * abas Números/Obras/Mensagens + seções CINECOMICS/VERTICALSHOW bloqueadas.
+ * abas Números/Obras/Mensagens. As seções CINECOMICS/VERTICALSHOW bloqueadas
+ * saíram em 27/11/2026 (frente A, item 9: o autor cria obra de vídeo).
  * Mocka services/api inteiro (mesma técnica de favorites.test.tsx /
  * royaltiesPanel.superReader.test.tsx) — sem bater rede real.
  */
@@ -72,19 +73,24 @@ afterEach(() => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Estrutura geral: abas + seções bloqueadas sempre presentes
+// Estrutura geral: as 3 abas
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('PortalEstudio — estrutura', () => {
-  it('renderiza as 3 abas e as seções CINECOMICS/VERTICALSHOW bloqueadas', async () => {
+  // RE-PINADO em 27/11/2026 (Fase 7, frente A, item 9). Até aqui a tela
+  // mostrava SEMPRE dois cartões bloqueados, CINECOMICS e VERTICALSHOW, com
+  // "Em breve" (spec da Fase 5, "Upload do ilustrador": vídeo só mediante
+  // contratação de temporada). O item 9, fechado com o cliente em 23/11,
+  // abre V-Show e Anicom no portal: os cartões saíram e o tipo passou a ser
+  // escolhido em "Nova obra" (tests/frontend/envioVideoEpisodio.test.tsx).
+  it('renderiza as 3 abas, sem os cartões bloqueados de CINECOMICS/VERTICALSHOW', async () => {
     render(<PortalEstudio onClose={vi.fn()} />);
     await screen.findByText('Números');
     expect(screen.getByText('Obras')).toBeInTheDocument();
     expect(screen.getByText('Mensagens')).toBeInTheDocument();
-    // Rótulos de utils/contentTypeLabels.ts — nunca hardcoded.
-    expect(screen.getByText('CINECOMICS')).toBeInTheDocument();
-    expect(screen.getByText('VERTICALSHOW')).toBeInTheDocument();
-    expect(screen.getAllByText('Em breve').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('CINECOMICS')).not.toBeInTheDocument();
+    expect(screen.queryByText('VERTICALSHOW')).not.toBeInTheDocument();
+    expect(screen.queryByText('Em breve')).not.toBeInTheDocument();
   });
 
   it('sessão perdida (getMeuEstudio falha) — mensagem clara + botão volta pra Conta', async () => {

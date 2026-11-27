@@ -227,6 +227,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
     ad_frequency_webtoon: '',
     limite_paineis_episodio: '',
     limite_mb_episodio: '',
+    limite_mb_video: '',
   });
 
   // Anúncios
@@ -690,6 +691,7 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
         api.updateSetting('ad_frequency_webtoon',  settingsForm.ad_frequency_webtoon,  'Frequência de anúncio no webtoon'),
         api.updateSetting('limite_paineis_episodio', settingsForm.limite_paineis_episodio, 'Limite de painéis por episódio'),
         api.updateSetting('limite_mb_episodio', settingsForm.limite_mb_episodio, 'Limite de MB por episódio'),
+        api.updateSetting('limite_mb_video', settingsForm.limite_mb_video, 'Limite de MB do vídeo do autor'),
       ]);
       setSettingsMsg('Configurações salvas!');
       agendar('configuracoes', () => setSettingsMsg(''), 3000);
@@ -1596,6 +1598,21 @@ const AdminDashboard: React.FC<AdminProps> = ({ onLogout, currentSubView, setSub
                       placeholder="20"
                       value={settingsForm.limite_mb_episodio}
                       onChange={e => setSettingsForm(p => ({ ...p, limite_mb_episodio: e.target.value }))}
+                      className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
+                    />
+                  </div>
+                  {/* Frente A, item 9: tamanho máximo do vídeo que o AUTOR envia pelo
+                      portal (V-Show e Anicom). Vazio ou inválido = 800, o mesmo teto
+                      do envio de vídeo do admin (services/videoAutorService.js). */}
+                  <div className="mt-4">
+                    <label htmlFor="limite_mb_video" className="text-xs font-bold text-zinc-400 block mb-1">Limite de MB do vídeo do autor <span className="text-zinc-600 font-normal">(V-Show e Anicom pelo Meu Estúdio; vazio = 800)</span></label>
+                    <input
+                      id="limite_mb_video"
+                      type="number"
+                      min="1"
+                      placeholder="800"
+                      value={settingsForm.limite_mb_video}
+                      onChange={e => setSettingsForm(p => ({ ...p, limite_mb_video: e.target.value }))}
                       className="w-full bg-white/5 border border-[var(--border-color)] rounded-xl px-4 py-3 text-sm font-mono text-white placeholder-zinc-600 focus:outline-none focus:border-rose-500/50"
                     />
                   </div>

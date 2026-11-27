@@ -1,15 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Lock, Send } from 'lucide-react';
+import { X, Send } from 'lucide-react';
 import { api } from '../services/api';
 import type { RevisaoResumo } from '../services/api';
 import { useT } from '../contexts/I18nContext';
 import type { TFunction } from '../contexts/I18nContext';
 import { useCamadaVoltar } from '../utils/pilhaVoltar';
-import { NOME_ABA } from '../utils/contentTypeLabels';
+import { NOME_BOTAO } from '../utils/contentTypeLabels';
 import { formatarValorMonetario } from '../utils/currency';
 import ImageWithFallback from './ImageWithFallback';
 import EnvioPastaEpisodio from './EnvioEpisodio/EnvioPastaEpisodio';
 import GradePaineis from './EnvioEpisodio/GradePaineis';
+import EnvioVideoEpisodio from './EnvioEpisodio/EnvioVideoEpisodio';
 // Fonte ÚNICA dos 19 slugs do vocabulário fechado de tags (Fase 5 Bloco 2) —
 // MESMO JSON que o backend (utils/tagsVocabulario.js) e o TagsChipInput do
 // admin (spec, "O vocabulário": chips sempre pelo IMPORT do JSON, nunca uma
@@ -18,6 +19,13 @@ import GradePaineis from './EnvioEpisodio/GradePaineis';
 import TAGS_VOCABULARIO from '../utils/tagsVocabulario.json';
 
 type Aba = 'numeros' | 'obras' | 'mensagens';
+
+// Frente A, item 9: os tipos de obra que o autor cria no portal. Hi-Qua
+// (quadrinhos) recebe painéis; V-Show e Anicom recebem um vídeo por episódio.
+// Rótulos SEMPRE de utils/contentTypeLabels.ts, nunca escritos aqui.
+type TipoDeObra = 'hiqua' | 'vcine' | 'hqcine';
+const TIPOS_DE_OBRA: TipoDeObra[] = ['hiqua', 'vcine', 'hqcine'];
+const ehObraDeVideo = (s: { content_type?: string } | null | undefined) => s?.content_type === 'vcine' || s?.content_type === 'hqcine';
 
 const TAGS_MAXIMO = 8;
 
@@ -177,6 +185,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [obraDescription, setObraDescription] = useState('');
   const [obraRating, setObraRating] = useState<'' | 'kids' | 'teen' | 'young'>('');
   const [obraTags, setObraTags] = useState<string[]>([]);
+  const [obraTipo, setObraTipo] = useState<TipoDeObra>('hiqua');
   const [obraCoverFile, setObraCoverFile] = useState<File | null>(null);
   const [creatingObra, setCreatingObra] = useState(false);
   const [createObraError, setCreateObraError] = useState<string | null>(null);
@@ -184,7 +193,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   useCamadaVoltar(showCreateObra, () => setShowCreateObra(false));
 
   const abrirCriarObra = () => {
-    setObraTitle(''); setObraDescription(''); setObraRating(''); setObraTags([]); setObraCoverFile(null);
+    setObraTitle(''); setObraDescription(''); setObraRating(''); setObraTags([]); setObraCoverFile(null); setObraTipo('hiqua');
     setCreateObraError(null);
     setShowCreateObra(true);
   };
@@ -207,6 +216,8 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     let created: any;
     try {
       const payload: any = { title: obraTitle, description: obraDescription, content_rating_sugerida: obraRating || null, tags: obraTags };
+      // Hi-Qua é o padrão do servidor: o tipo só vai quando é obra de vídeo.
+      if (obraTipo !== 'hiqua') payload.content_type = obraTipo;
       if (canalIdParaEnvio) payload.channelId = canalIdParaEnvio;
       created = await api.createPortalSeries(payload);
     } catch (err: any) {
@@ -418,6 +429,29 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   // lista de capítulos, que continua com a versão publicada.
   const [gradeFor, setGradeFor] = useState<any | null>(null);
   useCamadaVoltar(!!gradeFor, () => setGradeFor(null));
+
+  // Frente A, item 9: envio do vídeo do episódio de V-Show ou Anicom, direto
+  // do navegador ao Bunny (components/EnvioEpisodio/EnvioVideoEpisodio).
+  const [envioVideoFor, setEnvioVideoFor] = useState<any | null>(null);
+  useCamadaVoltar(!!envioVideoFor, () => setEnvioVideoFor(null));
+  const mudarEstadoDoVideo = (episodeId: string, estado: string) => {
+    setEpisodesOfSelected(prev => prev.map(ep => (ep._id === episodeId ? { ...ep, videoEnvio: { ...(ep.videoEnvio ?? {}), estado } } : ep)));
+  };
+  // Capítulo com vídeo ainda processando: pergunta ao servidor de tempos em
+  // tempos, para o "vídeo pronto" aparecer na lista sem recarregar a tela.
+  const processandoIds = episodesOfSelected.filter(ep => ep.videoEnvio?.estado === 'processando').map(ep => ep._id).join(',');
+  useEffect(() => {
+    if (!processandoIds || envioVideoFor) return;
+    const ids = processandoIds.split(',');
+    const timer = setInterval(() => {
+      ids.forEach(id => {
+        api.getEstadoVideoEpisodio(id)
+          .then(r => { if (r.estado !== 'processando') mudarEstadoDoVideo(id, r.estado); })
+          .catch(() => {});
+      });
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [processandoIds, envioVideoFor]);
   const [gradeErro, setGradeErro] = useState<string | null>(null);
   const mudarPaineisDaGrade = (atualizar: (paineis: any[]) => any[]) => {
     if (!gradeFor) return;
@@ -851,6 +885,9 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                       <div className="flex-1 min-w-0">
                         <p className="font-black text-[var(--text-color)] truncate">{s.title}</p>
                         <span className={`text-[10px] font-black uppercase tracking-widest ${badgeColor}`}>{estadoLabel}</span>
+                        {ehObraDeVideo(s) && (
+                          <span data-testid={`portal-obra-tipo-${s._id}`} className="ml-2 text-[10px] font-black uppercase tracking-widest text-sky-400">{NOME_BOTAO[s.content_type]}</span>
+                        )}
                         {canalDaObra && (
                           <span className="block text-[10px] text-zinc-500 font-bold mt-0.5">{canalDaObra.name}</span>
                         )}
@@ -900,7 +937,10 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                             // Item 7: capítulo publicado se edita por meio de uma
                             // edição que o moderador aprova.
                             const publicado = ep.status === 'published';
-                            const revisao = publicado ? revisoes[ep._id] : undefined;
+                            // Item 9: obra de vídeo. O capítulo recebe um vídeo, não painéis.
+                            const deVideo = ehObraDeVideo(s);
+                            const estadoVideo: string = ep.videoEnvio?.estado ?? (ep.bunnyVideoId || ep.video_url ? 'pronto' : 'sem-video');
+                            const revisao = publicado && !deVideo ? revisoes[ep._id] : undefined;
                             const revisaoNaFila = revisao?.status === 'enviada';
                             return (
                               <div key={ep._id} className="bg-black/10 dark:bg-white/5 rounded-2xl p-3">
@@ -908,7 +948,28 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                                   <p className="font-bold text-[var(--text-color)] text-sm">{ep.title}</p>
                                   <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{epLabel}</span>
                                 </div>
-                                {publicado && (
+                                {deVideo && (
+                                  <div data-testid={`portal-video-${ep._id}`} className="mt-2 space-y-1">
+                                    <p className={`text-[10px] font-black uppercase tracking-widest ${estadoVideo === 'pronto' ? 'text-emerald-400' : estadoVideo === 'erro' ? 'text-rose-500' : estadoVideo === 'sem-video' ? 'text-zinc-500' : 'text-amber-500'}`}>
+                                      {estadoVideo === 'pronto' ? t('video.estadoPronto')
+                                        : estadoVideo === 'processando' ? t('video.estadoProcessando')
+                                        : estadoVideo === 'enviando' ? t('video.estadoEnviando')
+                                        : estadoVideo === 'erro' ? t('video.estadoErro')
+                                        : t('video.estadoSemVideo')}
+                                    </p>
+                                    {podeGerenciar && (
+                                      <div className="flex gap-2 flex-wrap">
+                                        <button
+                                          onClick={() => setEnvioVideoFor(ep)}
+                                          className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                        >
+                                          {estadoVideo === 'sem-video' || estadoVideo === 'enviando' ? t('video.botao') : t('video.botaoTrocar')}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {publicado && !deVideo && (
                                   <div data-testid={`portal-revisao-${ep._id}`} className="mt-2 space-y-1">
                                     {revisao && (
                                       <p className={`text-[10px] font-black uppercase tracking-widest ${revisaoNaFila ? 'text-amber-500' : 'text-sky-400'}`}>
@@ -957,7 +1018,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                                     </div>
                                   </div>
                                 )}
-                                {podeGerenciar && (
+                                {podeGerenciar && !deVideo && (
                                   <div className="flex gap-2 mt-2">
                                     <button
                                       onClick={() => setEnvioPastaFor(ep)}
@@ -1058,25 +1119,33 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
         </section>
       )}
 
-      {/* Seções bloqueadas (spec, "Upload do ilustrador"): CINECOMICS/VERTICALSHOW
-          mostradas SEMPRE, com aviso de temporada — sem checkout, sem upload.
-          Rótulos SEMPRE de utils/contentTypeLabels.ts (NOME_ABA), nunca hardcode. */}
-      <section className="px-8 mt-10 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {(['hqcine', 'vcine'] as const).map(tipo => (
-          <div key={tipo} className="rounded-3xl border border-white/10 bg-white/5 p-6 text-center">
-            <Lock size={22} className="mx-auto mb-3 text-zinc-500" />
-            <p className="font-black text-[var(--text-color)] mb-1">{NOME_ABA[tipo]}</p>
-            <p className="text-xs text-zinc-500 mb-3">{t('portal.locked.title')}</p>
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">{t('portal.locked.comingSoon')}</span>
-          </div>
-        ))}
-      </section>
-
       {/* ─── Modal: criar obra ─── */}
       {showCreateObra && (
         <div className="fixed inset-0 z-[1200] bg-black/70 backdrop-blur-md flex items-center justify-center p-6">
           <form onSubmit={handleCriarObra} className="w-full max-w-md bg-[var(--card-bg,#18181b)] border border-white/10 p-8 rounded-[2.5rem] space-y-4">
             <h2 className="text-xl font-black text-[var(--text-color)]">{t('portal.works.newWork')}</h2>
+
+            {/* Item 9: tipo da obra. Hi-Qua (quadrinhos) é o padrão; V-Show e
+                Anicom são obras de vídeo. O tipo não muda depois de criada. */}
+            <div>
+              <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">{t('portal.works.typeField')}</p>
+              <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label={t('portal.works.typeField')}>
+                {TIPOS_DE_OBRA.map(tipo => (
+                  <button
+                    key={tipo}
+                    type="button"
+                    role="radio"
+                    aria-checked={obraTipo === tipo}
+                    data-testid={`portal-obra-tipo-${tipo}`}
+                    onClick={() => setObraTipo(tipo)}
+                    className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${obraTipo === tipo ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-500 hover:bg-white/10'}`}
+                  >
+                    {NOME_BOTAO[tipo]}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-600 mt-1">{obraTipo === 'hiqua' ? t('portal.works.typeHintComic') : t('portal.works.typeHintVideo')}</p>
+            </div>
 
             <div>
               <label htmlFor="portal-obra-title" className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">{t('portal.works.titleField')}</label>
@@ -1237,6 +1306,14 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
             if (!atualizado?._id) return;
             setEpisodesOfSelected(prev => prev.map(ep => (ep._id === atualizado._id ? { ...ep, ...atualizado } : ep)));
           }}
+        />
+      )}
+
+      {envioVideoFor && (
+        <EnvioVideoEpisodio
+          episode={envioVideoFor}
+          onFechar={() => setEnvioVideoFor(null)}
+          onEstado={(estado) => mudarEstadoDoVideo(envioVideoFor._id, estado)}
         />
       )}
 

@@ -57,3 +57,16 @@ it('limite de MB por episódio: mostra o gravado e salva na chave limite_mb_epis
 
   await waitFor(() => expect(api.updateSetting).toHaveBeenCalledWith('limite_mb_episodio', '30', 'Limite de MB por episódio'));
 });
+
+// Frente A, item 9: tamanho máximo do vídeo que o AUTOR envia pelo portal.
+it('limite de MB do vídeo do autor: mostra o gravado e salva na chave limite_mb_video', async () => {
+  vi.mocked(api.getAdminSettings).mockResolvedValue([{ key: 'limite_mb_video', value: '500' }] as any);
+  render(<AdminDashboard onLogout={() => {}} currentSubView={ViewMode.ADMIN_SETTINGS} setSubView={() => {}} />);
+  const campo = await screen.findByLabelText(/Limite de MB do vídeo do autor/);
+  await waitFor(() => expect(campo).toHaveValue(500));
+
+  fireEvent.change(campo, { target: { value: '300' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+
+  await waitFor(() => expect(api.updateSetting).toHaveBeenCalledWith('limite_mb_video', '300', 'Limite de MB do vídeo do autor'));
+});

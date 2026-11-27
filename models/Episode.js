@@ -7,6 +7,16 @@ const EpisodeSchema = new mongoose.Schema({
   description: { type: String },
   video_url: { type: String },
   bunnyVideoId: { type: String },
+  // Vídeo enviado pelo AUTOR no portal (frente A, item 9). Opcional: só
+  // existe em episódio de V-Show ou Anicom cujo vídeo o autor subiu. Enquanto
+  // `videoId` for o `bunnyVideoId` acima, o vídeo é de autor: o webhook do
+  // Bunny só atualiza `estado` e NUNCA publica o episódio
+  // (services/videoAutorService.js).
+  videoEnvio: {
+    videoId: { type: String },
+    estado: { type: String, enum: ['enviando', 'processando', 'pronto', 'erro'] },
+    atualizadoEm: { type: Date },
+  },
   thumbnail: { type: String },
   duration: { type: Number },
   panels: [{
