@@ -657,7 +657,7 @@ describe('o servidor confere o arquivo e o pedido', () => {
 // teto de 8 MB por arquivo; agora confere também o limite de MB do EPISÓDIO,
 // pela mesma regra do envio da pasta (o que chega de fato pode ir a 3x o
 // limite, por causa do PNG regravado no corte; acima disso, 413).
-describe('troca de um arquivo confere o limite de MB do episódio (mesma regra do envio)', () => {
+describe('troca de um arquivo confere o limite de MB do episódio QUANDO LIGADO no admin (mesma regra do envio)', () => {
   const MB = 1024 * 1024;
   const crypto = require('crypto');
   let Setting;
@@ -754,11 +754,44 @@ describe('troca de um arquivo confere o limite de MB do episódio (mesma regra d
     expect((await ler(episode)).panels[2].translationLayers).toHaveLength(1);
   });
 
-  it('sem Setting vale o padrão de 20 MB (teto de 60): a troca comum de sempre passa', async () => {
+  // Regressão (26/11/2026, pedido do Vin): "mantenha a liberação para não
+  // barrar o autor pela quantidade de megabytes". Sem Setting não há limite
+  // de MB do episódio: o padrão antigo (20 MB, teto de 60) devolvia 413 aqui.
+  it('sem Setting NÃO há limite de MB: episódio de 59,5 MB aceita imagem e balão novos (antes, 413 pelo teto de 60)', async () => {
     const autor = await criarAutor();
     const episode = await quaseCheio(autor);
+    await Episode.updateOne({ _id: episode._id }, { $set: { 'panels.1.bytes': 59.5 * MB - 3 * 700 * 1024 } });
     const antes = await ler(episode);
-    expect((await trocarImagem(episode, idDe(antes, 0), autor.token, await jpegGrande())).status).toBe(200);
+    const grande = await jpegGrande();
+    expect(grande.length).toBeGreaterThan(1 * MB);
+    const res = await trocarImagem(episode, idDe(antes, 0), autor.token, grande);
+    expect(res.status).toBe(200);
+    expect((await ler(episode)).panels[0].bytes).toBe(grande.length);
+    expect((await trocarBalao(episode, idDe(antes, 2), 'en', autor.token, await pngGrande())).status).toBe(200);
+  });
+
+  it('Setting vazio ou 0 também é sem limite', async () => {
+    for (const valor of ['', '0']) {
+      await Setting.deleteMany({ key: 'limite_mb_episodio' });
+      await Setting.create({ key: 'limite_mb_episodio', value: valor });
+      const autor = await criarAutor();
+      const episode = await quaseCheio(autor);
+      await Episode.updateOne({ _id: episode._id }, { $set: { 'panels.1.bytes': 200 * MB } });
+      const antes = await ler(episode);
+      expect((await trocarImagem(episode, idDe(antes, 0), autor.token, await jpegGrande())).status).toBe(200);
+    }
+  });
+
+  it('com o Setting em 30 o limite volta a valer (teto de 90 MB): o mesmo episódio em 89,5 MB recusa a imagem (413)', async () => {
+    await limite(30);
+    const autor = await criarAutor();
+    const episode = await quaseCheio(autor);
+    await Episode.updateOne({ _id: episode._id }, { $set: { 'panels.1.bytes': 89.5 * MB - 3 * 700 * 1024 } });
+    const antes = await ler(episode);
+    const res = await trocarImagem(episode, idDe(antes, 0), autor.token, await jpegGrande());
+    expect(res.status).toBe(413);
+    expect(res.body.error).toMatch(/limite de 30 MB por episódio/);
+    expect((await ler(episode)).panels[0].image_url).toBe(antes.panels[0].image_url);
   });
 });
 

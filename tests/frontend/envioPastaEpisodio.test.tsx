@@ -7,7 +7,8 @@
  *    nenhuma chamada à API antes do clique em confirmar";
  *  - item 4: "API falsa falhando no arquivo 7 uma vez: a tela tenta de novo
  *    só ele e conclui; contagem do progresso".
- * E os limites do Vin de 25/11 (100 painéis, 20 MB) aparecendo na conferência,
+ * E os limites aparecendo na conferência (100 painéis sempre; MB só quando o
+ * admin liga: desde 26/11 o padrão é sem limite de megabytes),
  * com a estrutura real do The Near Ones EP6 que ele mandou.
  */
 import React from 'react';
@@ -132,11 +133,32 @@ describe('conferência (item 2)', () => {
     expect(s.api.iniciarEnvioEpisodio).not.toHaveBeenCalled();
     fireEvent.click(enviar);
     await waitFor(() => expect(s.api.iniciarEnvioEpisodio).toHaveBeenCalledTimes(1));
-    // Vai com o tamanho de cada arquivo (o servidor confere os 20 MB).
+    // Vai com o tamanho de cada arquivo (o servidor confere o limite de MB, se ligado).
     expect(s.api.iniciarEnvioEpisodio.mock.calls[0][1][0]).toEqual({ nome: 'EP/Pagina 001.jpg', largura: 800, altura: 1280, tamanho: 2000 });
   });
 
-  it('limites do Vin na conferência: 20 MB somados nos originais impedem, com o tamanho em MB; 101 painéis também', async () => {
+  // Regressão (26/11/2026, pedido do Vin): "mantenha a liberação para não
+  // barrar o autor pela quantidade de megabytes". O servidor manda
+  // limiteBytes 0 no padrão: a conferência não avisa nem bloqueia pelo peso.
+  it('sem limite de MB (padrão): pasta de 21 MB não mostra aviso de megabytes e o Enviar libera', async () => {
+    const s = abrir(servidorFalso({ ...CONFIG, limiteBytes: 0 }));
+    await escolher([
+      arquivoDeImagem('EP/Pagina 001.jpg', 800, 12800, 12 * MB),
+      arquivoDeImagem('EP/Pagina 001_ENG.png', 800, 12800, 9 * MB),
+    ]);
+    expect(screen.getByTestId('resumo-tamanho')).toHaveTextContent('Tamanho: 21 MB.');
+    expect(screen.getByTestId('resumo-tamanho').textContent).toBe('Tamanho: 21 MB.');
+    expect(screen.queryByText(/o limite é/)).toBeNull();
+    expect(screen.queryByText(/que é o limite/)).toBeNull();
+    expect(screen.queryByTestId('problema')).toBeNull();
+    expect(screen.getByText('Limite: 100 painéis por episódio.')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('envio-confirmo'));
+    expect(screen.getByTestId('envio-enviar')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('envio-enviar'));
+    await waitFor(() => expect(s.api.iniciarEnvioEpisodio).toHaveBeenCalledTimes(1));
+  });
+
+  it('limite de MB ligado no admin (aqui 20): 21 MB somados nos originais impedem, com o tamanho em MB', async () => {
     abrir();
     await escolher([
       arquivoDeImagem('EP/Pagina 001.jpg', 800, 12800, 12 * MB),

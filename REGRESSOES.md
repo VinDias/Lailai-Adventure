@@ -30,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (branch `fix/sem-barreira-de-mb`) | 2026-11-27 | o autor era barrado pelo peso do episodio (padrao de 20 MB no Setting `limite_mb_episodio`) no envio da pasta, na conferencia e na troca de arquivo pela grade, contra o pedido do cliente de 26/11 ("nao barrar o autor pela quantidade de megabytes") | `tests/backend/envioEpisodio.test.js` — _sem limite de MB por episodio no padrao_ (5 testes); `tests/backend/edicaoPaineis.test.js` — _sem Setting NAO ha limite de MB_ (e mais 2); `tests/backend/organizacaoEpisodio.test.js` — _pasta de 25 MB e de 300 MB passam sem opcao nenhuma_; `tests/frontend/envioPastaEpisodio.test.tsx` — _sem limite de MB (padrao): pasta de 21 MB nao mostra aviso de megabytes_; `tests/frontend/adminLimitePaineis.test.tsx` — _limite de MB por episodio e opcional_ | coberto-novo | alto |
 | (branch `fix/balao-lote-paralelo`) | 2026-11-24 | balao (camada de idioma) enviado em LOTE se perdia: admin e Meu Estudio gravam em paralelo, `setTranslationLayer` salvava a lista inteira de paineis e os pedidos seguintes davam VersionError (rota 500; medido 23/11: 1 de 10 gravados pela rota do admin). No admin o arquivo ja aparecia "concluido" e o erro nao aparecia; no reenvio, falhas salteadas iam para o painel vizinho | `tests/backend/balaoLoteParalelo.test.js` — _10 baloes em paralelo, os 10 gravados_ (servico e as duas rotas, mais 5: troca e acrescimo no mesmo painel, idioma duplicado, remover junto, leitura antiga da conflito, validacoes); `tests/frontend/balaoLoteErroAdmin.test.tsx` e `tests/frontend/balaoLoteErroPortal.test.tsx` (erro visivel, so fica ok o que gravou, reenvio no mesmo painel) | coberto-novo | alto |
 | (este PR) | 2026-11-19 | `GET /api/content/series/:id/episodes` devolvia o documento inteiro do episodio Premium (URLs dos paineis e das camadas de idioma, `video_url`, `bunnyVideoId`, faixas de audio) a visitante, conta gratuita e assinatura vencida: o 403 do detalhe e da URL assinada (Fase 6, `363af62`) era contornavel pela lista. A rota nem lia o `isPremium` da serie | `tests/backend/premiumListaEpisodios.test.js` — _visitante sem conta: episodio pago aparece na lista SEM midia_ (e mais 8: conta gratuita, vencida, assinante, dono, admin, obra mista, detalhe e signed-url); `tests/frontend/videoBloqueadoDaLista.test.tsx` (player mostra o convite com o item sem midia) | coberto-novo | alto |
 | `cb3e7e0` (verificador) + nginx da VPS | 2026-11-04 | o limite de requisicoes e a anti-fraude do engajamento usavam o IP da borda do Cloudflare como se fosse o visitante (nginx sem `real_ip`, `trust proxy 1`): limite dividido entre desconhecidos e visualizacoes de pessoas diferentes descartadas como duplicata | **sem teste offline** (o conserto mora em `/etc/nginx/conf.d/cloudflare-real-ip.conf`); guarda: `node scripts/verificarLimiteRequisicoes.js`, de fora e sem segredo, exige o contador caindo de um em um | coberto-externo | alto |
@@ -88,6 +89,63 @@ Os 12 foram aprovados.
 | `4ea593f` | 2026-03-26 | fix: índice de translation layers no batch upload e fallback de CDN | `tests/frontend/adminPaineisIndice.test.tsx` | coberto-novo | medio |
 | `6615c15` | 2026-03-12 | fix: use _id for Series (MongoDB) and deduplicate Stripe customers | `tests/backend/paymentCheckout.test.js` | coberto-novo | medio |
 | `2f30192` | 2026-03-12 | fix: optional chaining on req.cookies in verifyToken to prevent 500 on payment routes | `tests/backend/paymentCheckout.test.js` | coberto-novo | alto |
+
+## 27/11/2026: o autor barrado por megabytes (limite de 20 MB por episodio como padrao)
+
+**Nao voltou: e mudanca de regra pedida pelo cliente.** Em 25/11 o Vin deu os
+limites de 100 paineis e 20 MB por episodio, e os dois entraram como padrao.
+Em 26/11/2026 17:01 ele escreveu: "Sobre o peso, mantenha a liberacao para
+nao barrar o autor pela quantidade de megabytes. Deixe o foco apenas no
+limite dos 100 paineis e na compressao automatica do sistema." O codigo
+publicado continuava barrando por megabytes em tres pontos de entrada.
+
+**Onde barrava (todas as copias da regra).**
+- `shared/organizacaoEpisodio.mjs`: `LIMITE_MB_EPISODIO_PADRAO = 20`, problema
+  `limite-tamanho` (impede). E a regra usada pela tela E pelo servidor.
+- `services/envioEpisodioService.js`: `lerLimiteBytes` caia nos 20 MB sem
+  Setting; `iniciarEnvio` recusava a pasta (400); `receberParte` recusava com
+  413 "passaram do tamanho esperado" acima de 3x o limite (`FOLGA_DO_CORTE`);
+  `conferirTetoNaTroca` devolvia 413 "passa do tamanho maximo" na troca de
+  imagem ou balao pela grade (`services/edicaoPaineisService.js`, `987868e`).
+- `components/EnvioEpisodio/ConferenciaEnvio.tsx`: "Tamanho: X de 20 MB" e o
+  aviso "somam X; o limite e Y", com o Enviar bloqueado.
+- `components/Admin/AdminDashboard.tsx`: o campo dizia "vazio = 20".
+
+**O conserto.** O padrao passou a ser SEM limite (`LIMITE_MB_EPISODIO_PADRAO
+= 0`). Setting `limite_mb_episodio` ausente, vazio, 0 ou ilegivel = sem
+limite: `limiteBytes` 0 na config, `tetoBytes` 0 no envio (sem teto nas
+partes) e a troca pela grade nao confere o peso do episodio. Um numero > 0 no
+admin liga tudo de novo, como era (limite sobre os originais, teto de 3x no
+que chega, 413 na troca). A conferencia mostra so "Tamanho: X." quando nao ha
+limite. O campo do admin diz "vazio ou 0 = sem limite". Continuam valendo:
+100 paineis depois do corte, 8 MB por parte e por arquivo que sobe inteiro
+(protecao da memoria do servidor, problema `arquivo-grande`), altura maxima
+de 1280 px e o corte automatico. O limite de video (`limite_mb_video`) nao
+foi tocado.
+
+**Atencao no deploy.** Se o banco de producao tiver o Setting
+`limite_mb_episodio` gravado com um numero (por exemplo 20, salvo pela tela
+Configuracoes), o limite continua LIGADO depois do deploy: e a opcao do
+admin. Para valer o pedido do cliente, o campo tem de ficar vazio ou 0.
+
+**Testes (um por ponto de entrada), todos falhando no codigo antigo** (prova
+em 27/11 numa copia do `HEAD` de `origin/main` no scratchpad com os testes
+novos; 8 falharam: `expected 413 to be 200` na grade, `expected 20971520 to
+be +0` na config, `[ 'limite-tamanho', 'limite-paineis' ]` no envio de 60 MB,
+"Tamanho: 21 MB de 0,0 MB" na tela, placeholder `20` no admin):
+- envio da pasta: `tests/backend/envioEpisodio.test.js`, bloco "sem limite de
+  MB por episodio no padrao" (21 MB e 240 MB aceitos por autor e admin,
+  Setting vazio ou 0, 100 paineis continuam valendo, Setting 30 liga de novo,
+  partes sem teto);
+- troca pela grade: `tests/backend/edicaoPaineis.test.js` ("sem Setting NAO
+  ha limite de MB", "Setting vazio ou 0", "com o Setting em 30 o limite volta
+  a valer");
+- regra compartilhada: `tests/backend/organizacaoEpisodio.test.js`;
+- conferencia: `tests/frontend/envioPastaEpisodio.test.tsx` ("sem limite de
+  MB (padrao)");
+- admin: `tests/frontend/adminLimitePaineis.test.tsx` ("e opcional").
+Os testes antigos que fixavam os 20 MB como padrao passaram a ligar o limite
+de forma explicita (Setting ou opcao) e cobrem o caso "limite ligado".
 
 ## 27/11/2026: botoes pequenos demais para o dedo na grade de paineis (celular)
 

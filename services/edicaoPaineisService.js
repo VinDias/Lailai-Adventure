@@ -261,8 +261,9 @@ async function trocarImagem({ user, episodeId, painelId, buffer }) {
     throw erro(400, `A imagem tem ${arq.altura} px de altura; o máximo de um painel é ${ALTURA_MAXIMA}. Para página alta, use "Enviar pasta do episódio".`);
   }
 
-  // Limite de MB do episódio, pela mesma regra do envio da pasta (o teto de
-  // 8 MB por arquivo já foi conferido na rota).
+  // Limite de MB do episódio, se o admin ligou (padrão: sem limite), pela
+  // mesma regra do envio da pasta (o teto de 8 MB por arquivo já foi
+  // conferido na rota).
   await envio.conferirTetoNaTroca(panels, painel.bytes, buffer.length);
 
   const caminho = await caminhoNovo(alvo, `painel-${String(pid).slice(-6)}.${arq.tipo === 'png' ? 'png' : 'jpg'}`);

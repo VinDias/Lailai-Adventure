@@ -273,12 +273,83 @@ describe('limite de painéis depois do corte, na configuração', () => {
   });
 });
 
-describe('limite de 20 MB por episódio (originais), na configuração', () => {
+// Regressão (26/11/2026, pedido do Vin): "mantenha a liberação para não barrar
+// o autor pela quantidade de megabytes. Deixe o foco apenas no limite dos 100
+// painéis e na compressão automática". Sem Setting (ou vazio, ou 0) não há
+// limite de MB nem teto do que chega; um número > 0 liga o limite de novo.
+describe('sem limite de MB por episódio no padrão', () => {
+  const MB = 1024 * 1024;
+  // 4 páginas de 5,25 MB = 21 MB: passava dos 20 do padrão antigo.
+  const lista = Array.from({ length: 4 }, (_, i) => ({ nome: `Pagina ${tres(i + 1)}.jpg`, largura: 800, altura: 6400, tamanho: 5.25 * MB }));
+  const config = async () => (await request(app).get('/api/envio-episodio/config').set('Authorization', `Bearer ${admin()}`)).body;
+
+  it('pasta de 21 MB (e de 240 MB) é aceita pelo autor e pelo admin; a config diz limiteBytes 0 e o envio fica sem teto', async () => {
+    expect((await config()).limiteBytes).toBe(0);
+    const { canal, token } = await criarAutor();
+    const { episode } = await criarEpisodio({ canalId: canal._id });
+    const r = await iniciar(token, episode._id, lista);
+    expect(r.status).toBe(201);
+    expect(r.body.totalBytes).toBe(21 * MB);
+    expect(r.body.limiteBytes).toBe(0);
+    expect(r.body.problemas.find(p => p.codigo === 'limite-tamanho')).toBeUndefined();
+    expect((await EnvioEpisodio.findById(r.body.envioId).lean()).tetoBytes).toBe(0);
+
+    const pesada = lista.map(a => ({ ...a, tamanho: 60 * MB }));
+    expect((await iniciar(admin(), episode._id, pesada)).status).toBe(201);
+  });
+
+  it('Setting vazio ou 0 também é sem limite', async () => {
+    const { episode } = await criarEpisodio();
+    for (const value of ['', '0']) {
+      await request(app).put('/api/settings/limite_mb_episodio').set('Authorization', `Bearer ${admin()}`).send({ value, label: 'Limite de MB por episódio' });
+      expect((await config()).limiteBytes).toBe(0);
+      expect((await iniciar(admin(), episode._id, lista)).status).toBe(201);
+    }
+  });
+
+  it('o limite de 100 painéis continua valendo sem o limite de MB', async () => {
+    const { episode } = await criarEpisodio();
+    const r = await iniciar(admin(), episode._id, [
+      { nome: 'Pagina 001.jpg', largura: 800, altura: 64000, tamanho: 30 * MB },
+      { nome: 'Pagina 002.jpg', largura: 800, altura: 64001, tamanho: 30 * MB },
+    ]);
+    expect(r.status).toBe(400);
+    expect(r.body.problemas.map(p => p.codigo)).toEqual(['limite-paineis']);
+  });
+
+  it('com o Setting em 30 o limite volta a valer: 32 MB recusado com aviso, 21 MB aceito, teto de 90 MB no envio', async () => {
+    await Setting.create({ key: 'limite_mb_episodio', value: '30' });
+    expect((await config()).limiteBytes).toBe(30 * MB);
+    const { episode } = await criarEpisodio();
+    const r = await iniciar(admin(), episode._id, lista.map(a => ({ ...a, tamanho: 8 * MB })));
+    expect(r.status).toBe(400);
+    expect(r.body.problemas.find(p => p.codigo === 'limite-tamanho').mensagem).toBe('Os arquivos do episódio somam 32 MB; o limite é 30 MB.');
+    const ok = await iniciar(admin(), episode._id, lista);
+    expect(ok.status).toBe(201);
+    expect((await EnvioEpisodio.findById(ok.body.envioId).lean()).tetoBytes).toBe(90 * MB);
+  });
+
+  it('sem limite, as partes não são recusadas pelo peso somado (o mesmo envio que o limite de 1 MB barra com 413)', async () => {
+    const { episode } = await criarEpisodio();
+    const ruido = async () => sharp(require('crypto').randomBytes(800 * 1280 * 3), { raw: { width: 800, height: 1280, channels: 3 } }).jpeg({ quality: 100 }).toBuffer();
+    const bufs = [await ruido(), await ruido(), await ruido(), await ruido()];
+    const lista4 = bufs.map((b, i) => ({ nome: `Pagina ${tres(i + 1)}.jpg`, largura: 800, altura: 1280, tamanho: b.length }));
+    const ini = await iniciar(admin(), episode._id, lista4);
+    expect(ini.status).toBe(201);
+    const itens = ini.body.arquivos.map(a => ({ chave: a.chave, tipo: a.tipo, buffer: bufs[a.indice] }));
+    expect((await enviarParte(admin(), ini.body.envioId, itens.slice(0, 2))).status).toBe(200);
+    expect((await enviarParte(admin(), ini.body.envioId, itens.slice(2))).status).toBe(200);
+    expect(noBunny.size).toBe(4);
+  });
+});
+
+describe('limite de MB por episódio LIGADO no admin (aqui 20 MB, sobre os originais)', () => {
   const MB = 1024 * 1024;
   // 4 páginas de 5,25 MB = 21 MB: passa dos 20.
   const lista = Array.from({ length: 4 }, (_, i) => ({ nome: `Pagina ${tres(i + 1)}.jpg`, largura: 800, altura: 6400, tamanho: 5.25 * MB }));
 
   it('21 MB recusado com aviso; Setting 30 aceita; 20 MB exatos passam', async () => {
+    await Setting.create({ key: 'limite_mb_episodio', value: '20' });
     const { episode } = await criarEpisodio();
     expect((await request(app).get('/api/envio-episodio/config').set('Authorization', `Bearer ${admin()}`)).body.limiteBytes).toBe(20 * MB);
     const r1 = await iniciar(admin(), episode._id, lista);

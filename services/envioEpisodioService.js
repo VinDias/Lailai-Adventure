@@ -8,8 +8,9 @@
  *  1. iniciarEnvio: recebe só a LISTA dos arquivos (nome, largura, altura),
  *     roda as regras de shared/organizacaoEpisodio.mjs (as mesmas da tela),
  *     aplica o limite de painéis depois do corte (Setting
- *     `limite_paineis_episodio`, padrão 100) e o de tamanho do episódio
- *     (Setting `limite_mb_episodio`, padrão 20, sobre os originais), e grava
+ *     `limite_paineis_episodio`, padrão 100) e, só se o admin ligar, o de
+ *     tamanho do episódio (Setting `limite_mb_episodio`, sobre os originais;
+ *     vazio ou 0 = sem limite, que é o padrão desde 26/11/2026), e grava
  *     o que espera receber,
  *     com o nome que o SERVIDOR monta no Bunny:
  *       lorflux/series/<obra>/ep-<nn>/<envio>/pagina-008-2-en.png
@@ -45,13 +46,14 @@ const MAXIMO_ARQUIVOS_NA_LISTA = 2000;
 // Por pedido de parte. O navegador agrupa os arquivos até esse total; o
 // limite global de 300 pedidos por 15 min (server.js) impede um pedido por
 // arquivo num episódio de 100 painéis com 4 idiomas (500 arquivos).
-// 8 MB e não 20: o episódio inteiro tem 20 MB (limite do Vin, 25/11), então
-// são 3 ou 4 pedidos por episódio; cada pedido fica na memória do processo
+// 8 MB por parte: cada pedido fica na memória do processo
 // até subir ao Bunny (multer em memória) e o pm2 reinicia acima de 500 MB,
 // com vários autores enviando ao mesmo tempo. E cabe num client_max_body_size
 // de 10M no nginx, que não está no repositório.
 const TAMANHO_MAXIMO_PARTE = 8 * 1024 * 1024;
 const ARQUIVOS_POR_PARTE = 60;
+// Só vale com o limite de MB LIGADO no admin (sem limite, não há teto do
+// episódio: o Vin pediu em 26/11/2026 para não barrar o autor por megabytes).
 // O limite de MB conta os originais da pasta. O corte no navegador regrava as
 // fatias: JPEG a 0,9 fica do mesmo tamanho, mas PNG de balão regravado pelo
 // canvas cresce de 2 a 2,7 vezes (medido no Chromium com o HáQa Stone EP3 do
@@ -86,7 +88,10 @@ async function lerLimitePaineis() {
   return lerInteiroDoSetting(CHAVE_LIMITE, LIMITE_PAINEIS_PADRAO);
 }
 
-/** Limite de tamanho do episódio, em bytes (o Setting guarda MB). */
+/**
+ * Limite de tamanho do episódio, em bytes (o Setting guarda MB). 0 = sem
+ * limite, que é o padrão: Setting ausente, vazio, 0 ou ilegível.
+ */
 async function lerLimiteBytes() {
   const { LIMITE_MB_EPISODIO_PADRAO, BYTES_POR_MB } = await carregarRegras();
   return (await lerInteiroDoSetting(CHAVE_LIMITE_MB, LIMITE_MB_EPISODIO_PADRAO)) * BYTES_POR_MB;
@@ -96,6 +101,7 @@ async function lerLimiteBytes() {
  * Quanto um episódio pode ocupar DE FATO no Bunny: o limite de MB vezes a
  * folga do corte (ver FOLGA_DO_CORTE). Uma regra só, para o envio da pasta
  * (partes recebidas) e para a troca de um arquivo pela grade (item 6).
+ * 0 = sem teto (limite de MB desligado).
  */
 async function tetoBytesDoEpisodio() {
   return (await lerLimiteBytes()) * FOLGA_DO_CORTE;
@@ -119,6 +125,7 @@ function bytesDosPaineis(panels) {
 async function conferirTetoNaTroca(panels, bytesQueSai, bytesQueEntra) {
   if (bytesQueEntra <= (bytesQueSai || 0)) return;
   const teto = await tetoBytesDoEpisodio();
+  if (!teto) return; // sem limite de MB: o autor não é barrado pelo peso do episódio
   const depois = bytesDosPaineis(panels) - (bytesQueSai || 0) + bytesQueEntra;
   if (depois > teto) {
     const { BYTES_POR_MB } = await carregarRegras();
@@ -263,7 +270,8 @@ async function iniciarEnvio({ user, episodeId, arquivos }) {
   }
   if (!Array.isArray(arquivos) || arquivos.length === 0) throw erro(400, 'Envie a lista de arquivos da pasta.');
   if (arquivos.length > MAXIMO_ARQUIVOS_NA_LISTA) throw erro(400, `A pasta tem mais de ${MAXIMO_ARQUIVOS_NA_LISTA} arquivos.`);
-  // Sem o tamanho de cada arquivo o limite de MB não teria como ser conferido.
+  // Sem o tamanho de cada arquivo o limite de MB (quando ligado) e o teto por
+  // arquivo não teriam como ser conferidos.
   if (arquivos.some(a => !Number.isInteger(a?.tamanho) || a.tamanho < 0)) {
     throw erro(400, 'Envie o tamanho (em bytes) de cada arquivo da pasta.');
   }
@@ -396,8 +404,9 @@ async function receberParte({ user, envioId, arquivos }) {
   }
   if (recusados.length > 0) throw erro(400, 'Parte recusada: arquivos fora do esperado.', { recusados });
 
-  // Teto do que chega de fato (ver FOLGA_DO_CORTE). Reenvio de um arquivo
-  // conta o tamanho novo no lugar do antigo.
+  // Teto do que chega de fato (ver FOLGA_DO_CORTE), só com o limite de MB
+  // ligado (tetoBytes 0 = sem teto). Reenvio de um arquivo conta o tamanho
+  // novo no lugar do antigo.
   const novos = new Map(arquivos.map(a => [a.chave, a.buffer.length]));
   const somaDepois = envio.arquivos.reduce((s, a) => s + (novos.has(a.chave) ? novos.get(a.chave) : (a.recebido ? a.bytes || 0 : 0)), 0);
   if (envio.tetoBytes && somaDepois > envio.tetoBytes) {
