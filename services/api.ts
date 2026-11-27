@@ -2,6 +2,16 @@
 import API_URL from '../config/api';
 import { getAnonymousId } from '../utils/anonymousId';
 
+/** Edição de um episódio publicado, sem os painéis (services/revisaoEpisodioService.js `resumo`). */
+export interface RevisaoResumo {
+  episodeId: string;
+  status: 'editando' | 'enviada';
+  submittedAt: string | null;
+  totalPaineis: number;
+  devolucao: { motivo: string; em: string } | null;
+  updatedAt?: string | null;
+}
+
 /** GET /api/envio-episodio/config (services/envioEpisodioService.js). */
 export interface EnvioConfig {
   limitePaineis: number;
@@ -1133,6 +1143,21 @@ class ApiService {
     return this.request<{ panel: any; removido: boolean }>(`/edicao-paineis/${episodeId}/paineis/${painelId}/baloes/${idioma}`, { method: 'DELETE' });
   }
 
+  // ─── Fase 7, frente A, item 7: edição de episódio publicado (lado do autor) ─
+  // routes/portal.js. A edição nasce sozinha na 1a mudança da grade ou no
+  // reenvio da pasta; aqui o autor vê o estado, envia para aprovação e desiste.
+  async getPortalRevisoes(seriesId: string) {
+    return this.request<{ revisoes: RevisaoResumo[] }>(`/portal/series/${seriesId}/revisoes`);
+  }
+
+  async enviarRevisaoEpisodio(episodeId: string) {
+    return this.request<{ revisao: RevisaoResumo }>(`/portal/episodios/${episodeId}/revisao/enviar`, { method: 'POST' });
+  }
+
+  async descartarRevisaoEpisodio(episodeId: string) {
+    return this.request<{ descartada: boolean; apagadosDoBunny: number }>(`/portal/episodios/${episodeId}/revisao`, { method: 'DELETE' });
+  }
+
   // ─── Fase 5 Bloco 1, Task 10: canal público (leitor) ───────────────────────
   // GET /api/channels/:id — shape pinado: followersCount (número) + isFollowing
   // (bool, false se anônimo), SEM o array followers[] (dado pessoal). Público
@@ -1195,10 +1220,21 @@ class ApiService {
     return this.request<any>(`/admin/aprovacoes/episodes/${id}/leitura`);
   }
 
+  // Frente A, item 7: edição de episódio PUBLICADO na fila (`tipo: 'revisao'`,
+  // `id` = id do episódio). Ler no leitor e aprovar; devolver usa a rota
+  // genérica logo abaixo, com tipo 'revisao'.
+  async getLeituraRevisao(id: string) {
+    return this.request<any>(`/admin/aprovacoes/revisoes/${id}/leitura`);
+  }
+
+  async aprovarRevisaoAdmin(id: string) {
+    return this.request<any>(`/admin/aprovacoes/revisoes/${id}/aprovar`, { method: 'POST' });
+  }
+
   // tipo aceita 'series' | 'episode' | 'episodes' (o backend normaliza o
   // plural — ver routes/adminPortal.js) — a UI sempre manda o `item.tipo`
   // devolvido por getAdminAprovacoes, que já é singular.
-  async devolverAprovacao(tipo: 'series' | 'episode' | 'episodes', id: string, texto: string) {
+  async devolverAprovacao(tipo: 'series' | 'episode' | 'episodes' | 'revisao', id: string, texto: string) {
     return this.request<{ success: boolean; mensagem: any }>(`/admin/aprovacoes/${tipo}/${id}/devolver`, {
       method: 'POST',
       body: JSON.stringify({ texto }),

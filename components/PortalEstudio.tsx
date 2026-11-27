@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Lock, Send } from 'lucide-react';
 import { api } from '../services/api';
+import type { RevisaoResumo } from '../services/api';
 import { useT } from '../contexts/I18nContext';
 import type { TFunction } from '../contexts/I18nContext';
 import { useCamadaVoltar } from '../utils/pilhaVoltar';
@@ -297,6 +298,19 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [episodesOfSelected, setEpisodesOfSelected] = useState<any[]>([]);
   const [episodesLoading, setEpisodesLoading] = useState(false);
 
+  // Frente A, item 7: edições em andamento dos episódios PUBLICADOS da obra
+  // aberta (id do episódio -> resumo). Pedido à parte e que pode falhar sem
+  // derrubar a lista de capítulos.
+  const [revisoes, setRevisoes] = useState<Record<string, RevisaoResumo>>({});
+  const carregarRevisoes = useCallback(async (seriesId: string) => {
+    try {
+      const r = await api.getPortalRevisoes(seriesId);
+      setRevisoes(Object.fromEntries((r?.revisoes ?? []).map(x => [x.episodeId, x])));
+    } catch {
+      setRevisoes({});
+    }
+  }, []);
+
   const carregarEpisodios = useCallback(async (seriesId: string) => {
     setEpisodesLoading(true);
     try {
@@ -307,7 +321,8 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     } finally {
       setEpisodesLoading(false);
     }
-  }, []);
+    carregarRevisoes(seriesId);
+  }, [carregarRevisoes]);
 
   const toggleSeries = (id: string) => {
     if (selectedSeriesId === id) { setSelectedSeriesId(null); return; }
@@ -397,13 +412,59 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
 
   // Frente A, item 6: grade de painéis do capítulo (a mesma do admin): apagar,
   // trocar a imagem de um painel, trocar ou remover o balão de um idioma.
+  // Item 7: em capítulo PUBLICADO (`publicado: true`) a grade mostra e muda a
+  // EDIÇÃO do capítulo, nunca o que está no ar: os painéis vêm do servidor
+  // (a edição, se já existe; senão os do ar) e as mudanças não entram na
+  // lista de capítulos, que continua com a versão publicada.
   const [gradeFor, setGradeFor] = useState<any | null>(null);
   useCamadaVoltar(!!gradeFor, () => setGradeFor(null));
+  const [gradeErro, setGradeErro] = useState<string | null>(null);
   const mudarPaineisDaGrade = (atualizar: (paineis: any[]) => any[]) => {
     if (!gradeFor) return;
     const id = gradeFor._id;
     setGradeFor((prev: any) => (prev && prev._id === id ? { ...prev, panels: atualizar(prev.panels ?? []) } : prev));
+    if (gradeFor.publicado) {
+      if (selectedSeriesId) carregarRevisoes(selectedSeriesId);
+      return;
+    }
     setEpisodesOfSelected(prev => prev.map(ep => (ep._id === id ? { ...ep, panels: atualizar(ep.panels ?? []) } : ep)));
+  };
+
+  const abrirGradeDoPublicado = async (ep: any) => {
+    setGradeErro(null);
+    try {
+      const r = await api.getPaineisEdicao(ep._id);
+      setGradeFor({ ...ep, panels: r.panels ?? [], publicado: true, somenteLeitura: !r.podeEditar });
+    } catch (err: any) {
+      setGradeErro(err?.message || t('portal.errors.generic'));
+    }
+  };
+
+  const [revisaoOcupada, setRevisaoOcupada] = useState<string | null>(null);
+  const handleEnviarRevisao = async (episodeId: string) => {
+    setGradeErro(null);
+    setRevisaoOcupada(episodeId);
+    try {
+      const r = await api.enviarRevisaoEpisodio(episodeId);
+      setRevisoes(prev => ({ ...prev, [episodeId]: r.revisao }));
+    } catch (err: any) {
+      setGradeErro(err?.message || t('portal.errors.generic'));
+    } finally {
+      setRevisaoOcupada(null);
+    }
+  };
+  const handleDescartarRevisao = async (episodeId: string) => {
+    if (!confirm(t('revisao.confirmarDescartar'))) return;
+    setGradeErro(null);
+    setRevisaoOcupada(episodeId);
+    try {
+      await api.descartarRevisaoEpisodio(episodeId);
+      setRevisoes(prev => { const { [episodeId]: _fora, ...resto } = prev; return resto; });
+    } catch (err: any) {
+      setGradeErro(err?.message || t('portal.errors.generic'));
+    } finally {
+      setRevisaoOcupada(null);
+    }
   };
 
   const abrirPanelsModal = (ep: any) => {
@@ -826,6 +887,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                           </button>
                         </div>
 
+                        {gradeErro && <p role="alert" className="text-rose-500 text-xs font-bold">{gradeErro}</p>}
                         {episodesLoading ? (
                           <div className="w-6 h-6 border-2 border-rose-500/20 border-t-rose-500 rounded-full animate-spin mx-auto" />
                         ) : episodesOfSelected.length === 0 ? (
@@ -835,12 +897,66 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                             const epEstado = estadoDoDocumento(ep);
                             const epLabel = epEstado === 'publicada' ? t('portal.works.statusPublished') : epEstado === 'analise' ? t('portal.works.statusReview') : t('portal.works.statusDraft');
                             const podeGerenciar = ep.status === 'draft' && !ep.submittedAt;
+                            // Item 7: capítulo publicado se edita por meio de uma
+                            // edição que o moderador aprova.
+                            const publicado = ep.status === 'published';
+                            const revisao = publicado ? revisoes[ep._id] : undefined;
+                            const revisaoNaFila = revisao?.status === 'enviada';
                             return (
                               <div key={ep._id} className="bg-black/10 dark:bg-white/5 rounded-2xl p-3">
                                 <div className="flex items-center justify-between">
                                   <p className="font-bold text-[var(--text-color)] text-sm">{ep.title}</p>
                                   <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{epLabel}</span>
                                 </div>
+                                {publicado && (
+                                  <div data-testid={`portal-revisao-${ep._id}`} className="mt-2 space-y-1">
+                                    {revisao && (
+                                      <p className={`text-[10px] font-black uppercase tracking-widest ${revisaoNaFila ? 'text-amber-500' : 'text-sky-400'}`}>
+                                        {revisaoNaFila ? t('revisao.emAnalise') : revisao.devolucao ? t('revisao.devolvida') : t('revisao.rascunho')}
+                                        {' · '}{revisao.totalPaineis} {t('revisao.paineis')}
+                                      </p>
+                                    )}
+                                    {revisao?.devolucao && !revisaoNaFila && (
+                                      <p className="text-xs text-rose-400 font-bold">{t('revisao.motivo')}: {revisao.devolucao.motivo}</p>
+                                    )}
+                                    <div className="flex gap-2 flex-wrap">
+                                      {!revisaoNaFila && (
+                                        <button
+                                          onClick={() => setEnvioPastaFor({ ...ep, publicado: true })}
+                                          className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                        >
+                                          {t('envio.botao')}
+                                        </button>
+                                      )}
+                                      {((ep.panels?.length ?? 0) > 0 || revisao) && (
+                                        <button
+                                          onClick={() => abrirGradeDoPublicado(ep)}
+                                          className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                        >
+                                          {t('grade.botao')}
+                                        </button>
+                                      )}
+                                      {revisao && !revisaoNaFila && (
+                                        <>
+                                          <button
+                                            onClick={() => handleEnviarRevisao(ep._id)}
+                                            disabled={revisaoOcupada === ep._id}
+                                            className="text-[10px] font-black text-emerald-400 uppercase tracking-widest disabled:opacity-50"
+                                          >
+                                            {t('revisao.enviar')}
+                                          </button>
+                                          <button
+                                            onClick={() => handleDescartarRevisao(ep._id)}
+                                            disabled={revisaoOcupada === ep._id}
+                                            className="text-[10px] font-black text-zinc-500 uppercase tracking-widest disabled:opacity-50"
+                                          >
+                                            {t('revisao.descartar')}
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
                                 {podeGerenciar && (
                                   <div className="flex gap-2 mt-2">
                                     <button
@@ -1113,7 +1229,11 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
         <EnvioPastaEpisodio
           episode={envioPastaFor}
           onFechar={() => setEnvioPastaFor(null)}
+          avisoRevisao={!!envioPastaFor.publicado}
           onConcluido={(atualizado: any) => {
+            // Capítulo publicado (item 7): o servidor devolve o capítulo como
+            // está NO AR (não mudou); o que mudou foi a edição dele.
+            if (selectedSeriesId) carregarRevisoes(selectedSeriesId);
             if (!atualizado?._id) return;
             setEpisodesOfSelected(prev => prev.map(ep => (ep._id === atualizado._id ? { ...ep, ...atualizado } : ep)));
           }}
@@ -1129,10 +1249,11 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                 <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('grade.titulo')}</p>
                 <h2 className="text-xl font-black text-[var(--text-color)]">{gradeFor.title}</h2>
                 <p className="text-xs text-zinc-500 mt-1">{t('grade.dica')}</p>
+                {gradeFor.publicado && <p data-testid="grade-aviso-revisao" className="text-xs font-bold text-amber-400 mt-2">{gradeFor.somenteLeitura ? t('revisao.emAnalise') : t('revisao.aviso')}</p>}
               </div>
               <button type="button" onClick={() => setGradeFor(null)} className="shrink-0 py-2 px-4 font-bold text-zinc-500">{t('portal.works.close')}</button>
             </div>
-            <GradePaineis episodeId={gradeFor._id} panels={gradeFor.panels ?? []} onMudar={mudarPaineisDaGrade} />
+            <GradePaineis episodeId={gradeFor._id} panels={gradeFor.panels ?? []} onMudar={mudarPaineisDaGrade} somenteLeitura={!!gradeFor.somenteLeitura} />
           </div>
         </div>
       )}

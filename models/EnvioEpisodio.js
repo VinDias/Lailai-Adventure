@@ -25,6 +25,8 @@ const EnvioEpisodioSchema = new mongoose.Schema({
   episodeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Episode', required: true, index: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   porAdmin: { type: Boolean, default: false },
+  // Item 7: envio do autor para episódio PUBLICADO. O concluir grava a revisão, não o episódio.
+  paraRevisao: { type: Boolean, default: false },
   status: { type: String, enum: ['aberto', 'concluindo', 'concluido', 'cancelado'], default: 'aberto', index: true },
   pasta: { type: String, required: true },
   totalPaineis: { type: Number, required: true },

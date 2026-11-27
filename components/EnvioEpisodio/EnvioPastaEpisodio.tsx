@@ -23,6 +23,11 @@ interface Props {
   onFechar: () => void;
   /** Episódio gravado, como o servidor devolveu (painéis novos). */
   onConcluido?: (episode: any) => void;
+  /**
+   * Item 7: episódio PUBLICADO aberto pelo autor. A pasta não troca o que
+   * está no ar; vira uma edição à espera de aprovação, e o modal avisa.
+   */
+  avisoRevisao?: boolean;
   /** Trocados nos testes. */
   api?: ApiDoModal;
   preparador?: Preparador;
@@ -34,7 +39,7 @@ const preencher = (texto: string, valores: Record<string, string | number>) =>
 
 type Etapa = 'escolher' | 'lendo' | 'conferir' | 'enviando' | 'parou' | 'pronto';
 
-const EnvioPastaEpisodio: React.FC<Props> = ({ episode, onFechar, onConcluido, api = apiReal as unknown as ApiDoModal, preparador, esperar }) => {
+const EnvioPastaEpisodio: React.FC<Props> = ({ episode, onFechar, onConcluido, avisoRevisao = false, api = apiReal as unknown as ApiDoModal, preparador, esperar }) => {
   const t = useT();
   const [config, setConfig] = useState<EnvioConfig | null>(null);
   const [erroConfig, setErroConfig] = useState<string | null>(null);
@@ -154,6 +159,8 @@ const EnvioPastaEpisodio: React.FC<Props> = ({ episode, onFechar, onConcluido, a
           <p id="envio-pasta-titulo" className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('envio.titulo')}</p>
           <h2 className="text-xl font-black text-[var(--text-color)] truncate">{episode.title}</h2>
         </div>
+
+        {avisoRevisao && <p data-testid="envio-aviso-revisao" className="text-xs font-bold text-amber-400">{t('revisao.avisoEnvio')}</p>}
 
         {erroConfig && <p role="alert" className="text-rose-500 text-sm font-bold">{preencher(t('envio.erroRecusado'), { erro: erroConfig })}</p>}
 

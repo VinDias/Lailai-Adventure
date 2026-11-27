@@ -528,14 +528,30 @@ describe('quem pode enviar', () => {
     expect((await concluir(outro.token, ini.body.envioId)).status).toBe(404);
   });
 
-  it('autor: episódio enviado para aprovação 403; publicado 403; usuário sem canal 404', async () => {
+  // Até o item 7 (27/11/2026) o autor recebia 403 em episódio publicado. Com o
+  // item 7 o envio é aceito, mas vai para a REVISÃO (paraRevisao) e o episódio
+  // no ar não é tocado: o caminho inteiro está em revisaoEpisodio.test.js.
+  it('autor: episódio enviado para aprovação 403; em processamento 403; usuário sem canal 404; publicado é aceito como revisão, sem tocar o episódio', async () => {
     const autor = await criarAutor();
     const lista = [{ nome: 'Pagina 001.jpg', largura: 80, altura: 128, tamanho: 100 }];
     const enviado = await criarEpisodio({ canalId: autor.canal._id, submittedAt: new Date() });
     expect((await iniciar(autor.token, enviado.episode._id, lista)).status).toBe(403);
-    const publicado = await criarEpisodio({ canalId: autor.canal._id, status: 'published' });
-    expect((await iniciar(autor.token, publicado.episode._id, lista)).status).toBe(403);
+    const processando = await criarEpisodio({ canalId: autor.canal._id, status: 'processing' });
+    expect((await iniciar(autor.token, processando.episode._id, lista)).status).toBe(403);
     expect((await iniciar(auth.getToken('user'), enviado.episode._id, lista)).status).toBe(404);
+
+    const publicado = await criarEpisodio({ canalId: autor.canal._id, status: 'published', panels: [{ image_url: 'https://outro.exemplo/no-ar.jpg', order: 0 }] });
+    const antes = await Episode.findById(publicado.episode._id).lean();
+    const ini = await iniciar(autor.token, publicado.episode._id, lista);
+    expect(ini.status).toBe(201);
+    expect(ini.body.paraRevisao).toBe(true);
+    await enviarParte(autor.token, ini.body.envioId, [{ chave: '0', tipo: 'pagina', buffer: await jpeg(80, 128) }]);
+    const fim = await concluir(autor.token, ini.body.envioId);
+    expect(fim.status).toBe(200);
+    expect(fim.body.paraRevisao).toBe(true);
+    const depois = await Episode.findById(publicado.episode._id).lean();
+    expect(depois.panels).toEqual(antes.panels);
+    expect(depois.status).toBe('published');
   });
 
   it('autor que manda para aprovação no meio do envio: o concluir não troca nada', async () => {

@@ -12,9 +12,11 @@
  *   painel dela, achado pelo `_id` do painel (e não pelo índice, que desloca
  *   quando outro painel é apagado ao mesmo tempo). Ações em paralelo no mesmo
  *   episódio não se atropelam (tests/backend/edicaoPaineis.test.js).
- * - GUARDA DENTRO DO UPDATE. O autor só mexe em rascunho não enviado; a
+ * - GUARDA DENTRO DO UPDATE. O autor mexe em rascunho não enviado; a
  *   condição vai no filtro do próprio update, para um "Enviar para aprovação"
  *   feito no meio do caminho não ser atropelado. Admin mexe em qualquer um.
+ *   Em episódio PUBLICADO o autor não toca o que está no ar: as mesmas ações
+ *   gravam na revisão do episódio (item 7, `alvoDaEdicao`).
  *   Quem não é dono recebe 404 (mesma guarda do envio da pasta:
  *   envioEpisodioService.acessoAoEpisodio).
  * - ARQUIVO QUE SAI É APAGADO DO BUNNY, depois da gravação, pela função do
@@ -27,7 +29,9 @@ const mongoose = require('mongoose');
 const Episode = require('../models/Episode');
 const bunnyStorage = require('../utils/bunnyStorage');
 const logger = require('../utils/logger');
+const RevisaoEpisodio = require('../models/RevisaoEpisodio');
 const envio = require('./envioEpisodioService');
+const revisaoService = require('./revisaoEpisodioService');
 
 const IDIOMAS = ['pt', 'en', 'es', 'zh'];
 const MAXIMO_POR_PEDIDO = 500;
@@ -47,12 +51,34 @@ function idDePainel(valor) {
 }
 
 /**
- * Onde a edição grava. Hoje, sempre o próprio episódio: admin em qualquer um,
- * dono só em rascunho não enviado (a condição `guarda` entra em todo update).
- * O item 7 acrescenta aqui o outro destino: a revisão de um episódio publicado.
+ * Onde a edição grava.
+ * - Admin: o próprio episódio, qualquer um.
+ * - Dono, episódio em rascunho não enviado: o próprio episódio (a condição
+ *   `guarda` entra em todo update).
+ * - Dono, episódio PUBLICADO (item 7): a REVISÃO do episódio, nunca o que está
+ *   no ar. Na primeira mudança a revisão nasce como cópia dos painéis
+ *   publicados; com a revisão na fila do moderador, ninguém mexe (403).
+ *   Para só ler (`leitura`), sem revisão ainda, mostra os painéis do ar.
  */
 async function alvoDaEdicao(user, episodeId, { leitura = false } = {}) {
-  const { episode, series, porAdmin } = await envio.acessoAoEpisodio(user, episodeId, { leitura });
+  const { episode, series, porAdmin, publicado } = await envio.acessoAoEpisodio(user, episodeId, { leitura, aceitaPublicado: true });
+  if (!porAdmin && publicado) {
+    const existente = leitura
+      ? await RevisaoEpisodio.findById(episode._id).select('status').lean()
+      : await revisaoService.abrirParaEdicao(episode, user);
+    if (existente) {
+      return {
+        Model: RevisaoEpisodio,
+        id: episode._id,
+        guarda: leitura ? {} : { status: 'editando' },
+        modo: 'revisao',
+        episode,
+        series,
+        porAdmin: false,
+      };
+    }
+    return { Model: Episode, id: episode._id, guarda: { status: 'published' }, modo: 'publicado', episode, series, porAdmin: false };
+  }
   return {
     Model: Episode,
     id: episode._id,
@@ -101,7 +127,11 @@ async function lerPainel(alvo, painelId) {
  */
 async function porQueNaoCasou(alvo, painelId) {
   const doc = await alvo.Model.findOne({ _id: alvo.id, ...alvo.guarda }).select('panels._id').lean();
-  if (!doc) return erro(409, 'O episódio mudou durante a edição (foi enviado para aprovação ou apagado). Nada foi alterado.');
+  if (!doc) {
+    return erro(409, alvo.modo === 'revisao'
+      ? 'A edição mudou durante o pedido (foi enviada para aprovação ou descartada). Nada foi alterado.'
+      : 'O episódio mudou durante a edição (foi enviado para aprovação ou apagado). Nada foi alterado.');
+  }
   if (painelId && !(doc.panels || []).some(p => String(p._id) === String(painelId))) return erro(404, 'Painel não encontrado.');
   return erro(409, 'O painel mudou durante a edição. Atualize a tela e tente de novo.');
 }
@@ -113,12 +143,23 @@ async function listar({ user, episodeId }) {
   const doc = await lerPaineis(alvo);
   let podeEditar = true;
   let motivo = null;
-  try {
-    await alvoDaEdicao(user, episodeId);
-  } catch (e) {
-    if (e.status !== 403) throw e;
-    podeEditar = false;
-    motivo = e.message;
+  let revisao = null;
+  if (alvo.modo === 'revisao' || alvo.modo === 'publicado') {
+    // Só leitura aqui: abrir a grade não cria a revisão (ela nasce na 1a mudança).
+    const rev = alvo.modo === 'revisao' ? await RevisaoEpisodio.findById(alvo.id).lean() : null;
+    revisao = revisaoService.resumo(rev);
+    if (rev && rev.status !== 'editando') {
+      podeEditar = false;
+      motivo = revisaoService.MSG_EM_ANALISE;
+    }
+  } else {
+    try {
+      await alvoDaEdicao(user, episodeId);
+    } catch (e) {
+      if (e.status !== 403) throw e;
+      podeEditar = false;
+      motivo = e.message;
+    }
   }
   const { ALTURA_MAXIMA } = await envio.carregarRegras();
   return {
@@ -126,6 +167,7 @@ async function listar({ user, episodeId }) {
     modo: alvo.modo,
     podeEditar,
     motivo,
+    revisao,
     panels: doc.panels || [],
     alturaMaxima: ALTURA_MAXIMA,
     tamanhoMaximoArquivo: envio.TAMANHO_MAXIMO_PARTE,

@@ -16,7 +16,10 @@ import WebtoonReader from '../WebtoonReader';
  */
 
 interface ItemAprovacao {
-  tipo: 'series' | 'episode';
+  // 'revisao' (frente A, item 7): edição de um episódio JÁ publicado; `id` é
+  // o id do episódio, `panelCount` os painéis da edição e `panelCountNoAr` os
+  // da versão que o leitor vê hoje.
+  tipo: 'series' | 'episode' | 'revisao';
   id: string;
   title: string;
   description?: string | null;
@@ -27,6 +30,7 @@ interface ItemAprovacao {
   genre?: string | null;
   tags?: string[];
   panelCount?: number;
+  panelCountNoAr?: number;
   serie?: { id: string; title: string; isPublished: boolean } | null;
   canal?: { id: string; name: string | null } | null;
   submittedAt: string;
@@ -111,6 +115,8 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
         const tags = tagsDrafts[k] ?? it.tags ?? [];
         const content_rating = ratingAtualDe(it) as 'kids' | 'teen' | 'young' | '';
         await api.aprovarSerieAdmin(it.id, { genre, tags, content_rating });
+      } else if (it.tipo === 'revisao') {
+        await api.aprovarRevisaoAdmin(it.id);
       } else {
         await api.aprovarEpisodioAdmin(it.id);
       }
@@ -179,7 +185,7 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-rose-600/15 text-rose-400">
-                      {it.tipo === 'series' ? 'Série' : 'Episódio'}
+                      {it.tipo === 'series' ? 'Série' : it.tipo === 'revisao' ? 'Edição de publicado' : 'Episódio'}
                     </span>
                     {it.canal?.name && <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{it.canal.name}</span>}
                     {it.content_rating_sugerida && (
@@ -196,12 +202,20 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
                       Removida pela curadoria em {new Date(it.removidaPelaCuradoria.decisaoEm).toLocaleDateString('pt-BR')}{it.removidaPelaCuradoria.motivo ? ` — ${it.removidaPelaCuradoria.motivo}` : ''}
                     </p>
                   )}
-                  {it.tipo === 'episode' && it.serie && (
+                  {it.tipo !== 'series' && it.serie && (
                     <p className="text-xs text-zinc-500 font-bold">Série: {it.serie.title} {it.serie.isPublished ? '(publicada)' : '(não publicada)'}</p>
+                  )}
+                  {it.tipo === 'revisao' && (
+                    <p className="text-xs text-amber-500 font-bold mt-1">
+                      O episódio já está no ar. Aprovar troca os painéis pelos desta edição, sem novo aviso de capítulo; devolver não muda nada no ar.
+                    </p>
                   )}
                   {it.description && <p className="text-sm text-zinc-500 mt-1 line-clamp-2">{it.description}</p>}
                   {it.tipo === 'episode' && typeof it.panelCount === 'number' && (
                     <p className="text-[10px] text-zinc-600 font-bold mt-1">{it.panelCount} painéis</p>
+                  )}
+                  {it.tipo === 'revisao' && typeof it.panelCount === 'number' && (
+                    <p className="text-[10px] text-zinc-600 font-bold mt-1">{it.panelCount} painéis na edição (no ar: {it.panelCountNoAr ?? '?'})</p>
                   )}
 
                   {it.tipo === 'series' && (
@@ -251,12 +265,12 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
                     >
                       <Check size={14} /> {ocupado ? 'Aprovando...' : 'Aprovar'}
                     </button>
-                    {it.tipo === 'episode' && (
+                    {it.tipo !== 'series' && (
                       <button
                         onClick={() => setLendo(it)}
                         className="flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-[var(--border-color)] rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
                       >
-                        <BookOpen size={14} /> Ler episódio
+                        <BookOpen size={14} /> {it.tipo === 'revisao' ? 'Ler edição' : 'Ler episódio'}
                       </button>
                     )}
                     <button
@@ -283,7 +297,7 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
           }}
           user={null}
           onClose={() => setLendo(null)}
-          previa={{ carregar: () => api.getLeituraAprovacao(lendo.id) }}
+          previa={{ carregar: () => (lendo.tipo === 'revisao' ? api.getLeituraRevisao(lendo.id) : api.getLeituraAprovacao(lendo.id)) }}
         />
       )}
 

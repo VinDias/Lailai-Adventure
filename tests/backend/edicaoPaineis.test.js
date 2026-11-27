@@ -11,8 +11,9 @@
  * O QUE ESTE ARQUIVO GARANTE:
  * - cada ação, com conta de AUTOR, muda o painel certo e só ele;
  * - outro autor recebe 404 em todas as rotas (e leitor comum, e sem login 401);
- * - episódio enviado para aprovação ou publicado: o autor recebe 403 e nada
- *   muda (publicado vira revisão no item 7); admin edita qualquer um;
+ * - episódio enviado para aprovação: o autor recebe 403 e nada muda; admin
+ *   edita qualquer um (o autor em episódio PUBLICADO é o item 7, a edição com
+ *   aprovação: tests/backend/revisaoEpisodio.test.js);
  * - ações em PARALELO no mesmo episódio não perdem nada (10 balões de uma vez;
  *   imagem, balão, remoção e apagar painel misturados; tudo no mesmo painel);
  * - o arquivo que sai é apagado do Bunny, e só ele: link externo, arquivo

@@ -23,15 +23,17 @@
  *     updateOne, e só depois apaga do Bunny os arquivos da versão anterior que
  *     eram só deste episódio.
  *
- * Quem pode: admin em qualquer episódio; dono do canal só em episódio em
- * rascunho NÃO enviado para aprovação (mesma regra de routes/portal.js).
- * Episódio publicado pelo autor é o item 7 (revisão com aprovação).
+ * Quem pode: admin em qualquer episódio; dono do canal em episódio em
+ * rascunho NÃO enviado para aprovação (mesma regra de routes/portal.js) e, no
+ * item 7, em episódio PUBLICADO: aí o envio não troca o episódio, grava a
+ * revisão que o moderador aprova (services/revisaoEpisodioService.js).
  */
 const Episode = require('../models/Episode');
 const Series = require('../models/Series');
 const Channel = require('../models/Channel');
 const Setting = require('../models/Setting');
 const EnvioEpisodio = require('../models/EnvioEpisodio');
+const RevisaoEpisodio = require('../models/RevisaoEpisodio');
 const bunnyStorage = require('../utils/bunnyStorage');
 const { toSlug } = require('../utils/slug');
 const { isAdminUser } = require('../utils/ownership');
@@ -105,7 +107,7 @@ async function configuracao() {
  * Episódio + série, se o usuário pode trocar os painéis dele. Mesmo critério
  * 404 (nunca confirma episódio alheio) e as mesmas mensagens 403 do portal.
  */
-async function acessoAoEpisodio(user, episodeId, { leitura = false } = {}) {
+async function acessoAoEpisodio(user, episodeId, { leitura = false, aceitaPublicado = false } = {}) {
   let episode;
   try {
     episode = await Episode.findById(episodeId);
@@ -125,14 +127,17 @@ async function acessoAoEpisodio(user, episodeId, { leitura = false } = {}) {
   if (!canal) throw erro(404, 'Episódio não encontrado.');
   // `leitura`: o dono só quer VER os painéis (grade do Meu Estúdio); as travas
   // de rascunho valem para quem vai mudar alguma coisa.
-  if (leitura) return { episode, series, porAdmin: false };
+  // `publicado`: o dono mexe em episódio no ar só por meio de revisão (item 7).
+  const publicado = episode.status === 'published';
+  if (leitura) return { episode, series, porAdmin: false, publicado };
+  if (publicado && aceitaPublicado) return { episode, series, porAdmin: false, publicado: true };
   if (episode.status !== 'draft') {
     throw erro(403, 'Só é possível enviar a pasta de um episódio em rascunho.');
   }
   if (episode.submittedAt) {
     throw erro(403, 'Episódio em análise não pode receber painéis. Aguarde a aprovação ou a devolução.');
   }
-  return { episode, series, porAdmin: false };
+  return { episode, series, porAdmin: false, publicado: false };
 }
 
 function carimbo(d = new Date()) {
@@ -156,18 +161,22 @@ function pastaDoEpisodio(series, episode, envioId) {
 async function apagarUrlsSemUso(urls) {
   const nossas = [...new Set((urls || []).filter(u => bunnyStorage.caminhoDaUrl(u)))];
   if (nossas.length === 0) return { apagados: 0, falhas: [] };
-  const [episodios, obras] = await Promise.all([
-    Episode.find({
-      $or: [
-        { 'panels.image_url': { $in: nossas } },
-        { 'panels.translationLayers.imageUrl': { $in: nossas } },
-        { thumbnail: { $in: nossas } },
-      ],
-    }).select('panels thumbnail').lean(),
+  // Revisão de episódio publicado (item 7) também usa arquivo: o que está
+  // nela não pode sumir, e o que está no ar não some por causa dela.
+  const usa = {
+    $or: [
+      { 'panels.image_url': { $in: nossas } },
+      { 'panels.translationLayers.imageUrl': { $in: nossas } },
+      { thumbnail: { $in: nossas } },
+    ],
+  };
+  const [episodios, revisoes, obras] = await Promise.all([
+    Episode.find(usa).select('panels thumbnail').lean(),
+    RevisaoEpisodio.find(usa).select('panels thumbnail').lean(),
     Series.find({ cover_image: { $in: nossas } }).select('cover_image').lean(),
   ]);
   const emUso = new Set();
-  for (const e of episodios) {
+  for (const e of [...episodios, ...revisoes]) {
     if (e.thumbnail) emUso.add(e.thumbnail);
     for (const p of e.panels || []) {
       emUso.add(p.image_url);
@@ -230,7 +239,14 @@ async function iniciarEnvio({ user, episodeId, arquivos }) {
     tamanho: a.tamanho,
   }));
 
-  const { episode, series, porAdmin } = await acessoAoEpisodio(user, episodeId);
+  const { episode, series, porAdmin, publicado } = await acessoAoEpisodio(user, episodeId, { aceitaPublicado: true });
+  // Autor em episódio publicado: a pasta vai para a revisão (item 7). Com uma
+  // edição já na fila, espera a aprovação ou a devolução.
+  const paraRevisao = !porAdmin && publicado;
+  if (paraRevisao) {
+    const rev = await RevisaoEpisodio.findById(episode._id).select('status').lean();
+    if (rev && rev.status !== 'editando') throw erro(403, require('./revisaoEpisodioService').MSG_EM_ANALISE);
+  }
   const { organizarPasta } = await carregarRegras();
   const limitePaineis = await lerLimitePaineis();
   const limiteBytes = await lerLimiteBytes();
@@ -243,6 +259,7 @@ async function iniciarEnvio({ user, episodeId, arquivos }) {
     episodeId: episode._id,
     userId: user.id,
     porAdmin,
+    paraRevisao,
     totalPaineis: org.totalPaineis,
     bytesDeclarados: org.totalBytes,
     tetoBytes: limiteBytes * FOLGA_DO_CORTE,
@@ -282,6 +299,7 @@ async function iniciarEnvio({ user, episodeId, arquivos }) {
     limiteBytes,
     problemas: org.problemas,
     arquivos: recortes,
+    paraRevisao,
   };
 }
 
@@ -393,19 +411,20 @@ async function urlsParaApagar(episodioAntigo, novasUrls, thumbnailAntigoSai) {
   const nossas = [...candidatas].filter(u => bunnyStorage.caminhoDaUrl(u));
   if (nossas.length === 0) return [];
 
-  const [outrosEpisodios, obras] = await Promise.all([
-    Episode.find({
-      _id: { $ne: episodioAntigo._id },
-      $or: [
-        { 'panels.image_url': { $in: nossas } },
-        { 'panels.translationLayers.imageUrl': { $in: nossas } },
-        { thumbnail: { $in: nossas } },
-      ],
-    }).select('panels thumbnail').lean(),
+  const usa = [
+    { 'panels.image_url': { $in: nossas } },
+    { 'panels.translationLayers.imageUrl': { $in: nossas } },
+    { thumbnail: { $in: nossas } },
+  ];
+  const [outrosEpisodios, revisoes, obras] = await Promise.all([
+    Episode.find({ _id: { $ne: episodioAntigo._id }, $or: usa }).select('panels thumbnail').lean(),
+    // Item 7: a edição de um publicado (inclusive a deste episódio) nasce como
+    // cópia dos painéis do ar; o que ela ainda usa não pode ser apagado.
+    RevisaoEpisodio.find({ $or: usa }).select('panels thumbnail').lean(),
     Series.find({ cover_image: { $in: nossas } }).select('cover_image').lean(),
   ]);
   const emUso = new Set();
-  for (const e of outrosEpisodios) {
+  for (const e of [...outrosEpisodios, ...revisoes]) {
     if (e.thumbnail) emUso.add(e.thumbnail);
     for (const p of e.panels || []) {
       emUso.add(p.image_url);
@@ -431,7 +450,10 @@ async function concluirEnvio({ user, envioId }) {
 
   let acesso;
   try {
-    acesso = await acessoAoEpisodio(user, envio.episodeId);
+    acesso = await acessoAoEpisodio(user, envio.episodeId, { aceitaPublicado: !!travado.paraRevisao });
+    if (!!travado.paraRevisao !== (!acesso.porAdmin && !!acesso.publicado)) {
+      throw erro(409, 'O episódio mudou de estado durante o envio. Nada foi trocado; comece o envio de novo.');
+    }
   } catch (e) {
     await destravar();
     throw e;
@@ -449,6 +471,8 @@ async function concluirEnvio({ user, envioId }) {
     if (a.tipo === 'balao') paineis[a.ordem].translationLayers.push({ language: a.idioma, imageUrl: a.url });
   }
   const capa = travado.arquivos.find(a => a.tipo === 'capa');
+
+  if (travado.paraRevisao) return concluirNaRevisao({ user, envio: travado, episode, paineis, capa, destravar });
 
   const urlsAntigasDosPaineis = new Set((episode.panels || []).map(p => p.image_url));
   const set = { panels: paineis };
@@ -489,6 +513,51 @@ async function concluirEnvio({ user, envioId }) {
   const atualizado = await Episode.findById(episode._id).lean();
   return {
     episode: atualizado,
+    totalPaineis: paineis.length,
+    apagadosDoBunny: limpeza.apagados,
+    naoApagados: limpeza.falhas,
+  };
+}
+
+/**
+ * Passo 3 quando o autor reenviou a pasta de um episódio PUBLICADO (item 7):
+ * os painéis novos vão para a revisão, de uma vez; o episódio no ar não muda,
+ * nenhum aviso de capítulo novo sai, e do Bunny só saem os arquivos que a
+ * revisão anterior usava sozinha.
+ */
+async function concluirNaRevisao({ user, envio, episode, paineis, capa, destravar }) {
+  const revisaoService = require('./revisaoEpisodioService');
+  let antiga;
+  try {
+    await revisaoService.abrirParaEdicao(episode, user);
+    const set = { panels: paineis };
+    if (capa) set.thumbnail = capa.url;
+    antiga = await RevisaoEpisodio.findOneAndUpdate(
+      { _id: episode._id, status: 'editando' },
+      { $set: set, $inc: { __v: 1 } },
+      { new: false }
+    ).lean();
+    if (!antiga) throw erro(409, revisaoService.MSG_EM_ANALISE);
+  } catch (e) {
+    await destravar();
+    throw e;
+  }
+  await EnvioEpisodio.updateOne({ _id: envio._id }, { $set: { status: 'concluido', concluidoEm: new Date() } });
+
+  const saiu = [];
+  for (const p of antiga.panels || []) {
+    saiu.push(p.image_url);
+    for (const c of p.translationLayers || []) saiu.push(c.imageUrl);
+  }
+  if (capa && antiga.thumbnail) saiu.push(antiga.thumbnail);
+  const limpeza = await apagarUrlsSemUso(saiu);
+
+  const revisao = await RevisaoEpisodio.findById(episode._id).lean();
+  return {
+    // O episódio como está NO AR (não mudou): a tela não troca nada do leitor.
+    episode: await Episode.findById(episode._id).lean(),
+    paraRevisao: true,
+    revisao: revisaoService.resumo(revisao),
     totalPaineis: paineis.length,
     apagadosDoBunny: limpeza.apagados,
     naoApagados: limpeza.falhas,

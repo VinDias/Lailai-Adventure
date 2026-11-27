@@ -23,6 +23,9 @@ const MensagemPortal = require('../models/MensagemPortal');
 const AdminLog = require('../models/AdminLog');
 // Fase 5 Bloco 3: badge "Curadoria N" e removidaPelaCuradoria em GET /aprovacoes.
 const CasoCuradoria = require('../models/CasoCuradoria');
+// Fase 7, frente A, item 7: edição de episódio publicado, à espera de aprovação.
+const RevisaoEpisodio = require('../models/RevisaoEpisodio');
+const revisaoService = require('../services/revisaoEpisodioService');
 const { responderCastError } = require('../utils/routeErrors');
 
 const REF_TIPOS = ['series', 'episode'];
@@ -277,7 +280,18 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
       };
     });
 
-    const itens = [...itensSerie, ...itensEpisodio]
+    // Frente A, item 7: edições de episódio PUBLICADO enviadas pelo autor
+    // (`tipo: 'revisao'`, `id` = id do episódio). Leitura à parte e num
+    // try/catch próprio, como a curadoria acima: a fila é o único caminho do
+    // Master para publicar e não cai por causa de um bloco novo.
+    let itensRevisao = [];
+    try {
+      itensRevisao = await itensDeRevisao();
+    } catch (err) {
+      logger.error('[AdminPortal] edições de publicados indisponíveis na fila de aprovação', err && err.message);
+    }
+
+    const itens = [...itensSerie, ...itensEpisodio, ...itensRevisao]
       .sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
 
     res.json({ itens, naoClassificadas, curadoria });
@@ -286,6 +300,40 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
     res.status(500).json({ error: 'Erro ao montar a fila de aprovação.' });
   }
 });
+
+/** Cards das edições de episódio publicado que estão na fila (item 7). */
+async function itensDeRevisao() {
+  const revisoes = await RevisaoEpisodio.find({ status: 'enviada' }).select('seriesId submittedAt panels._id').lean();
+  if (revisoes.length === 0) return [];
+  const [episodios, series] = await Promise.all([
+    Episode.find({ _id: { $in: revisoes.map(r => r._id) } }).select('title description thumbnail status panels._id').lean(),
+    Series.find({ _id: { $in: revisoes.map(r => r.seriesId) } }).select('title isPublished channelId').lean(),
+  ]);
+  const epPorId = new Map(episodios.map(e => [String(e._id), e]));
+  const seriePorId = new Map(series.map(s => [String(s._id), s]));
+  const canais = await Channel.find({ _id: { $in: series.map(s => s.channelId).filter(Boolean) } }).select('name').lean();
+  const canalPorId = new Map(canais.map(c => [String(c._id), c]));
+  return revisoes
+    // Episódio apagado depois do envio: a edição não tem mais para onde ir.
+    .filter(r => epPorId.has(String(r._id)))
+    .map(r => {
+      const ep = epPorId.get(String(r._id));
+      const serie = seriePorId.get(String(r.seriesId));
+      const canal = serie && serie.channelId ? canalPorId.get(String(serie.channelId)) : null;
+      return {
+        tipo: 'revisao',
+        id: r._id,
+        title: ep.title,
+        description: ep.description ?? null,
+        thumbnail: ep.thumbnail ?? null,
+        panelCount: (r.panels || []).length,
+        panelCountNoAr: (ep.panels || []).length,
+        serie: serie ? { id: serie._id, title: serie.title, isPublished: !!serie.isPublished } : null,
+        canal: serie && serie.channelId ? { id: serie.channelId, name: canal ? canal.name : null } : null,
+        submittedAt: r.submittedAt,
+      };
+    });
+}
 
 /**
  * O que o leitor da fila precisa de um episódio (frente A, item 8): o mesmo
@@ -336,6 +384,49 @@ router.get('/aprovacoes/episodes/:id/leitura', verifyToken, requireAdmin, async 
     if (responderCastError(err, res, 'Episódio não encontrado.')) return;
     logger.error('[AdminPortal] GET /aprovacoes/episodes/:id/leitura', err);
     res.status(500).json({ error: 'Erro ao abrir o episódio para leitura.' });
+  }
+});
+
+// GET /api/admin/aprovacoes/revisoes/:id/leitura — a EDIÇÃO de um episódio
+// publicado que está na fila (frente A, item 7), no mesmo formato da leitura
+// do item 8: o moderador lê no leitor como o episódio vai ficar. `:id` é o id
+// do episódio. Só admin; só edição enviada (em rascunho do autor: 404).
+router.get('/aprovacoes/revisoes/:id/leitura', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const rev = await RevisaoEpisodio.findOne({ _id: req.params.id, status: 'enviada' }).lean();
+    const episode = rev ? await Episode.findById(rev._id).select('title episode_number description thumbnail status seriesId').lean() : null;
+    if (!rev || !episode) return res.status(404).json({ error: 'Esta edição não está aguardando aprovação.' });
+    const serie = await Series.findById(episode.seriesId).select('title').lean();
+    res.json({
+      ...episodioParaLeitura({ ...episode, submittedAt: rev.submittedAt, thumbnail: rev.thumbnail || episode.thumbnail }, serie, rev.panels),
+      revisao: true,
+    });
+  } catch (err) {
+    if (responderCastError(err, res, 'Edição não encontrada.')) return;
+    logger.error('[AdminPortal] GET /aprovacoes/revisoes/:id/leitura', err);
+    res.status(500).json({ error: 'Erro ao abrir a edição para leitura.' });
+  }
+});
+
+// POST /api/admin/aprovacoes/revisoes/:id/aprovar — aprova a edição de um
+// episódio publicado: os painéis da revisão passam a ser os do episódio, de
+// uma vez, e os arquivos que saíram são apagados do Bunny. NÃO dispara aviso
+// de capítulo novo nem recálculo (risco R7): é correção do que já está no ar.
+router.post('/aprovacoes/revisoes/:id/aprovar', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const r = await revisaoService.aprovar(req.params.id);
+    await AdminLog.create({
+      adminId: req.user.id,
+      action: 'APROVAR_REVISAO_EPISODIO',
+      targetId: String(r.episode._id),
+      details: { title: r.episode.title, seriesId: String(r.episode.seriesId), totalPaineis: r.totalPaineis, apagadosDoBunny: r.apagadosDoBunny },
+    });
+    res.json(r);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (responderCastError(err, res, 'Edição não encontrada.')) return;
+    logger.error('[AdminPortal] POST /aprovacoes/revisoes/:id/aprovar', err);
+    res.status(500).json({ error: 'Erro ao aprovar a edição.' });
   }
 });
 
@@ -472,6 +563,21 @@ router.post('/aprovacoes/:tipo/:id/devolver', verifyToken, requireAdmin, async (
     // aqui, mapeado para o singular ANTES do check contra REF_TIPOS e de
     // qualquer gravação — refTipo salvo continua sempre 'episode'.
     const tipo = req.params.tipo === 'episodes' ? 'episode' : req.params.tipo;
+
+    // Frente A, item 7: devolver a EDIÇÃO de um episódio publicado. A edição
+    // volta para o autor com o motivo (que ele vê no Meu Estúdio e na
+    // conversa do canal); o episódio no ar não é tocado.
+    if (tipo === 'revisao' || tipo === 'revisoes') {
+      const r = await revisaoService.devolver(id, req.body.texto, req.user.id);
+      await AdminLog.create({
+        adminId: req.user.id,
+        action: 'DEVOLVER_REVISAO_EPISODIO',
+        targetId: String(id),
+        details: { texto: String(req.body.texto).trim(), canalId: r.canalId },
+      });
+      return res.json({ success: true, mensagem: r.mensagem, revisao: r.revisao });
+    }
+
     if (!REF_TIPOS.includes(tipo)) {
       return res.status(404).json({ error: 'Tipo inválido — use "series" ou "episode".' });
     }
@@ -525,6 +631,7 @@ router.post('/aprovacoes/:tipo/:id/devolver', verifyToken, requireAdmin, async (
 
     res.json({ success: true, mensagem });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     if (responderCastError(err, res, 'Recurso não encontrado.')) return;
     logger.error('[AdminPortal] POST /aprovacoes/:tipo/:id/devolver', err);
     res.status(500).json({ error: 'Erro ao devolver.' });

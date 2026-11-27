@@ -20,6 +20,8 @@ const MensagemPortal = require('../models/MensagemPortal');
 const RoyaltyPeriod = require('../models/RoyaltyPeriod');
 const { parsePeriod, periodoAtual, buildReport, buildSuperReaderSummary } = require('../services/royaltyReportService');
 const { addPanels, setTranslationLayer } = require('../services/episodePanelService');
+const RevisaoEpisodio = require('../models/RevisaoEpisodio');
+const revisaoService = require('../services/revisaoEpisodioService');
 
 router.use(verifyToken);
 
@@ -547,6 +549,67 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
     if (responderCastError(err, res, 'Episódio não encontrado.')) return;
     logger.error('[Portal] POST /episodios/:id/enviar', err);
     res.status(500).json({ error: 'Erro ao enviar episódio para aprovação.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Edição de episódio PUBLICADO com aprovação (Fase 7, frente A, item 7).
+// As mudanças do autor (grade de painéis e reenvio da pasta) ficam numa
+// revisão (models/RevisaoEpisodio.js); o episódio no ar não muda até o
+// moderador aprovar. Aqui: o autor vê as revisões das obras dele, envia para
+// aprovação e desiste. Regras em services/revisaoEpisodioService.js.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /api/portal/series/:id/revisoes — as edições em andamento dos episódios
+// da própria série (sem os painéis): estado, data de envio e o motivo da
+// última devolução, que é o que o Meu Estúdio mostra em cada capítulo.
+router.get('/series/:id/revisoes', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const series = await serieDoDono(req.params.id, req.portalChannelIds);
+    if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
+    const revisoes = await RevisaoEpisodio.find({ seriesId: series._id })
+      .select('status submittedAt devolucao updatedAt panels._id')
+      .lean();
+    res.json({ revisoes: revisoes.map(revisaoService.resumo) });
+  } catch (err) {
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
+    logger.error('[Portal] GET /series/:id/revisoes', err);
+    res.status(500).json({ error: 'Erro ao listar as edições.' });
+  }
+});
+
+// POST /api/portal/episodios/:id/revisao/enviar — manda a edição do episódio
+// publicado para a fila do moderador. A partir daqui o autor não mexe mais
+// nela até a aprovação ou a devolução.
+router.post('/episodios/:id/revisao/enviar', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const achado = await episodioDoDono(req.params.id, req.portalChannelIds);
+    if (!achado) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    if (achado.episode.status !== 'published') {
+      return res.status(400).json({ error: 'Só episódio publicado tem edição para aprovar. Rascunho se envia pelo "Enviar para aprovação".' });
+    }
+    res.json({ revisao: await revisaoService.enviarParaAprovacao(achado.episode._id) });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[Portal] POST /episodios/:id/revisao/enviar', err);
+    res.status(500).json({ error: 'Erro ao enviar a edição para aprovação.' });
+  }
+});
+
+// DELETE /api/portal/episodios/:id/revisao — o autor desiste da edição (só
+// enquanto não enviou). O episódio no ar continua como está; os arquivos que
+// só a edição usava saem do Bunny.
+router.delete('/episodios/:id/revisao', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const achado = await episodioDoDono(req.params.id, req.portalChannelIds);
+    if (!achado) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    res.json(await revisaoService.descartar(achado.episode._id));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[Portal] DELETE /episodios/:id/revisao', err);
+    res.status(500).json({ error: 'Erro ao descartar a edição.' });
   }
 });
 
