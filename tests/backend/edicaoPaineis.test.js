@@ -653,6 +653,115 @@ describe('o servidor confere o arquivo e o pedido', () => {
   });
 });
 
+// Ponta solta do item 6 (27/11/2026): a troca de um arquivo conferia só o
+// teto de 8 MB por arquivo; agora confere também o limite de MB do EPISÓDIO,
+// pela mesma regra do envio da pasta (o que chega de fato pode ir a 3x o
+// limite, por causa do PNG regravado no corte; acima disso, 413).
+describe('troca de um arquivo confere o limite de MB do episódio (mesma regra do envio)', () => {
+  const MB = 1024 * 1024;
+  const crypto = require('crypto');
+  let Setting;
+  // Ruído não comprime: JPEG 800x1280 a 100 passa de 1 MB; PNG RGBA fica perto de 4 MB.
+  const jpegGrande = () => sharp(crypto.randomBytes(800 * 1280 * 3), { raw: { width: 800, height: 1280, channels: 3 } }).jpeg({ quality: 100 }).toBuffer();
+  const pngGrande = () => sharp(crypto.randomBytes(800 * 1280 * 4), { raw: { width: 800, height: 1280, channels: 4 } }).png({ compressionLevel: 0 }).toBuffer();
+  const limite = async (mb) => {
+    await Setting.deleteMany({ key: 'limite_mb_episodio' });
+    if (mb) await Setting.create({ key: 'limite_mb_episodio', value: String(mb) });
+  };
+  /** Episódio de 4 painéis que já ocupa 2,8 MB (700 KB por painel, sem balão). */
+  const quaseCheio = async (autor) => {
+    const { episode } = await criarEpisodio({ canalId: autor.canal._id, baloes: [] });
+    await Episode.updateOne({ _id: episode._id }, { $set: Object.fromEntries([0, 1, 2, 3].map(i => [`panels.${i}.bytes`, 700 * 1024])) });
+    return episode;
+  };
+
+  beforeAll(() => { Setting = require('../../models/Setting'); });
+  afterEach(() => limite(null));
+
+  it('imagem que faz o episódio passar do teto é recusada (413), nada sobe e o painel fica como estava', async () => {
+    await limite(1); // teto de fato = 3 MB
+    const autor = await criarAutor();
+    const episode = await quaseCheio(autor);
+    const antes = await ler(episode);
+    const grande = await jpegGrande();
+    expect(grande.length).toBeGreaterThan(1 * MB);
+    expect(grande.length).toBeLessThan(8 * MB); // passa no teto por arquivo: só o do episódio barra
+
+    const res = await trocarImagem(episode, idDe(antes, 0), autor.token, grande);
+    expect(res.status).toBe(413);
+    expect(res.body.error).toMatch(/limite de 1 MB por episódio/);
+    expect(noBunny.size).toBe(4);
+    expect(apagados).toEqual([]);
+    expect((await ler(episode)).panels[0].image_url).toBe(antes.panels[0].image_url);
+  });
+
+  it('o admin obedece ao mesmo limite (como no envio da pasta)', async () => {
+    await limite(1);
+    const autor = await criarAutor();
+    const episode = await quaseCheio(autor);
+    const antes = await ler(episode);
+    const res = await trocarImagem(episode, idDe(antes, 0), auth.getToken('admin'), await jpegGrande());
+    expect(res.status).toBe(413);
+  });
+
+  it('subindo o limite no admin (Setting) a mesma troca passa, e o tamanho novo fica gravado no painel', async () => {
+    await limite(2); // teto de fato = 6 MB
+    const autor = await criarAutor();
+    const episode = await quaseCheio(autor);
+    const antes = await ler(episode);
+    const grande = await jpegGrande();
+    const res = await trocarImagem(episode, idDe(antes, 0), autor.token, grande);
+    expect(res.status).toBe(200);
+    const depois = await ler(episode);
+    expect(depois.panels[0].bytes).toBe(grande.length);
+    expect(depois.panels[1].bytes).toBe(700 * 1024);
+  });
+
+  it('troca que não aumenta o episódio sempre passa, mesmo com o episódio já acima do teto', async () => {
+    await limite(1);
+    const autor = await criarAutor();
+    const episode = await quaseCheio(autor);
+    await Episode.updateOne({ _id: episode._id }, { $set: { 'panels.1.bytes': 5 * MB } }); // limite baixado depois
+    const antes = await ler(episode);
+    const pequena = await jpeg();
+    expect(pequena.length).toBeLessThan(700 * 1024);
+    const res = await trocarImagem(episode, idDe(antes, 0), autor.token, pequena);
+    expect(res.status).toBe(200);
+    expect((await ler(episode)).panels[0].bytes).toBe(pequena.length);
+  });
+
+  it('balão novo que estoura o teto é recusado (413); o tamanho do balão aceito fica gravado', async () => {
+    await limite(1);
+    const autor = await criarAutor();
+    const episode = await quaseCheio(autor);
+    const antes = await ler(episode);
+    const balaoGrande = await pngGrande();
+    expect(balaoGrande.length).toBeGreaterThan(1 * MB);
+    expect(balaoGrande.length).toBeLessThan(8 * MB);
+
+    const recusado = await trocarBalao(episode, idDe(antes, 2), 'en', autor.token, balaoGrande);
+    expect(recusado.status).toBe(413);
+    expect(noBunny.size).toBe(4);
+    expect((await ler(episode)).panels[2].translationLayers).toEqual([]);
+
+    const pequeno = await png();
+    const aceito = await trocarBalao(episode, idDe(antes, 2), 'en', autor.token, pequeno);
+    expect(aceito.status).toBe(200);
+    const camada = (await ler(episode)).panels[2].translationLayers[0];
+    expect(camada).toMatchObject({ language: 'en', bytes: pequeno.length });
+    // Trocar o mesmo balão por outro: conta o novo no lugar do antigo.
+    expect((await trocarBalao(episode, idDe(antes, 2), 'en', autor.token, pequeno)).status).toBe(200);
+    expect((await ler(episode)).panels[2].translationLayers).toHaveLength(1);
+  });
+
+  it('sem Setting vale o padrão de 20 MB (teto de 60): a troca comum de sempre passa', async () => {
+    const autor = await criarAutor();
+    const episode = await quaseCheio(autor);
+    const antes = await ler(episode);
+    expect((await trocarImagem(episode, idDe(antes, 0), autor.token, await jpegGrande())).status).toBe(200);
+  });
+});
+
 describe('o que já existia continua igual', () => {
   it('rota pública do episódio publicado devolve os painéis como antes (largura e altura são campos a mais, opcionais)', async () => {
     const { episode } = await criarEpisodio({ status: 'published', comTamanho: false, n: 2 });

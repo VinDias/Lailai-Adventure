@@ -58,11 +58,18 @@ router.get('/meu-estudio', requireCanalDoUsuario, async (req, res) => {
       const seriesIds = seriesDoCanal.map(s => s._id);
       const seriesPendentes = seriesDoCanal.filter(s => s.submittedAt && !s.isPublished).length;
 
-      const [episodiosPendentes, mensagensNaoLidas] = await Promise.all([
+      const [episodiosPendentes, edicoesPendentes, mensagensNaoLidas] = await Promise.all([
         Episode.countDocuments({
           seriesId: { $in: seriesIds },
           submittedAt: { $ne: null },
           status: { $ne: 'published' },
+        }),
+        // Frente A, item 7: edição de episódio publicado que está na fila do
+        // moderador também é coisa pendente de aprovação ('aprovando' é a
+        // trava de segundos durante a aprovação).
+        RevisaoEpisodio.countDocuments({
+          seriesId: { $in: seriesIds },
+          status: { $in: ['enviada', 'aprovando'] },
         }),
         // Thread vigente do usuário: canal + ownerUserId = ele mesmo (o
         // dono atual — troca de dono arquiva a thread anterior, T1), só
@@ -82,8 +89,9 @@ router.get('/meu-estudio', requireCanalDoUsuario, async (req, res) => {
         avatar: canal.avatar ?? null,
         obras: seriesDoCanal.length,
         // "Pendentes de aprovação" = submittedAt preenchido e ainda não
-        // publicado, somando séries e capítulos (spec).
-        pendentes: seriesPendentes + episodiosPendentes,
+        // publicado, somando séries e capítulos (spec), mais as edições de
+        // episódio publicado que estão na fila.
+        pendentes: seriesPendentes + episodiosPendentes + edicoesPendentes,
         mensagensNaoLidas,
       };
     }));

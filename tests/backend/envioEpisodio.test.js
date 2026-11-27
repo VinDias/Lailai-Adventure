@@ -219,6 +219,12 @@ describe('envio da pasta inteira', () => {
     }
     expect(alturas).toEqual([1280, 1280, 440]);
     expect(caminho(ep.panels[3].translationLayers[0].imageUrl)).toMatch(/pagina-002-3-en\.png$/);
+    // O tamanho de cada arquivo que chegou fica no painel e no balão: é com
+    // ele que a troca de um arquivo pela grade confere o limite do episódio.
+    for (const p of ep.panels) {
+      expect(p.bytes).toBe(noBunny.get(caminho(p.image_url)).length);
+      for (const c of p.translationLayers) expect(c.bytes).toBe(noBunny.get(caminho(c.imageUrl)).length);
+    }
   });
 
   it('arquivo Capa vira a capa do episódio', async () => {

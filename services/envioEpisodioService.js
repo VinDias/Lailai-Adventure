@@ -92,6 +92,41 @@ async function lerLimiteBytes() {
   return (await lerInteiroDoSetting(CHAVE_LIMITE_MB, LIMITE_MB_EPISODIO_PADRAO)) * BYTES_POR_MB;
 }
 
+/**
+ * Quanto um episódio pode ocupar DE FATO no Bunny: o limite de MB vezes a
+ * folga do corte (ver FOLGA_DO_CORTE). Uma regra só, para o envio da pasta
+ * (partes recebidas) e para a troca de um arquivo pela grade (item 6).
+ */
+async function tetoBytesDoEpisodio() {
+  return (await lerLimiteBytes()) * FOLGA_DO_CORTE;
+}
+
+/** Soma dos bytes conhecidos dos painéis e balões (painel antigo sem `bytes` conta 0). */
+function bytesDosPaineis(panels) {
+  let soma = 0;
+  for (const p of panels || []) {
+    soma += p.bytes || 0;
+    for (const c of p.translationLayers || []) soma += c.bytes || 0;
+  }
+  return soma;
+}
+
+/**
+ * A regra do envio aplicada à troca de UM arquivo: o episódio, com o arquivo
+ * novo no lugar do antigo, não pode passar do teto. Troca que não aumenta o
+ * episódio sempre passa (o limite pode ter sido baixado depois no admin).
+ */
+async function conferirTetoNaTroca(panels, bytesQueSai, bytesQueEntra) {
+  if (bytesQueEntra <= (bytesQueSai || 0)) return;
+  const teto = await tetoBytesDoEpisodio();
+  const depois = bytesDosPaineis(panels) - (bytesQueSai || 0) + bytesQueEntra;
+  if (depois > teto) {
+    const { BYTES_POR_MB } = await carregarRegras();
+    const limiteMb = Math.round((await lerLimiteBytes()) / BYTES_POR_MB);
+    throw erro(413, `Com este arquivo o episódio passa do tamanho máximo (limite de ${limiteMb} MB por episódio). Use um arquivo menor.`);
+  }
+}
+
 async function configuracao() {
   const { ALTURA_MAXIMA } = await carregarRegras();
   return {
@@ -262,7 +297,7 @@ async function iniciarEnvio({ user, episodeId, arquivos }) {
     paraRevisao,
     totalPaineis: org.totalPaineis,
     bytesDeclarados: org.totalBytes,
-    tetoBytes: limiteBytes * FOLGA_DO_CORTE,
+    tetoBytes: await tetoBytesDoEpisodio(),
     pasta: 'pendente',
   });
   envio.pasta = pastaDoEpisodio(series, episode, envio._id);
@@ -465,10 +500,10 @@ async function concluirEnvio({ user, envioId }) {
     if (a.tipo !== 'pagina') continue;
     // largura/altura: o item 6 usa para conferir a imagem ou o balão trocado
     // depois (o balão tem de ter o tamanho do painel).
-    paineis[a.ordem] = { image_url: a.url, order: a.ordem, largura: a.largura, altura: a.altura, translationLayers: [] };
+    paineis[a.ordem] = { image_url: a.url, order: a.ordem, largura: a.largura, altura: a.altura, bytes: a.bytes || 0, translationLayers: [] };
   }
   for (const a of travado.arquivos) {
-    if (a.tipo === 'balao') paineis[a.ordem].translationLayers.push({ language: a.idioma, imageUrl: a.url });
+    if (a.tipo === 'balao') paineis[a.ordem].translationLayers.push({ language: a.idioma, imageUrl: a.url, bytes: a.bytes || 0 });
   }
   const capa = travado.arquivos.find(a => a.tipo === 'capa');
 
@@ -586,6 +621,9 @@ module.exports = {
   carregarRegras,
   lerLimitePaineis,
   lerLimiteBytes,
+  tetoBytesDoEpisodio,
+  bytesDosPaineis,
+  conferirTetoNaTroca,
   CHAVE_LIMITE,
   CHAVE_LIMITE_MB,
   FOLGA_DO_CORTE,

@@ -107,6 +107,31 @@ async function descartar(episodeId) {
 }
 
 /**
+ * Episódio(s) que o admin acabou de APAGAR: a edição pendente de cada um não
+ * tem mais para onde ir. Sai junto, e com ela os arquivos que só ela usava
+ * (os que o autor subiu para a edição). Os arquivos do próprio episódio
+ * apagado ficam onde estavam, como sempre foi ao apagar episódio.
+ * `episodios`: os documentos como eram ANTES de apagar (painéis e capa).
+ */
+async function removerComOsEpisodios(episodios) {
+  const lista = (episodios || []).filter(Boolean);
+  if (lista.length === 0) return { removidas: 0, apagadosDoBunny: 0, naoApagados: [] };
+  const revisoes = await RevisaoEpisodio.find({ _id: { $in: lista.map(e => e._id) } }).lean();
+  if (revisoes.length === 0) return { removidas: 0, apagadosDoBunny: 0, naoApagados: [] };
+  await RevisaoEpisodio.deleteMany({ _id: { $in: revisoes.map(r => r._id) } });
+
+  const epPorId = new Map(lista.map(e => [String(e._id), e]));
+  const soDaRevisao = [];
+  for (const rev of revisoes) {
+    const ep = epPorId.get(String(rev._id));
+    const doEpisodio = new Set([...urlsDe(ep), ep && ep.thumbnail]);
+    for (const u of [...urlsDe(rev), rev.thumbnail]) if (u && !doEpisodio.has(u)) soDaRevisao.push(u);
+  }
+  const limpeza = await require('./envioEpisodioService').apagarUrlsSemUso(soDaRevisao);
+  return { removidas: revisoes.length, apagadosDoBunny: limpeza.apagados, naoApagados: limpeza.falhas };
+}
+
+/**
  * Moderador aprova: os painéis da revisão viram os do episódio num único
  * update; só depois a revisão é apagada e os arquivos que saíram, também.
  */
@@ -202,4 +227,4 @@ async function devolver(episodeId, texto, adminId) {
   return { revisao: resumo(rev), mensagem, canalId: canal ? String(canal._id) : null };
 }
 
-module.exports = { abrirParaEdicao, enviarParaAprovacao, descartar, aprovar, devolver, resumo, MSG_EM_ANALISE };
+module.exports = { abrirParaEdicao, enviarParaAprovacao, descartar, aprovar, devolver, removerComOsEpisodios, resumo, MSG_EM_ANALISE };

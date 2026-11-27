@@ -17,9 +17,14 @@ const EpisodeSchema = new mongoose.Schema({
     // o servidor recusa balão ou imagem nova de tamanho diferente.
     largura: Number,
     altura: Number,
+    // Tamanho do arquivo da imagem, em bytes (frente A, 27/11). Opcional: só o
+    // que foi gravado pelo envio da pasta ou trocado pela grade tem. É com ele
+    // que a troca de um arquivo confere o limite de MB do episódio.
+    bytes: Number,
     translationLayers: [{
       language: { type: String, enum: ['pt', 'en', 'es', 'zh'] },
-      imageUrl: String
+      imageUrl: String,
+      bytes: Number
     }]
   }],
   audioTrack1Url: { type: String }, audioTrack1Lang: { type: String, default: '' },

@@ -114,11 +114,11 @@ async function lerPaineis(alvo) {
   return doc;
 }
 
-async function lerPainel(alvo, painelId) {
+async function lerPainel(alvo, painelId, { comTodos = false } = {}) {
   const doc = await lerPaineis(alvo);
   const painel = (doc.panels || []).find(p => String(p._id) === String(painelId));
   if (!painel) throw erro(404, 'Painel não encontrado.');
-  return painel;
+  return comTodos ? { painel, panels: doc.panels || [] } : painel;
 }
 
 /**
@@ -250,7 +250,7 @@ async function trocarImagem({ user, episodeId, painelId, buffer }) {
   const alvo = await alvoDaEdicao(user, episodeId);
   await garantirIds(alvo);
   const arq = await conferirArquivo(buffer, { tiposAceitos: ['jpeg', 'png'], mensagemTipo: 'A imagem do painel tem de ser JPEG ou PNG.' });
-  const painel = await lerPainel(alvo, pid);
+  const { painel, panels } = await lerPainel(alvo, pid, { comTodos: true });
 
   const temBalao = (painel.translationLayers || []).length > 0;
   if (temBalao && painel.largura && painel.altura && (arq.largura !== painel.largura || arq.altura !== painel.altura)) {
@@ -261,12 +261,16 @@ async function trocarImagem({ user, episodeId, painelId, buffer }) {
     throw erro(400, `A imagem tem ${arq.altura} px de altura; o máximo de um painel é ${ALTURA_MAXIMA}. Para página alta, use "Enviar pasta do episódio".`);
   }
 
+  // Limite de MB do episódio, pela mesma regra do envio da pasta (o teto de
+  // 8 MB por arquivo já foi conferido na rota).
+  await envio.conferirTetoNaTroca(panels, painel.bytes, buffer.length);
+
   const caminho = await caminhoNovo(alvo, `painel-${String(pid).slice(-6)}.${arq.tipo === 'png' ? 'png' : 'jpg'}`);
   const url = await subir(buffer, caminho, arq.tipo);
 
   const antigo = await alvo.Model.findOneAndUpdate(
     { _id: alvo.id, ...alvo.guarda, 'panels._id': pid },
-    { $set: { 'panels.$.image_url': url, 'panels.$.largura': arq.largura, 'panels.$.altura': arq.altura }, $inc: { __v: 1 } },
+    { $set: { 'panels.$.image_url': url, 'panels.$.largura': arq.largura, 'panels.$.altura': arq.altura, 'panels.$.bytes': buffer.length }, $inc: { __v: 1 } },
     { new: false }
   ).select('panels thumbnail').lean();
   if (!antigo) {
@@ -294,10 +298,13 @@ async function trocarBalao({ user, episodeId, painelId, idioma, buffer }) {
   const alvo = await alvoDaEdicao(user, episodeId);
   await garantirIds(alvo);
   const arq = await conferirArquivo(buffer, { tiposAceitos: ['png'], mensagemTipo: 'O balão tem de ser PNG.' });
-  const painel = await lerPainel(alvo, pid);
+  const { painel, panels } = await lerPainel(alvo, pid, { comTodos: true });
   if (painel.largura && painel.altura && (arq.largura !== painel.largura || arq.altura !== painel.altura)) {
     throw erro(400, `O balão tem ${arq.largura}x${arq.altura}; o painel tem ${painel.largura}x${painel.altura}. O balão tem de ter o tamanho do painel.`);
   }
+  const balaoAtual = (painel.translationLayers || []).find(c => c.language === idioma);
+  await envio.conferirTetoNaTroca(panels, balaoAtual ? balaoAtual.bytes : 0, buffer.length);
+  const bytes = buffer.length;
 
   const caminho = await caminhoNovo(alvo, `balao-${String(pid).slice(-6)}-${idioma}.png`);
   const url = await subir(buffer, caminho, 'png');
@@ -309,7 +316,7 @@ async function trocarBalao({ user, episodeId, painelId, idioma, buffer }) {
     // 1) O painel já tem esse idioma: troca só a URL (e guarda a que sai).
     const troca = await alvo.Model.findOneAndUpdate(
       { ...base, panels: { $elemMatch: { _id: pid, 'translationLayers.language': idioma } } },
-      { $set: { 'panels.$[p].translationLayers.$[c].imageUrl': url }, $inc: { __v: 1 } },
+      { $set: { 'panels.$[p].translationLayers.$[c].imageUrl': url, 'panels.$[p].translationLayers.$[c].bytes': bytes }, $inc: { __v: 1 } },
       { new: false, arrayFilters: [{ 'p._id': pid }, { 'c.language': idioma }] }
     ).select('panels').lean();
     if (troca) {
@@ -322,13 +329,13 @@ async function trocarBalao({ user, episodeId, painelId, idioma, buffer }) {
     //    pedido o criou entre o passo 1 e este.
     const acrescenta = await alvo.Model.updateOne(
       { ...base, panels: { $elemMatch: { _id: pid, translationLayers: { $type: 'array' }, 'translationLayers.language': { $ne: idioma } } } },
-      { $push: { 'panels.$.translationLayers': { language: idioma, imageUrl: url } }, $inc: { __v: 1 } }
+      { $push: { 'panels.$.translationLayers': { language: idioma, imageUrl: url, bytes } }, $inc: { __v: 1 } }
     );
     if (acrescenta.matchedCount > 0) { gravou = true; break; }
     // 3) Painel antigo sem a lista de balões: cria a lista com este.
     const cria = await alvo.Model.updateOne(
       { ...base, panels: { $elemMatch: { _id: pid, translationLayers: null } } },
-      { $set: { 'panels.$.translationLayers': [{ language: idioma, imageUrl: url }] }, $inc: { __v: 1 } }
+      { $set: { 'panels.$.translationLayers': [{ language: idioma, imageUrl: url, bytes }] }, $inc: { __v: 1 } }
     );
     if (cria.matchedCount > 0) { gravou = true; break; }
 

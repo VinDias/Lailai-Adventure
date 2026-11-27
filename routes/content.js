@@ -271,6 +271,13 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
     const SeriesVote = require('../models/SeriesVote');
     const episodes = await Episode.find({ seriesId: req.params.id }).select('_id').lean();
     const episodeIds = episodes.map(e => e._id);
+    // Frente A, item 7: episódios com edição pendente, como estão ANTES de
+    // sumir (a limpeza da edição, depois, precisa saber o que era do ar).
+    const RevisaoEpisodio = require('../models/RevisaoEpisodio');
+    const comEdicao = await RevisaoEpisodio.find({ _id: { $in: episodeIds } }).select('_id').lean();
+    const episodiosComEdicao = comEdicao.length
+      ? await Episode.find({ _id: { $in: comEdicao.map(r => r._id) } }).select('panels thumbnail').lean()
+      : [];
     await Promise.all([
       Episode.deleteMany({ seriesId: req.params.id }),
       Favorite.deleteMany({ seriesId: req.params.id }),
@@ -282,6 +289,11 @@ router.delete('/series/:id', verifyToken, requireAdmin, async (req, res) => {
       require('../models/Sinalizacao').deleteMany({ seriesId: req.params.id }),
       require('../models/CasoCuradoria').deleteMany({ seriesId: req.params.id }),
     ]);
+    try {
+      await require('../services/revisaoEpisodioService').removerComOsEpisodios(episodiosComEdicao);
+    } catch (err) {
+      logger.error('[Content] DELETE /series/:id: edições pendentes não removidas', err);
+    }
     await Series.findByIdAndDelete(req.params.id);
     res.json({ success: true, message: 'Série e episódios removidos.' });
   } catch (err) {
@@ -590,6 +602,14 @@ router.delete('/episodes/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const episode = await Episode.findByIdAndDelete(req.params.id);
     if (!episode) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    // Frente A, item 7: a edição pendente do episódio (RevisaoEpisodio) sai
+    // junto, com os arquivos que só ela usava. Falha aqui não desfaz a
+    // remoção: fica no log.
+    try {
+      await require('../services/revisaoEpisodioService').removerComOsEpisodios([episode.toObject()]);
+    } catch (err) {
+      logger.error('[Content] DELETE /episodes/:id: edição pendente não removida', err);
+    }
     res.json({ success: true, message: 'Episódio removido.' });
   } catch (err) {
     logger.error('[Content] DELETE /episodes/:id', err);

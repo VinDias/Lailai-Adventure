@@ -642,3 +642,108 @@ describe('desistir, e o admin mexendo no ar com edição pendente', () => {
     expect((await RevisaoEpisodio.findById(episode._id).lean()).panels).toHaveLength(4);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pontas soltas dos itens 6 e 7 (27/11/2026).
+describe('admin apaga o episódio (ou a obra) que tem edição pendente', () => {
+  const apagarEpisodio = (ep) => com(request(app).delete(`/api/content/episodes/${ep._id}`), admin());
+
+  it('a edição sai junto e os arquivos que só ela usava saem do Bunny; os do episódio apagado ficam, como antes', async () => {
+    const autor = await criarAutor();
+    const { episode } = await publicado(autor);
+    const arquivosDoAr = [...noBunny.keys()];
+    await editarTudo(episode, autor);
+    const soDaEdicao = [...noBunny.keys()].filter(c => !arquivosDoAr.includes(c));
+    expect(soDaEdicao).toHaveLength(2);
+    expect((await enviarRevisao(episode, autor.token)).status).toBe(200);
+    expect((await fila()).some(i => i.tipo === 'revisao' && String(i.id) === String(episode._id))).toBe(true);
+    apagados.length = 0;
+
+    const res = await apagarEpisodio(episode);
+    expect(res.status).toBe(200);
+    expect(await Episode.countDocuments({ _id: episode._id })).toBe(0);
+    expect(await RevisaoEpisodio.countDocuments({ _id: episode._id })).toBe(0);
+    expect([...apagados].sort()).toEqual([...soDaEdicao].sort());
+    expect([...noBunny.keys()].sort()).toEqual([...arquivosDoAr].sort());
+    expect((await fila()).some(i => String(i.id) === String(episode._id))).toBe(false);
+  });
+
+  it('episódio sem edição: apagar continua igual e nada sai do Bunny', async () => {
+    const autor = await criarAutor();
+    const { episode } = await publicado(autor);
+    const res = await apagarEpisodio(episode);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true, message: 'Episódio removido.' });
+    expect(apagados).toEqual([]);
+  });
+
+  it('arquivo da edição que OUTRO episódio usa não é apagado', async () => {
+    const autor = await criarAutor();
+    const { episode } = await publicado(autor);
+    const doc = await Episode.findById(episode._id).lean();
+    expect((await trocarImagem(episode, String(doc.panels[0]._id), autor.token, await jpeg())).status).toBe(200);
+    const nova = (await RevisaoEpisodio.findById(episode._id).lean()).panels[0].image_url;
+    const outro = await publicado(autor, { n: 1, baloes: [] });
+    await Episode.updateOne({ _id: outro.episode._id }, { $set: { thumbnail: nova } });
+    apagados.length = 0;
+
+    expect((await apagarEpisodio(episode)).status).toBe(200);
+    expect(await RevisaoEpisodio.countDocuments({ _id: episode._id })).toBe(0);
+    expect(apagados).toEqual([]);
+    expect(noBunny.has(caminho(nova))).toBe(true);
+  });
+
+  it('apagar a OBRA inteira: as edições dos episódios dela saem, com os arquivos que só elas usavam', async () => {
+    const autor = await criarAutor();
+    const { episode, series } = await publicado(autor);
+    const arquivosDoAr = [...noBunny.keys()];
+    await editarTudo(episode, autor);
+    const soDaEdicao = [...noBunny.keys()].filter(c => !arquivosDoAr.includes(c));
+    apagados.length = 0;
+
+    const res = await com(request(app).delete(`/api/content/series/${series._id}`), admin());
+    expect(res.status).toBe(200);
+    expect(await RevisaoEpisodio.countDocuments({ seriesId: series._id })).toBe(0);
+    expect([...apagados].sort()).toEqual([...soDaEdicao].sort());
+  });
+});
+
+describe('Meu Estúdio: o contador de pendentes conta a edição na fila', () => {
+  const pendentes = async (autor) => {
+    const res = await com(request(app).get('/api/portal/meu-estudio'), autor.token);
+    expect(res.status).toBe(200);
+    return res.body.canais[0].pendentes;
+  };
+
+  it('edição em rascunho não conta; enviada conta 1; devolvida ou aprovada volta a 0', async () => {
+    const autor = await criarAutor();
+    const { episode } = await publicado(autor);
+    const segundo = await publicado(autor);
+    expect(await pendentes(autor)).toBe(0);
+
+    await editarTudo(episode, autor);
+    expect(await pendentes(autor)).toBe(0); // o autor ainda está mexendo
+    expect((await enviarRevisao(episode, autor.token)).status).toBe(200);
+    expect(await pendentes(autor)).toBe(1);
+
+    await editarTudo(segundo.episode, autor);
+    expect((await enviarRevisao(segundo.episode, autor.token)).status).toBe(200);
+    expect(await pendentes(autor)).toBe(2);
+
+    expect((await devolver(episode, 'Falta o balão do painel 2.')).status).toBe(200);
+    expect(await pendentes(autor)).toBe(1);
+    expect((await aprovar(segundo.episode)).status).toBe(200);
+    expect(await pendentes(autor)).toBe(0);
+  });
+
+  it('a edição de OUTRO autor não entra na conta', async () => {
+    const autor = await criarAutor();
+    const outro = await criarAutor();
+    await publicado(autor);
+    const { episode } = await publicado(outro);
+    await editarTudo(episode, outro);
+    expect((await enviarRevisao(episode, outro.token)).status).toBe(200);
+    expect(await pendentes(autor)).toBe(0);
+    expect(await pendentes(outro)).toBe(1);
+  });
+});
