@@ -1,0 +1,433 @@
+{
+ "_origem": "Pastas reais enviadas pelo Vin na 99 em 25/11/2026 (conversa 17712278): só nome, largura, altura e tamanho em bytes de cada arquivo, sem as imagens (ficam fora do git, em lorfrux/docs/exemplos-vin-2026-11-25/).",
+ "haqaStoneEp3": [
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 000.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 161453
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 001.jpg",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 1014749
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 001_ENG.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 110928
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 001_ESP.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 111552
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 001_PORT.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 113675
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 001_ZHO.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 105803
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 002.jpg",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 999123
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 002_ENG.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 123130
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 002_ESP.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 128294
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 002_PORT.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 126690
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 002_ZHO.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 122882
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 003.jpg",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 1020221
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 003_ENG.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 192521
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 003_ESP.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 194524
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 003_PORT.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 193461
+  },
+  {
+   "nome": "HáQa Stone T1 -EP3/Pagina 003_ZHO.png",
+   "largura": 800,
+   "altura": 12500,
+   "tamanho": 191286
+  }
+ ],
+ "nearOnesEp6": [
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 000.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 192385
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 001.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 187512
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 002.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 119310
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 003.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 101945
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 004.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 60171
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 005.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 104240
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 006.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 113872
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 007.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 100508
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 008.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 102459
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 009.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 114660
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 010.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 98002
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 011.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 108131
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 012.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 59720
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 013.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 96617
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 014.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 95487
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 015.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 100101
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 016.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 107739
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 017.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 86896
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 018.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 80560
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 019.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 80982
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 020.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 102120
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 021.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 122143
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/art/panel 022.jpg",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 181091
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_en/panel 008_ENG.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 93687
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_en/panel 009_ENG.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 98103
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_en/panel 010_ENG.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 138572
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_en/panel 011_ENG.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 125994
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_en/panel 013_ENG.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 123390
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_en/panel 015_ENG.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 141663
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_en/panel 016_ENG.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 49048
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_en/panel 017_ENG.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 95376
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_es/panel 008_ESP.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 98826
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_es/panel 009_ESP.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 102816
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_es/panel 010_ESP.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 144204
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_es/panel 011_ESP.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 127557
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_es/panel 013_ESP.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 125202
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_es/panel 015_ESP.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 150388
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_es/panel 016_ESP.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 48072
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_es/panel 017_ESP.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 99746
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_pt/panel 008_PORT.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 97710
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_pt/panel 009_PORT.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 103252
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_pt/panel 010_PORT.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 139516
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_pt/panel 011_PORT.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 133668
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_pt/panel 013_PORT.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 122267
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_pt/panel 015_PORT.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 146757
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_pt/panel 016_PORT.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 51302
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_pt/panel 017_PORT.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 100638
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_zh/panel 008_ZHO.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 96891
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_zh/panel 009_ZHO.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 95680
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_zh/panel 010_ZHO.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 141049
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_zh/panel 011_ZHO.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 128856
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_zh/panel 013_ZHO.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 132740
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_zh/panel 015_ZHO.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 146490
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_zh/panel 016_ZHO.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 52055
+  },
+  {
+   "nome": "The Near Ones - T1 - EP6/dialog_zh/panel 017_ZHO.png",
+   "largura": 800,
+   "altura": 1280,
+   "tamanho": 95377
+  }
+ ]
+}

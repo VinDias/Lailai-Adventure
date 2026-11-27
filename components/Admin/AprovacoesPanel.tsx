@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardCheck, Check, RotateCcw, X } from 'lucide-react';
+import { ClipboardCheck, Check, RotateCcw, X, BookOpen, Play } from 'lucide-react';
 import { api } from '../../services/api';
 import { TagsChipInput } from './AdminDashboard';
 import ImageWithFallback from '../ImageWithFallback';
+import WebtoonReader from '../WebtoonReader';
+import VerticalPlayer from '../VerticalPlayer';
+import { NOME_BOTAO } from '../../utils/contentTypeLabels';
 
 /**
  * Fila de Aprovação (Fase 5 Bloco 1, Task 10) — admin, sempre em PT (sem
@@ -15,7 +18,10 @@ import ImageWithFallback from '../ImageWithFallback';
  */
 
 interface ItemAprovacao {
-  tipo: 'series' | 'episode';
+  // 'revisao' (frente A, item 7): edição de um episódio JÁ publicado; `id` é
+  // o id do episódio, `panelCount` os painéis da edição e `panelCountNoAr` os
+  // da versão que o leitor vê hoje.
+  tipo: 'series' | 'episode' | 'revisao';
   id: string;
   title: string;
   description?: string | null;
@@ -26,6 +32,7 @@ interface ItemAprovacao {
   genre?: string | null;
   tags?: string[];
   panelCount?: number;
+  panelCountNoAr?: number;
   serie?: { id: string; title: string; isPublished: boolean } | null;
   canal?: { id: string; name: string | null } | null;
   submittedAt: string;
@@ -34,7 +41,13 @@ interface ItemAprovacao {
   // `decisao:'remover'` da série (routes/adminPortal.js:262); `motivo` é o
   // `motivoDecisao` do caso e pode ser null. Só existe em item de série.
   removidaPelaCuradoria?: { decisaoEm: string; motivo: string | null } | null;
+  // Frente A, item 10: tipo da obra (hiqua, vcine = V-Show, hqcine = Anicom)
+  // e, em episódio de obra de vídeo, o vídeo enviado pelo autor.
+  content_type?: string;
+  video?: { videoId: string | null; pronto: boolean; estado: string } | null;
 }
+
+const ehDeVideo = (it: { content_type?: string }) => it.content_type === 'vcine' || it.content_type === 'hqcine';
 
 const RATING_LABEL: Record<string, string> = { kids: 'Kids', teen: 'Teen', young: 'Young' };
 
@@ -63,6 +76,10 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
   const [devolverAlvo, setDevolverAlvo] = useState<ItemAprovacao | null>(null);
   const [devolverTexto, setDevolverTexto] = useState('');
   const [devolvendo, setDevolvendo] = useState(false);
+  // Frente A, item 8: episódio da fila aberto no leitor (o mesmo do público).
+  const [lendo, setLendo] = useState<ItemAprovacao | null>(null);
+  // Frente A, item 10: vídeo do episódio da fila aberto no player do site.
+  const [assistindo, setAssistindo] = useState<ItemAprovacao | null>(null);
 
   const chave = (it: ItemAprovacao) => `${it.tipo}:${it.id}`;
 
@@ -108,6 +125,8 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
         const tags = tagsDrafts[k] ?? it.tags ?? [];
         const content_rating = ratingAtualDe(it) as 'kids' | 'teen' | 'young' | '';
         await api.aprovarSerieAdmin(it.id, { genre, tags, content_rating });
+      } else if (it.tipo === 'revisao') {
+        await api.aprovarRevisaoAdmin(it.id);
       } else {
         await api.aprovarEpisodioAdmin(it.id);
       }
@@ -164,7 +183,8 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
             // checagem é só UX: evita a viagem de rede previsível.
             const podeAprovarSerie = generoAtual.trim().length > 0 && ratingAtual.trim().length > 0;
             const serieNaoPublicada = it.tipo === 'episode' && it.serie && !it.serie.isPublished;
-            const podeAprovar = it.tipo === 'series' ? podeAprovarSerie : !serieNaoPublicada;
+            const videoNaoPronto = it.tipo === 'episode' && ehDeVideo(it) && !it.video?.pronto;
+            const podeAprovar = it.tipo === 'series' ? podeAprovarSerie : !serieNaoPublicada && !videoNaoPronto;
             const ocupado = busyKey === k;
 
             return (
@@ -176,8 +196,13 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-rose-600/15 text-rose-400">
-                      {it.tipo === 'series' ? 'Série' : 'Episódio'}
+                      {it.tipo === 'series' ? 'Série' : it.tipo === 'revisao' ? 'Edição de publicado' : 'Episódio'}
                     </span>
+                    {ehDeVideo(it) && (
+                      <span data-testid={`aprovacao-tipo-${it.id}`} className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-sky-600/15 text-sky-400">
+                        {NOME_BOTAO[it.content_type as string]}
+                      </span>
+                    )}
                     {it.canal?.name && <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{it.canal.name}</span>}
                     {it.content_rating_sugerida && (
                       <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">
@@ -193,12 +218,25 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
                       Removida pela curadoria em {new Date(it.removidaPelaCuradoria.decisaoEm).toLocaleDateString('pt-BR')}{it.removidaPelaCuradoria.motivo ? ` — ${it.removidaPelaCuradoria.motivo}` : ''}
                     </p>
                   )}
-                  {it.tipo === 'episode' && it.serie && (
+                  {it.tipo !== 'series' && it.serie && (
                     <p className="text-xs text-zinc-500 font-bold">Série: {it.serie.title} {it.serie.isPublished ? '(publicada)' : '(não publicada)'}</p>
                   )}
+                  {it.tipo === 'revisao' && (
+                    <p className="text-xs text-amber-500 font-bold mt-1">
+                      O episódio já está no ar. Aprovar troca os painéis pelos desta edição, sem novo aviso de capítulo; devolver não muda nada no ar.
+                    </p>
+                  )}
                   {it.description && <p className="text-sm text-zinc-500 mt-1 line-clamp-2">{it.description}</p>}
-                  {it.tipo === 'episode' && typeof it.panelCount === 'number' && (
+                  {it.tipo === 'episode' && !ehDeVideo(it) && typeof it.panelCount === 'number' && (
                     <p className="text-[10px] text-zinc-600 font-bold mt-1">{it.panelCount} painéis</p>
+                  )}
+                  {it.tipo === 'episode' && ehDeVideo(it) && (
+                    <p className={`text-[10px] font-bold mt-1 ${it.video?.pronto ? 'text-zinc-600' : 'text-amber-500'}`}>
+                      {it.video?.pronto ? 'Vídeo pronto' : 'O vídeo deste episódio não está pronto: não dá para aprovar ainda.'}
+                    </p>
+                  )}
+                  {it.tipo === 'revisao' && typeof it.panelCount === 'number' && (
+                    <p className="text-[10px] text-zinc-600 font-bold mt-1">{it.panelCount} painéis na edição (no ar: {it.panelCountNoAr ?? '?'})</p>
                   )}
 
                   {it.tipo === 'series' && (
@@ -248,6 +286,22 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
                     >
                       <Check size={14} /> {ocupado ? 'Aprovando...' : 'Aprovar'}
                     </button>
+                    {it.tipo === 'episode' && ehDeVideo(it) && it.video?.videoId && (
+                      <button
+                        onClick={() => setAssistindo(it)}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-[var(--border-color)] rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                      >
+                        <Play size={14} /> Ver vídeo
+                      </button>
+                    )}
+                    {it.tipo !== 'series' && !ehDeVideo(it) && (
+                      <button
+                        onClick={() => setLendo(it)}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-[var(--border-color)] rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                      >
+                        <BookOpen size={14} /> {it.tipo === 'revisao' ? 'Ler edição' : 'Ler episódio'}
+                      </button>
+                    )}
                     <button
                       onClick={() => abrirDevolver(it)}
                       disabled={ocupado}
@@ -261,6 +315,36 @@ const AprovacoesPanel: React.FC<AprovacoesPanelProps> = ({ onCountChange, onNaoC
             );
           })}
         </div>
+      )}
+
+      {lendo && (
+        <WebtoonReader
+          webtoon={{
+            id: lendo.id, episodeId: lendo.id, seriesId: lendo.serie?.id, titulo: lendo.title,
+            categoria: '', descricao: lendo.description ?? '', numeroPaineis: lendo.panelCount ?? 0,
+            isPremium: false, thumbnailUrl: lendo.thumbnail ?? '', criadoEm: lendo.submittedAt,
+          }}
+          user={null}
+          onClose={() => setLendo(null)}
+          previa={{ carregar: () => (lendo.tipo === 'revisao' ? api.getLeituraRevisao(lendo.id) : api.getLeituraAprovacao(lendo.id)) }}
+        />
+      )}
+
+      {/* Item 10: o MESMO player do público, em prévia (sem anúncio, sem voto,
+          sem progresso). A URL assinada do rascunho só sai para admin ou dono. */}
+      {assistindo && assistindo.video?.videoId && (
+        <VerticalPlayer
+          previa
+          user={null}
+          onClose={() => setAssistindo(null)}
+          video={{
+            id: assistindo.id, seriesId: assistindo.serie?.id, titulo: assistindo.title,
+            categoria: '', descricao: assistindo.description ?? '', duracao: 0, arquivoUrl: '',
+            bunnyVideoId: assistindo.video.videoId, thumbnailUrl: assistindo.thumbnail ?? '',
+            isPremium: false, criadoEm: assistindo.submittedAt,
+            type: assistindo.content_type === 'hqcine' ? 'hqcine' : 'vcine',
+          }}
+        />
       )}
 
       {devolverAlvo && (

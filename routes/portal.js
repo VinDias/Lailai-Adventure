@@ -20,6 +20,9 @@ const MensagemPortal = require('../models/MensagemPortal');
 const RoyaltyPeriod = require('../models/RoyaltyPeriod');
 const { parsePeriod, periodoAtual, buildReport, buildSuperReaderSummary } = require('../services/royaltyReportService');
 const { addPanels, setTranslationLayer } = require('../services/episodePanelService');
+const RevisaoEpisodio = require('../models/RevisaoEpisodio');
+const revisaoService = require('../services/revisaoEpisodioService');
+const videoAutor = require('../services/videoAutorService');
 
 router.use(verifyToken);
 
@@ -56,11 +59,18 @@ router.get('/meu-estudio', requireCanalDoUsuario, async (req, res) => {
       const seriesIds = seriesDoCanal.map(s => s._id);
       const seriesPendentes = seriesDoCanal.filter(s => s.submittedAt && !s.isPublished).length;
 
-      const [episodiosPendentes, mensagensNaoLidas] = await Promise.all([
+      const [episodiosPendentes, edicoesPendentes, mensagensNaoLidas] = await Promise.all([
         Episode.countDocuments({
           seriesId: { $in: seriesIds },
           submittedAt: { $ne: null },
           status: { $ne: 'published' },
+        }),
+        // Frente A, item 7: edição de episódio publicado que está na fila do
+        // moderador também é coisa pendente de aprovação ('aprovando' é a
+        // trava de segundos durante a aprovação).
+        RevisaoEpisodio.countDocuments({
+          seriesId: { $in: seriesIds },
+          status: { $in: ['enviada', 'aprovando'] },
         }),
         // Thread vigente do usuário: canal + ownerUserId = ele mesmo (o
         // dono atual — troca de dono arquiva a thread anterior, T1), só
@@ -80,8 +90,9 @@ router.get('/meu-estudio', requireCanalDoUsuario, async (req, res) => {
         avatar: canal.avatar ?? null,
         obras: seriesDoCanal.length,
         // "Pendentes de aprovação" = submittedAt preenchido e ainda não
-        // publicado, somando séries e capítulos (spec).
-        pendentes: seriesPendentes + episodiosPendentes,
+        // publicado, somando séries e capítulos (spec), mais as edições de
+        // episódio publicado que estão na fila.
+        pendentes: seriesPendentes + episodiosPendentes + edicoesPendentes,
         mensagensNaoLidas,
       };
     }));
@@ -245,7 +256,7 @@ async function serieDoDono(seriesId, portalChannelIds) {
 async function episodioDoDono(episodeId, portalChannelIds) {
   const episode = await Episode.findById(episodeId);
   if (!episode) return null;
-  const series = await Series.findById(episode.seriesId).select('channelId isPublished submittedAt').lean();
+  const series = await Series.findById(episode.seriesId).select('title content_type channelId isPublished submittedAt').lean();
   if (!series || !series.channelId || !portalChannelIds.includes(String(series.channelId))) {
     return null;
   }
@@ -253,17 +264,25 @@ async function episodioDoDono(episodeId, portalChannelIds) {
 }
 
 // POST /api/portal/series — cria série DRAFT no canal do usuário.
-// content_type: 'hiqua' PINADO no servidor (o body é IGNORADO — allowlist
-// explícita, spread nunca do req.body inteiro); isPublished: false forçado;
-// sem genre (o Master preenche na aprovação, T1). `tags` (até 8 do
-// vocabulário fechado) ENTRA aqui desde o Bloco 2, Task 6 — ver
-// PORTAL_SERIES_FIELDS acima.
+// content_type: até a frente A era PINADO em 'hiqua'. Desde o item 9 (Fase 7)
+// o autor escolhe o tipo NA CRIAÇÃO: 'hiqua' (padrão, quando não vem),
+// 'vcine' (V-Show) ou 'hqcine' (Anicom); qualquer outro valor é 400. Depois de
+// criada a obra o tipo não muda (o PUT continua ignorando content_type).
+// isPublished: false forçado; sem genre (o Master preenche na aprovação, T1).
+// `tags` (até 8 do vocabulário fechado) ENTRA aqui desde o Bloco 2, Task 6 —
+// ver PORTAL_SERIES_FIELDS acima.
 router.post('/series', requireCanalDoUsuario, async (req, res) => {
   try {
     const dados = pick(req.body, PORTAL_SERIES_FIELDS);
     if (!dados.title || !String(dados.title).trim()) {
       return res.status(400).json({ error: 'title é obrigatório.' });
     }
+
+    const tipoPedido = req.body.content_type;
+    if (tipoPedido !== undefined && tipoPedido !== null && tipoPedido !== '' && !videoAutor.TIPOS_DO_PORTAL.includes(tipoPedido)) {
+      return res.status(400).json({ error: 'Tipo de obra inválido. Use hiqua (Hi-Qua), vcine (V-Show) ou hqcine (Anicom).' });
+    }
+    const contentType = tipoPedido || 'hiqua';
 
     // channelId: obrigatório só quando o dono tem mais de um canal ativo —
     // com um só, o default é óbvio e o form nem precisa perguntar.
@@ -289,8 +308,8 @@ router.post('/series', requireCanalDoUsuario, async (req, res) => {
     const series = await Series.create({
       ...dados,
       channelId,
-      content_type: 'hiqua', // PINADO — depois do spread, vence qualquer content_type do body
-      isPublished: false,    // PINADO — idem
+      content_type: contentType, // conferido acima: só os 3 tipos do portal
+      isPublished: false,        // PINADO — depois do spread, vence o body
       ...(translations ? { translations } : {}),
     });
 
@@ -407,6 +426,10 @@ router.post('/episodios/:id/paineis', requireCanalDoUsuario, async (req, res) =>
     if (achado.episode.status !== 'draft') {
       return res.status(403).json({ error: 'Só é possível adicionar painéis a um episódio em rascunho.' });
     }
+    // Obra de vídeo (V-Show, Anicom; item 9): o episódio recebe vídeo, não painéis.
+    if (videoAutor.ehObraDeVideo(achado.series)) {
+      return res.status(400).json({ error: 'Esta obra é de vídeo: envie o vídeo do episódio, não painéis.' });
+    }
     // Submetido ainda tem status 'draft' — sem este check, o ilustrador
     // anexaria o painel N+1 ENQUANTO o Master revisa, e ele iria ao ar sem
     // revisão na aprovação. Devolvido (submittedAt limpo) volta a aceitar.
@@ -482,11 +505,23 @@ router.post('/series/:id/enviar', requireCanalDoUsuario, async (req, res) => {
     // novo só para destravar o reenvio, contra a promessa de que ele pode
     // corrigir e reenviar. O que protege a fila de obra vazia é existir painel,
     // não o estado do capítulo.
-    const episodioComPainel = await Episode.exists({
-      seriesId: series._id,
-      'panels.0': { $exists: true },
-    });
-    if (!episodioComPainel) faltando.push('ao menos um episódio com painéis');
+    if (videoAutor.ehObraDeVideo(series)) {
+      // Frente A, item 10: obra de V-Show ou Anicom. O que protege a fila de
+      // obra vazia é existir um episódio com o vídeo PRONTO (o do autor,
+      // processado; ou um que já tem endereço, de obra removida pela
+      // curadoria e reenviada).
+      const episodioComVideo = await Episode.exists({
+        seriesId: series._id,
+        $or: [{ 'videoEnvio.estado': 'pronto' }, { video_url: { $nin: [null, ''] } }],
+      });
+      if (!episodioComVideo) faltando.push('ao menos um episódio com o vídeo pronto');
+    } else {
+      const episodioComPainel = await Episode.exists({
+        seriesId: series._id,
+        'panels.0': { $exists: true },
+      });
+      if (!episodioComPainel) faltando.push('ao menos um episódio com painéis');
+    }
 
     if (faltando.length > 0) {
       return res.status(400).json({ error: `Não é possível enviar para aprovação: falta ${faltando.join(' e ')}.` });
@@ -528,7 +563,17 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
     if (episode.submittedAt) {
       return res.status(400).json({ error: 'Episódio já enviado para aprovação — aguarde a revisão do editor.' });
     }
-    if (!episode.panels || episode.panels.length === 0) {
+    // Frente A, item 10: episódio de obra de vídeo vai para a fila com o
+    // vídeo PRONTO, e só depois que a autorização de envio do autor venceu
+    // (services/videoAutorService.js, travaDeEnvio).
+    const deVideo = videoAutor.ehObraDeVideo(series);
+    if (deVideo) {
+      if (!videoAutor.temVideoPronto(episode)) {
+        return res.status(400).json({ error: 'Envie o vídeo do episódio e espere ele ficar pronto antes de enviar para aprovação.' });
+      }
+      const trava = videoAutor.travaDeEnvio(episode);
+      if (trava) return res.status(400).json({ error: videoAutor.mensagemDaTrava(trava), liberaEm: trava });
+    } else if (!episode.panels || episode.panels.length === 0) {
       return res.status(400).json({ error: 'Adicione ao menos um painel antes de enviar para aprovação.' });
     }
     if (!series.isPublished && !series.submittedAt) {
@@ -537,7 +582,7 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
       });
     }
 
-    if (!episode.thumbnail) {
+    if (!episode.thumbnail && !deVideo) {
       episode.thumbnail = episode.panels[0].image_url;
     }
     episode.submittedAt = new Date();
@@ -547,6 +592,117 @@ router.post('/episodios/:id/enviar', requireCanalDoUsuario, async (req, res) => 
     if (responderCastError(err, res, 'Episódio não encontrado.')) return;
     logger.error('[Portal] POST /episodios/:id/enviar', err);
     res.status(500).json({ error: 'Erro ao enviar episódio para aprovação.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Vídeo do episódio de V-Show e Anicom, enviado pelo autor (Fase 7, frente A,
+// item 9). O arquivo vai do navegador direto ao Bunny Stream (TUS); aqui o
+// dono pede a autorização de curta duração e acompanha o estado do vídeo.
+// Regras em services/videoAutorService.js. Vídeo pronto NÃO publica: o
+// episódio segue rascunho até a aprovação na fila (risco R9).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// POST /api/portal/episodios/:id/video/autorizacao — só o dono do canal da
+// obra (outro autor: 404; quem não tem canal, inclusive admin: 403 da guarda
+// do portal). Body opcional: { tamanho (bytes), tipo (MIME), renovar }.
+// Devolve o que o navegador precisa para o envio TUS: endpoint, id do vídeo,
+// id da biblioteca, validade e assinatura. A chave da biblioteca não sai do
+// servidor.
+router.post('/episodios/:id/video/autorizacao', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const achado = await episodioDoDono(req.params.id, req.portalChannelIds);
+    if (!achado) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    const autorizacao = await videoAutor.autorizarEnvio({
+      episode: achado.episode,
+      series: achado.series,
+      tamanho: req.body?.tamanho,
+      tipo: req.body?.tipo,
+      renovar: req.body?.renovar === true,
+    });
+    logger.info(`[Portal] Autorização de envio de vídeo: episódio ${achado.episode._id}, vídeo ${autorizacao.videoId}`);
+    res.json(autorizacao);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[Portal] POST /episodios/:id/video/autorizacao', err);
+    res.status(500).json({ error: 'Erro ao preparar o envio do vídeo.' });
+  }
+});
+
+// GET /api/portal/episodios/:id/video — estado do vídeo do episódio do dono:
+// sem-video | enviando | processando | pronto | erro. É o que o Meu Estúdio
+// consulta para avisar "vídeo pronto".
+router.get('/episodios/:id/video', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const achado = await episodioDoDono(req.params.id, req.portalChannelIds);
+    if (!achado) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    res.json(await videoAutor.consultarEstado(achado.episode));
+  } catch (err) {
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[Portal] GET /episodios/:id/video', err);
+    res.status(500).json({ error: 'Erro ao consultar o vídeo.' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Edição de episódio PUBLICADO com aprovação (Fase 7, frente A, item 7).
+// As mudanças do autor (grade de painéis e reenvio da pasta) ficam numa
+// revisão (models/RevisaoEpisodio.js); o episódio no ar não muda até o
+// moderador aprovar. Aqui: o autor vê as revisões das obras dele, envia para
+// aprovação e desiste. Regras em services/revisaoEpisodioService.js.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /api/portal/series/:id/revisoes — as edições em andamento dos episódios
+// da própria série (sem os painéis): estado, data de envio e o motivo da
+// última devolução, que é o que o Meu Estúdio mostra em cada capítulo.
+router.get('/series/:id/revisoes', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const series = await serieDoDono(req.params.id, req.portalChannelIds);
+    if (!series) return res.status(404).json({ error: 'Série não encontrada.' });
+    const revisoes = await RevisaoEpisodio.find({ seriesId: series._id })
+      .select('status submittedAt devolucao updatedAt panels._id')
+      .lean();
+    res.json({ revisoes: revisoes.map(revisaoService.resumo) });
+  } catch (err) {
+    if (responderCastError(err, res, 'Série não encontrada.')) return;
+    logger.error('[Portal] GET /series/:id/revisoes', err);
+    res.status(500).json({ error: 'Erro ao listar as edições.' });
+  }
+});
+
+// POST /api/portal/episodios/:id/revisao/enviar — manda a edição do episódio
+// publicado para a fila do moderador. A partir daqui o autor não mexe mais
+// nela até a aprovação ou a devolução.
+router.post('/episodios/:id/revisao/enviar', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const achado = await episodioDoDono(req.params.id, req.portalChannelIds);
+    if (!achado) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    if (achado.episode.status !== 'published') {
+      return res.status(400).json({ error: 'Só episódio publicado tem edição para aprovar. Rascunho se envia pelo "Enviar para aprovação".' });
+    }
+    res.json({ revisao: await revisaoService.enviarParaAprovacao(achado.episode._id) });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[Portal] POST /episodios/:id/revisao/enviar', err);
+    res.status(500).json({ error: 'Erro ao enviar a edição para aprovação.' });
+  }
+});
+
+// DELETE /api/portal/episodios/:id/revisao — o autor desiste da edição (só
+// enquanto não enviou). O episódio no ar continua como está; os arquivos que
+// só a edição usava saem do Bunny.
+router.delete('/episodios/:id/revisao', requireCanalDoUsuario, async (req, res) => {
+  try {
+    const achado = await episodioDoDono(req.params.id, req.portalChannelIds);
+    if (!achado) return res.status(404).json({ error: 'Episódio não encontrado.' });
+    res.json(await revisaoService.descartar(achado.episode._id));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[Portal] DELETE /episodios/:id/revisao', err);
+    res.status(500).json({ error: 'Erro ao descartar a edição.' });
   }
 });
 

@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Lock, Send } from 'lucide-react';
+import { X, Send } from 'lucide-react';
 import { api } from '../services/api';
+import type { RevisaoResumo } from '../services/api';
 import { useT } from '../contexts/I18nContext';
 import type { TFunction } from '../contexts/I18nContext';
 import { useCamadaVoltar } from '../utils/pilhaVoltar';
-import { NOME_ABA } from '../utils/contentTypeLabels';
+import { NOME_BOTAO } from '../utils/contentTypeLabels';
 import { formatarValorMonetario } from '../utils/currency';
 import ImageWithFallback from './ImageWithFallback';
+import EnvioPastaEpisodio from './EnvioEpisodio/EnvioPastaEpisodio';
+import GradePaineis from './EnvioEpisodio/GradePaineis';
+import EnvioVideoEpisodio from './EnvioEpisodio/EnvioVideoEpisodio';
 // Fonte ÚNICA dos 19 slugs do vocabulário fechado de tags (Fase 5 Bloco 2) —
 // MESMO JSON que o backend (utils/tagsVocabulario.js) e o TagsChipInput do
 // admin (spec, "O vocabulário": chips sempre pelo IMPORT do JSON, nunca uma
@@ -15,6 +19,13 @@ import ImageWithFallback from './ImageWithFallback';
 import TAGS_VOCABULARIO from '../utils/tagsVocabulario.json';
 
 type Aba = 'numeros' | 'obras' | 'mensagens';
+
+// Frente A, item 9: os tipos de obra que o autor cria no portal. Hi-Qua
+// (quadrinhos) recebe painéis; V-Show e Anicom recebem um vídeo por episódio.
+// Rótulos SEMPRE de utils/contentTypeLabels.ts, nunca escritos aqui.
+type TipoDeObra = 'hiqua' | 'vcine' | 'hqcine';
+const TIPOS_DE_OBRA: TipoDeObra[] = ['hiqua', 'vcine', 'hqcine'];
+const ehObraDeVideo = (s: { content_type?: string } | null | undefined) => s?.content_type === 'vcine' || s?.content_type === 'hqcine';
 
 const TAGS_MAXIMO = 8;
 
@@ -174,6 +185,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [obraDescription, setObraDescription] = useState('');
   const [obraRating, setObraRating] = useState<'' | 'kids' | 'teen' | 'young'>('');
   const [obraTags, setObraTags] = useState<string[]>([]);
+  const [obraTipo, setObraTipo] = useState<TipoDeObra>('hiqua');
   const [obraCoverFile, setObraCoverFile] = useState<File | null>(null);
   const [creatingObra, setCreatingObra] = useState(false);
   const [createObraError, setCreateObraError] = useState<string | null>(null);
@@ -181,7 +193,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   useCamadaVoltar(showCreateObra, () => setShowCreateObra(false));
 
   const abrirCriarObra = () => {
-    setObraTitle(''); setObraDescription(''); setObraRating(''); setObraTags([]); setObraCoverFile(null);
+    setObraTitle(''); setObraDescription(''); setObraRating(''); setObraTags([]); setObraCoverFile(null); setObraTipo('hiqua');
     setCreateObraError(null);
     setShowCreateObra(true);
   };
@@ -204,6 +216,8 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     let created: any;
     try {
       const payload: any = { title: obraTitle, description: obraDescription, content_rating_sugerida: obraRating || null, tags: obraTags };
+      // Hi-Qua é o padrão do servidor: o tipo só vai quando é obra de vídeo.
+      if (obraTipo !== 'hiqua') payload.content_type = obraTipo;
       if (canalIdParaEnvio) payload.channelId = canalIdParaEnvio;
       created = await api.createPortalSeries(payload);
     } catch (err: any) {
@@ -295,6 +309,19 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const [episodesOfSelected, setEpisodesOfSelected] = useState<any[]>([]);
   const [episodesLoading, setEpisodesLoading] = useState(false);
 
+  // Frente A, item 7: edições em andamento dos episódios PUBLICADOS da obra
+  // aberta (id do episódio -> resumo). Pedido à parte e que pode falhar sem
+  // derrubar a lista de capítulos.
+  const [revisoes, setRevisoes] = useState<Record<string, RevisaoResumo>>({});
+  const carregarRevisoes = useCallback(async (seriesId: string) => {
+    try {
+      const r = await api.getPortalRevisoes(seriesId);
+      setRevisoes(Object.fromEntries((r?.revisoes ?? []).map(x => [x.episodeId, x])));
+    } catch {
+      setRevisoes({});
+    }
+  }, []);
+
   const carregarEpisodios = useCallback(async (seriesId: string) => {
     setEpisodesLoading(true);
     try {
@@ -305,7 +332,8 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
     } finally {
       setEpisodesLoading(false);
     }
-  }, []);
+    carregarRevisoes(seriesId);
+  }, [carregarRevisoes]);
 
   const toggleSeries = (id: string) => {
     if (selectedSeriesId === id) { setSelectedSeriesId(null); return; }
@@ -386,6 +414,92 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
   const alvosDasCamadas = useRef(new Map<File, { lang: string; indice: number }>());
 
   useCamadaVoltar(!!panelsModalFor, () => setPanelsModalFor(null));
+
+  // Frente A, itens 2 e 4: a pasta inteira do episódio, com conferência e
+  // envio em partes (components/EnvioEpisodio). O "Gerenciar painéis" de
+  // antes continua para ajustes avulsos.
+  const [envioPastaFor, setEnvioPastaFor] = useState<any | null>(null);
+  useCamadaVoltar(!!envioPastaFor, () => setEnvioPastaFor(null));
+
+  // Frente A, item 6: grade de painéis do capítulo (a mesma do admin): apagar,
+  // trocar a imagem de um painel, trocar ou remover o balão de um idioma.
+  // Item 7: em capítulo PUBLICADO (`publicado: true`) a grade mostra e muda a
+  // EDIÇÃO do capítulo, nunca o que está no ar: os painéis vêm do servidor
+  // (a edição, se já existe; senão os do ar) e as mudanças não entram na
+  // lista de capítulos, que continua com a versão publicada.
+  const [gradeFor, setGradeFor] = useState<any | null>(null);
+  useCamadaVoltar(!!gradeFor, () => setGradeFor(null));
+
+  // Frente A, item 9: envio do vídeo do episódio de V-Show ou Anicom, direto
+  // do navegador ao Bunny (components/EnvioEpisodio/EnvioVideoEpisodio).
+  const [envioVideoFor, setEnvioVideoFor] = useState<any | null>(null);
+  useCamadaVoltar(!!envioVideoFor, () => setEnvioVideoFor(null));
+  const mudarEstadoDoVideo = (episodeId: string, estado: string) => {
+    setEpisodesOfSelected(prev => prev.map(ep => (ep._id === episodeId ? { ...ep, videoEnvio: { ...(ep.videoEnvio ?? {}), estado } } : ep)));
+  };
+  // Capítulo com vídeo ainda processando: pergunta ao servidor de tempos em
+  // tempos, para o "vídeo pronto" aparecer na lista sem recarregar a tela.
+  const processandoIds = episodesOfSelected.filter(ep => ep.videoEnvio?.estado === 'processando').map(ep => ep._id).join(',');
+  useEffect(() => {
+    if (!processandoIds || envioVideoFor) return;
+    const ids = processandoIds.split(',');
+    const timer = setInterval(() => {
+      ids.forEach(id => {
+        api.getEstadoVideoEpisodio(id)
+          .then(r => { if (r.estado !== 'processando') mudarEstadoDoVideo(id, r.estado); })
+          .catch(() => {});
+      });
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [processandoIds, envioVideoFor]);
+  const [gradeErro, setGradeErro] = useState<string | null>(null);
+  const mudarPaineisDaGrade = (atualizar: (paineis: any[]) => any[]) => {
+    if (!gradeFor) return;
+    const id = gradeFor._id;
+    setGradeFor((prev: any) => (prev && prev._id === id ? { ...prev, panels: atualizar(prev.panels ?? []) } : prev));
+    if (gradeFor.publicado) {
+      if (selectedSeriesId) carregarRevisoes(selectedSeriesId);
+      return;
+    }
+    setEpisodesOfSelected(prev => prev.map(ep => (ep._id === id ? { ...ep, panels: atualizar(ep.panels ?? []) } : ep)));
+  };
+
+  const abrirGradeDoPublicado = async (ep: any) => {
+    setGradeErro(null);
+    try {
+      const r = await api.getPaineisEdicao(ep._id);
+      setGradeFor({ ...ep, panels: r.panels ?? [], publicado: true, somenteLeitura: !r.podeEditar });
+    } catch (err: any) {
+      setGradeErro(err?.message || t('portal.errors.generic'));
+    }
+  };
+
+  const [revisaoOcupada, setRevisaoOcupada] = useState<string | null>(null);
+  const handleEnviarRevisao = async (episodeId: string) => {
+    setGradeErro(null);
+    setRevisaoOcupada(episodeId);
+    try {
+      const r = await api.enviarRevisaoEpisodio(episodeId);
+      setRevisoes(prev => ({ ...prev, [episodeId]: r.revisao }));
+    } catch (err: any) {
+      setGradeErro(err?.message || t('portal.errors.generic'));
+    } finally {
+      setRevisaoOcupada(null);
+    }
+  };
+  const handleDescartarRevisao = async (episodeId: string) => {
+    if (!confirm(t('revisao.confirmarDescartar'))) return;
+    setGradeErro(null);
+    setRevisaoOcupada(episodeId);
+    try {
+      await api.descartarRevisaoEpisodio(episodeId);
+      setRevisoes(prev => { const { [episodeId]: _fora, ...resto } = prev; return resto; });
+    } catch (err: any) {
+      setGradeErro(err?.message || t('portal.errors.generic'));
+    } finally {
+      setRevisaoOcupada(null);
+    }
+  };
 
   const abrirPanelsModal = (ep: any) => {
     if (!selectedSeriesId) return;
@@ -771,6 +885,9 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                       <div className="flex-1 min-w-0">
                         <p className="font-black text-[var(--text-color)] truncate">{s.title}</p>
                         <span className={`text-[10px] font-black uppercase tracking-widest ${badgeColor}`}>{estadoLabel}</span>
+                        {ehObraDeVideo(s) && (
+                          <span data-testid={`portal-obra-tipo-${s._id}`} className="ml-2 text-[10px] font-black uppercase tracking-widest text-sky-400">{NOME_BOTAO[s.content_type]}</span>
+                        )}
                         {canalDaObra && (
                           <span className="block text-[10px] text-zinc-500 font-bold mt-0.5">{canalDaObra.name}</span>
                         )}
@@ -807,6 +924,7 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                           </button>
                         </div>
 
+                        {gradeErro && <p role="alert" className="text-rose-500 text-xs font-bold">{gradeErro}</p>}
                         {episodesLoading ? (
                           <div className="w-6 h-6 border-2 border-rose-500/20 border-t-rose-500 rounded-full animate-spin mx-auto" />
                         ) : episodesOfSelected.length === 0 ? (
@@ -816,20 +934,122 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
                             const epEstado = estadoDoDocumento(ep);
                             const epLabel = epEstado === 'publicada' ? t('portal.works.statusPublished') : epEstado === 'analise' ? t('portal.works.statusReview') : t('portal.works.statusDraft');
                             const podeGerenciar = ep.status === 'draft' && !ep.submittedAt;
+                            // Item 7: capítulo publicado se edita por meio de uma
+                            // edição que o moderador aprova.
+                            const publicado = ep.status === 'published';
+                            // Item 9: obra de vídeo. O capítulo recebe um vídeo, não painéis.
+                            const deVideo = ehObraDeVideo(s);
+                            const estadoVideo: string = ep.videoEnvio?.estado ?? (ep.bunnyVideoId || ep.video_url ? 'pronto' : 'sem-video');
+                            const revisao = publicado && !deVideo ? revisoes[ep._id] : undefined;
+                            const revisaoNaFila = revisao?.status === 'enviada';
                             return (
                               <div key={ep._id} className="bg-black/10 dark:bg-white/5 rounded-2xl p-3">
                                 <div className="flex items-center justify-between">
                                   <p className="font-bold text-[var(--text-color)] text-sm">{ep.title}</p>
                                   <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{epLabel}</span>
                                 </div>
-                                {podeGerenciar && (
+                                {deVideo && (
+                                  <div data-testid={`portal-video-${ep._id}`} className="mt-2 space-y-1">
+                                    <p className={`text-[10px] font-black uppercase tracking-widest ${estadoVideo === 'pronto' ? 'text-emerald-400' : estadoVideo === 'erro' ? 'text-rose-500' : estadoVideo === 'sem-video' ? 'text-zinc-500' : 'text-amber-500'}`}>
+                                      {estadoVideo === 'pronto' ? t('video.estadoPronto')
+                                        : estadoVideo === 'processando' ? t('video.estadoProcessando')
+                                        : estadoVideo === 'enviando' ? t('video.estadoEnviando')
+                                        : estadoVideo === 'erro' ? t('video.estadoErro')
+                                        : t('video.estadoSemVideo')}
+                                    </p>
+                                    {podeGerenciar && (
+                                      <div className="flex gap-2 flex-wrap">
+                                        <button
+                                          onClick={() => setEnvioVideoFor(ep)}
+                                          className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                        >
+                                          {estadoVideo === 'sem-video' || estadoVideo === 'enviando' ? t('video.botao') : t('video.botaoTrocar')}
+                                        </button>
+                                        {/* Item 10: com o vídeo pronto, o episódio vai para a fila. */}
+                                        {estadoVideo === 'pronto' && (
+                                          <button
+                                            onClick={() => handleEnviarEpisodio(ep._id, s._id)}
+                                            disabled={enviandoId === ep._id}
+                                            className="text-[10px] font-black text-emerald-400 uppercase tracking-widest disabled:opacity-50"
+                                          >
+                                            {t('portal.works.submitChapter')}
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {publicado && !deVideo && (
+                                  <div data-testid={`portal-revisao-${ep._id}`} className="mt-2 space-y-1">
+                                    {revisao && (
+                                      <p className={`text-[10px] font-black uppercase tracking-widest ${revisaoNaFila ? 'text-amber-500' : 'text-sky-400'}`}>
+                                        {revisaoNaFila ? t('revisao.emAnalise') : revisao.devolucao ? t('revisao.devolvida') : t('revisao.rascunho')}
+                                        {' · '}{revisao.totalPaineis} {t('revisao.paineis')}
+                                      </p>
+                                    )}
+                                    {revisao?.devolucao && !revisaoNaFila && (
+                                      <p className="text-xs text-rose-400 font-bold">{t('revisao.motivo')}: {revisao.devolucao.motivo}</p>
+                                    )}
+                                    <div className="flex gap-2 flex-wrap">
+                                      {!revisaoNaFila && (
+                                        <button
+                                          onClick={() => setEnvioPastaFor({ ...ep, publicado: true })}
+                                          className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                        >
+                                          {t('envio.botao')}
+                                        </button>
+                                      )}
+                                      {((ep.panels?.length ?? 0) > 0 || revisao) && (
+                                        <button
+                                          onClick={() => abrirGradeDoPublicado(ep)}
+                                          className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                        >
+                                          {t('grade.botao')}
+                                        </button>
+                                      )}
+                                      {revisao && !revisaoNaFila && (
+                                        <>
+                                          <button
+                                            onClick={() => handleEnviarRevisao(ep._id)}
+                                            disabled={revisaoOcupada === ep._id}
+                                            className="text-[10px] font-black text-emerald-400 uppercase tracking-widest disabled:opacity-50"
+                                          >
+                                            {t('revisao.enviar')}
+                                          </button>
+                                          <button
+                                            onClick={() => handleDescartarRevisao(ep._id)}
+                                            disabled={revisaoOcupada === ep._id}
+                                            className="text-[10px] font-black text-zinc-500 uppercase tracking-widest disabled:opacity-50"
+                                          >
+                                            {t('revisao.descartar')}
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                {podeGerenciar && !deVideo && (
                                   <div className="flex gap-2 mt-2">
+                                    <button
+                                      onClick={() => setEnvioPastaFor(ep)}
+                                      className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                    >
+                                      {t('envio.botao')}
+                                    </button>
                                     <button
                                       onClick={() => abrirPanelsModal(ep)}
                                       className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
                                     >
                                       {t('portal.works.managePanels')}
                                     </button>
+                                    {(ep.panels?.length ?? 0) > 0 && (
+                                      <button
+                                        onClick={() => setGradeFor(ep)}
+                                        className="text-[10px] font-black text-rose-500 uppercase tracking-widest"
+                                      >
+                                        {t('grade.botao')}
+                                      </button>
+                                    )}
                                     {(ep.panels?.length ?? 0) > 0 && (
                                       <button
                                         onClick={() => handleEnviarEpisodio(ep._id, s._id)}
@@ -909,25 +1129,33 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
         </section>
       )}
 
-      {/* Seções bloqueadas (spec, "Upload do ilustrador"): CINECOMICS/VERTICALSHOW
-          mostradas SEMPRE, com aviso de temporada — sem checkout, sem upload.
-          Rótulos SEMPRE de utils/contentTypeLabels.ts (NOME_ABA), nunca hardcode. */}
-      <section className="px-8 mt-10 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {(['hqcine', 'vcine'] as const).map(tipo => (
-          <div key={tipo} className="rounded-3xl border border-white/10 bg-white/5 p-6 text-center">
-            <Lock size={22} className="mx-auto mb-3 text-zinc-500" />
-            <p className="font-black text-[var(--text-color)] mb-1">{NOME_ABA[tipo]}</p>
-            <p className="text-xs text-zinc-500 mb-3">{t('portal.locked.title')}</p>
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-500">{t('portal.locked.comingSoon')}</span>
-          </div>
-        ))}
-      </section>
-
       {/* ─── Modal: criar obra ─── */}
       {showCreateObra && (
         <div className="fixed inset-0 z-[1200] bg-black/70 backdrop-blur-md flex items-center justify-center p-6">
           <form onSubmit={handleCriarObra} className="w-full max-w-md bg-[var(--card-bg,#18181b)] border border-white/10 p-8 rounded-[2.5rem] space-y-4">
             <h2 className="text-xl font-black text-[var(--text-color)]">{t('portal.works.newWork')}</h2>
+
+            {/* Item 9: tipo da obra. Hi-Qua (quadrinhos) é o padrão; V-Show e
+                Anicom são obras de vídeo. O tipo não muda depois de criada. */}
+            <div>
+              <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">{t('portal.works.typeField')}</p>
+              <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label={t('portal.works.typeField')}>
+                {TIPOS_DE_OBRA.map(tipo => (
+                  <button
+                    key={tipo}
+                    type="button"
+                    role="radio"
+                    aria-checked={obraTipo === tipo}
+                    data-testid={`portal-obra-tipo-${tipo}`}
+                    onClick={() => setObraTipo(tipo)}
+                    className={`px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${obraTipo === tipo ? 'bg-rose-600 text-white' : 'bg-white/5 text-zinc-500 hover:bg-white/10'}`}
+                  >
+                    {NOME_BOTAO[tipo]}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-600 mt-1">{obraTipo === 'hiqua' ? t('portal.works.typeHintComic') : t('portal.works.typeHintVideo')}</p>
+            </div>
 
             <div>
               <label htmlFor="portal-obra-title" className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block mb-1">{t('portal.works.titleField')}</label>
@@ -1073,6 +1301,47 @@ const PortalEstudio: React.FC<PortalEstudioProps> = ({ onClose }) => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {envioPastaFor && (
+        <EnvioPastaEpisodio
+          episode={envioPastaFor}
+          onFechar={() => setEnvioPastaFor(null)}
+          avisoRevisao={!!envioPastaFor.publicado}
+          onConcluido={(atualizado: any) => {
+            // Capítulo publicado (item 7): o servidor devolve o capítulo como
+            // está NO AR (não mudou); o que mudou foi a edição dele.
+            if (selectedSeriesId) carregarRevisoes(selectedSeriesId);
+            if (!atualizado?._id) return;
+            setEpisodesOfSelected(prev => prev.map(ep => (ep._id === atualizado._id ? { ...ep, ...atualizado } : ep)));
+          }}
+        />
+      )}
+
+      {envioVideoFor && (
+        <EnvioVideoEpisodio
+          episode={envioVideoFor}
+          onFechar={() => setEnvioVideoFor(null)}
+          onEstado={(estado) => mudarEstadoDoVideo(envioVideoFor._id, estado)}
+        />
+      )}
+
+      {/* ─── Modal: grade de painéis (frente A, item 6) ─── */}
+      {gradeFor && (
+        <div className="fixed inset-0 z-[1200] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto bg-[var(--card-bg,#18181b)] border border-white/10 p-6 rounded-[2.5rem] space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{t('grade.titulo')}</p>
+                <h2 className="text-xl font-black text-[var(--text-color)]">{gradeFor.title}</h2>
+                <p className="text-xs text-zinc-500 mt-1">{t('grade.dica')}</p>
+                {gradeFor.publicado && <p data-testid="grade-aviso-revisao" className="text-xs font-bold text-amber-400 mt-2">{gradeFor.somenteLeitura ? t('revisao.emAnalise') : t('revisao.aviso')}</p>}
+              </div>
+              <button type="button" onClick={() => setGradeFor(null)} className="shrink-0 py-2 px-4 font-bold text-zinc-500">{t('portal.works.close')}</button>
+            </div>
+            <GradePaineis episodeId={gradeFor._id} panels={gradeFor.panels ?? []} onMudar={mudarPaineisDaGrade} somenteLeitura={!!gradeFor.somenteLeitura} />
+          </div>
         </div>
       )}
 

@@ -11,11 +11,7 @@ const { podeVerRascunho, isAdminUser, temCanalAtivo, serieDeCanalAtivoDoUsuario 
 const { serieVisivelPara } = require('../utils/parentalFilter');
 const { autorizarConteudo, responderBloqueio } = require('../utils/autorizacaoConteudo');
 
-function toSlug(str) {
-  return (str || '').toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-}
+const { toSlug } = require('../utils/slug');
 
 /**
  * Resolve o slug de destino de upload-image/upload-image-batch (Fase 5
@@ -98,6 +94,17 @@ router.post('/webhook', express.json(), verifyBunnyWebhook, async (req, res) => 
   }
 
   try {
+    // Frente A, item 9 (risco R9): vídeo enviado pelo AUTOR no portal. O
+    // estado do Bunny só atualiza o estado do vídeo; o episódio NÃO muda de
+    // status, não é publicado e nenhum aviso de capítulo novo sai. Quem
+    // publica episódio de autor é a aprovação na fila. O vídeo do admin
+    // segue o caminho de sempre, logo abaixo.
+    const doAutor = await require('../services/videoAutorService').aplicarStatusDoBunny(VideoGuid, Status);
+    if (doAutor) {
+      logger.info(`[Bunny Webhook] Vídeo de autor ${VideoGuid}: ${doAutor.videoEnvio?.estado} (episódio "${doAutor.title}" segue ${doAutor.status})`);
+      return res.json({ received: true });
+    }
+
     const mongoStatus = BUNNY_STATUS_MAP[Status] || 'draft';
     const cdnHostname = process.env.BUNNY_CDN_HOSTNAME;
     const libraryId = process.env.BUNNY_LIBRARY_ID;
@@ -522,6 +529,16 @@ router.get('/video-status/:videoId', (req, res) => {
         if (!bunnyRes.ok) return res.status(502).json({ error: 'Erro ao consultar Bunny.' });
 
         const video = await bunnyRes.json();
+
+        // Frente A, item 9 (risco R9): a consulta manual também não publica
+        // episódio cujo vídeo foi enviado pelo autor; só atualiza o estado do
+        // vídeo. A publicação dele é pela fila de aprovação.
+        const doAutor = await require('../services/videoAutorService').aplicarStatusDoBunny(videoId, video.status);
+        if (doAutor) {
+          logger.info(`[Bunny Status] ${videoId} (vídeo de autor) → Bunny:${video.status} vídeo:${doAutor.videoEnvio?.estado}`);
+          return res.json({ bunnyStatus: video.status, mongoStatus: doAutor.status, episode: doAutor, videoDoAutor: true });
+        }
+
         const mongoStatus = BUNNY_STATUS_MAP[video.status] ?? 'draft';
 
         const updateData = { status: mongoStatus };

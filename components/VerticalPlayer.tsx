@@ -18,6 +18,11 @@ interface PlayerProps {
   // assinatura ativa — os convites saem daqui.
   onCriarConta?: () => void;
   onAssinar?: () => void;
+  // Fase 7, frente A, item 10: o moderador assiste ao vídeo de um episódio
+  // que está na Fila de Aprovação. Em prévia o player não mostra anúncio nem
+  // voto, não lê nem grava progresso. Opcional: sem ela nada muda para o
+  // público.
+  previa?: boolean;
 }
 
 const fmt = (s: number) => {
@@ -37,14 +42,14 @@ const LANG_LABELS: Record<string, string> = {
 // usado para decidir se ainda vale a pena pular para o segundo salvo.
 const LIMIAR_SEGUNDOS_PROPRIO = 2;
 
-const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarConta, onAssinar }) => {
+const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarConta, onAssinar, previa = false }) => {
   const t = useT();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [showAd, setShowAd] = useState(!isPremiumActive(user));
+  const [showAd, setShowAd] = useState(!previa && !isPremiumActive(user));
   const [signedSrc, setSignedSrc] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState(false);
   // 403 do servidor: conteúdo pago. É oferta, não falha de reprodução — por
@@ -86,9 +91,9 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarCo
   const restauracaoResolvida = useRef(false);
 
   useEffect(() => {
-    if (!user || !video.id) return;
+    if (previa || !user || !video.id) return;
     api.getMyVote(video.id).then(v => setMyVote(v?.type ?? null));
-  }, [video.id, user]);
+  }, [video.id, user, previa]);
 
   // Retoma do segundo salvo assim que o vídeo troca — perto do fim, recomeça:
   // ninguém quer voltar nos créditos. Espera o anúncio fechar: enquanto
@@ -96,6 +101,9 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarCo
   // `if (showAd) return ...` abaixo) e o <video> nem existe no DOM ainda.
   useEffect(() => {
     if (showAd) return;
+    // Prévia do moderador: não há progresso a retomar, e o portão de gravação
+    // fica fechado (nada é gravado em nome de quem está só conferindo).
+    if (previa) return;
     let cancelado = false;
     (async () => {
       try {
@@ -122,7 +130,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarCo
       }
     })();
     return () => { cancelado = true; };
-  }, [video.id, showAd]);
+  }, [video.id, showAd, previa]);
 
   useEffect(() => {
     if (showAd) return;
@@ -406,7 +414,7 @@ const VerticalPlayer: React.FC<PlayerProps> = ({ video, user, onClose, onCriarCo
             </div>
           )}
 
-          {user && (
+          {user && !previa && (
             <>
               <button
                 onClick={() => handleVote('like')}

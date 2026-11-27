@@ -1,7 +1,8 @@
 /**
  * Testes: Fase 5 Bloco 1, Task 4 — CRUD do portal do ilustrador + submissão.
  * Cobre:
- *  - POST /api/portal/series: content_type 'hiqua' PINADO (body malicioso
+ *  - POST /api/portal/series: content_type 'hiqua' por padrão; desde 27/11/2026
+ *    (frente A, item 9) aceita também 'vcine' e 'hqcine' (antes: PINADO, body malicioso
  *    ignorado), isPublished:false forçado, sem genre/tags, allowlist,
  *    channelId (1 canal = default, >1 canal = obrigatório).
  *  - PUT /api/portal/series/:id: só em rascunho não submetido (403 em
@@ -97,18 +98,38 @@ describe('POST /api/portal/series', () => {
     expect(semCanal.status).toBe(403);
   });
 
-  it('cria série DRAFT com content_type "hiqua" PINADO — body malicioso com content_type é ignorado', async () => {
-    const dono = await criarDono('Content Type Pinado');
+  // RE-PINADO em 27/11/2026 (Fase 7, frente A, item 9): até aqui o tipo era
+  // PINADO em 'hiqua' e um content_type no body era ignorado. O item 9 abre
+  // V-Show ('vcine') e Anicom ('hqcine') no portal, então o tipo passou a ser
+  // escolhido na criação, só entre os três; sem tipo continua 'hiqua', e
+  // qualquer outro valor é recusado. O que continua pinado: nasce rascunho
+  // (teste seguinte) e o tipo não muda depois (PUT, mais abaixo). O resto do
+  // item 9 está em tests/backend/videoAutor.test.js.
+  it('cria série DRAFT: sem content_type nasce "hiqua"; "vcine" e "hqcine" são aceitos; outro valor é 400', async () => {
+    const dono = await criarDono('Content Type Do Portal');
+    const semTipo = await request(app)
+      .post('/api/portal/series')
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ title: 'Obra Sem Tipo' });
+    expect(semTipo.status).toBe(201);
+    expect(semTipo.body.content_type).toBe('hiqua');
+
     const res = await request(app)
       .post('/api/portal/series')
       .set('Authorization', `Bearer ${dono.token}`)
-      .send({ title: 'Obra Maliciosa Content Type', content_type: 'vcine' });
-
+      .send({ title: 'Obra De Video', content_type: 'vcine' });
     expect(res.status).toBe(201);
-    expect(res.body.content_type).toBe('hiqua');
-
+    expect(res.body.content_type).toBe('vcine');
+    expect(res.body.isPublished).toBe(false);
     const salva = await Series.findById(res.body._id).lean();
-    expect(salva.content_type).toBe('hiqua');
+    expect(salva.content_type).toBe('vcine');
+
+    const invalido = await request(app)
+      .post('/api/portal/series')
+      .set('Authorization', `Bearer ${dono.token}`)
+      .send({ title: 'Obra Tipo Inventado', content_type: 'filme' });
+    expect(invalido.status).toBe(400);
+    expect(await Series.countDocuments({ title: 'Obra Tipo Inventado' })).toBe(0);
   });
 
   it('isPublished: true no body é IGNORADO — série sempre nasce draft', async () => {

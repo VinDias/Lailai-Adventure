@@ -7,14 +7,38 @@ const EpisodeSchema = new mongoose.Schema({
   description: { type: String },
   video_url: { type: String },
   bunnyVideoId: { type: String },
+  // Vídeo enviado pelo AUTOR no portal (frente A, item 9). Opcional: só
+  // existe em episódio de V-Show ou Anicom cujo vídeo o autor subiu. Enquanto
+  // `videoId` for o `bunnyVideoId` acima, o vídeo é de autor: o webhook do
+  // Bunny só atualiza `estado` e NUNCA publica o episódio
+  // (services/videoAutorService.js).
+  videoEnvio: {
+    videoId: { type: String },
+    estado: { type: String, enum: ['enviando', 'processando', 'pronto', 'erro'] },
+    atualizadoEm: { type: Date },
+    // Até quando vale a última autorização de envio entregue ao autor. Antes
+    // disso o episódio não pode ir para aprovação (item 10): o moderador só
+    // vê o vídeo quando o autor já não consegue trocá-lo.
+    autorizadoAte: { type: Date },
+  },
   thumbnail: { type: String },
   duration: { type: Number },
   panels: [{
     image_url: String,
     order: Number,
+    // Tamanho da imagem do painel, em px (frente A, item 6). Opcional: só os
+    // painéis gravados pelo envio da pasta ou trocados pela grade têm. Com ele
+    // o servidor recusa balão ou imagem nova de tamanho diferente.
+    largura: Number,
+    altura: Number,
+    // Tamanho do arquivo da imagem, em bytes (frente A, 27/11). Opcional: só o
+    // que foi gravado pelo envio da pasta ou trocado pela grade tem. É com ele
+    // que a troca de um arquivo confere o limite de MB do episódio.
+    bytes: Number,
     translationLayers: [{
       language: { type: String, enum: ['pt', 'en', 'es', 'zh'] },
-      imageUrl: String
+      imageUrl: String,
+      bytes: Number
     }]
   }],
   audioTrack1Url: { type: String }, audioTrack1Lang: { type: String, default: '' },

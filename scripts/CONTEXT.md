@@ -48,6 +48,22 @@ Marca episódios legados (`status: 'published'` sem `notificationSentAt`) como j
 
 ---
 
+### `conferirCorteNoChromium.mjs` (Fase 7, frente A, itens 4 e 5)
+Corta uma pasta de episódio no Chromium de verdade, com o MESMO código da tela (`utils/envioPasta.ts`, empacotado com esbuild na hora), e confere cada fatia: largura x altura e, nos balões, o canal alfa contra a página original na mesma faixa. Imprime arquivos que sobem, MB antes e depois do corte e o tempo.
+- `node scripts/conferirCorteNoChromium.mjs <pasta> [pasta de saída para as fatias]`; sai com 1 se alguma fatia veio errada
+- Usa o Chromium do Playwright (`PLAYWRIGHT_CHROMIUM` escolhe outro executável); nada sai para a rede
+- 25/11/2026, pastas do Vin: HáQa Stone EP3 (3 páginas 800x12500 + 1) = 151 arquivos, 4,68 MB viram 6,81 MB (PNG regravado cresce), alfa idêntico; The Near Ones EP6 = 55 arquivos, todos sem corte; página sintética 800x28160 com balão = 44 arquivos em 1 s
+
+---
+
+### `e2eEnvioPasta.cjs` (Fase 7, frente A, item 5)
+Ambiente inteiramente local (Mongo em memória, `server.js` em :3456 com `NODE_ENV=test`, Bunny falso gravando em `<saída>/cdn` e servido em :3457, tela pelo Vite em :5173, Chromium do Playwright). Para cada pasta: cria um rascunho, entra como autor, posta pelo Meu Estúdio (botão "Enviar pasta do episódio", input de pasta), confere no banco e no "CDN" que cada balão tem o tamanho da fatia, marca publicado direto no banco e abre o leitor: print por idioma no primeiro painel com balão, desktop e Pixel 7, e mede no print a emenda entre duas fatias (linha escura = falha).
+- `node scripts/e2eEnvioPasta.cjs <saída> <pasta> [<pasta> ...]`; sai com 1 em qualquer divergência; `relatorio.json` e os prints na saída
+- Sem Redis local o log reclama da fila de vídeo; não afeta o envio
+- O servidor guarda um refresh token por conta: o roteiro entra de novo antes de cada contexto
+
+---
+
 ## Observações
 
 - Nenhum desses scripts é executado automaticamente — todos requerem execução manual

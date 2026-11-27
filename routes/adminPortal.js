@@ -23,6 +23,11 @@ const MensagemPortal = require('../models/MensagemPortal');
 const AdminLog = require('../models/AdminLog');
 // Fase 5 Bloco 3: badge "Curadoria N" e removidaPelaCuradoria em GET /aprovacoes.
 const CasoCuradoria = require('../models/CasoCuradoria');
+// Fase 7, frente A, item 7: edição de episódio publicado, à espera de aprovação.
+const RevisaoEpisodio = require('../models/RevisaoEpisodio');
+const revisaoService = require('../services/revisaoEpisodioService');
+// Fase 7, frente A, item 10: obras de V-Show e Anicom passam pela mesma fila.
+const videoAutor = require('../services/videoAutorService');
 const { responderCastError } = require('../utils/routeErrors');
 
 const REF_TIPOS = ['series', 'episode'];
@@ -184,10 +189,10 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
   try {
     const [seriesPendentes, episodiosPendentes, naoClassificadas] = await Promise.all([
       Series.find({ submittedAt: { $ne: null }, isPublished: false })
-        .select('title description cover_image content_rating_sugerida content_rating genre tags channelId submittedAt')
+        .select('title description cover_image content_type content_rating_sugerida content_rating genre tags channelId submittedAt')
         .lean(),
       Episode.find({ submittedAt: { $ne: null }, status: { $ne: 'published' } })
-        .select('title description thumbnail panels seriesId submittedAt')
+        .select('title description thumbnail panels seriesId submittedAt bunnyVideoId video_url videoEnvio')
         .lean(),
       Series.countDocuments({ isPublished: true, content_rating: null }),
     ]);
@@ -229,7 +234,7 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
     // deve orientar "aprove a série primeiro"). Uma query só, sem N+1.
     const seriesIdsDosEpisodios = [...new Set(episodiosPendentes.map(e => String(e.seriesId)))];
     const seriesDosEpisodios = seriesIdsDosEpisodios.length
-      ? await Series.find({ _id: { $in: seriesIdsDosEpisodios } }).select('title isPublished channelId').lean()
+      ? await Series.find({ _id: { $in: seriesIdsDosEpisodios } }).select('title isPublished channelId content_type').lean()
       : [];
     const seriePorId = new Map(seriesDosEpisodios.map(s => [String(s._id), s]));
 
@@ -253,6 +258,8 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
       title: s.title,
       description: s.description ?? null,
       cover_image: s.cover_image ?? null,
+      // Item 10: o tipo da obra (hiqua, vcine = V-Show, hqcine = Anicom).
+      content_type: s.content_type ?? 'hiqua',
       content_rating_sugerida: s.content_rating_sugerida ?? null,
       content_rating: s.content_rating ?? null,
       genre: s.genre ?? null,
@@ -274,16 +281,163 @@ router.get('/aprovacoes', verifyToken, requireAdmin, async (req, res) => {
         serie: serie ? { id: serie._id, title: serie.title, isPublished: !!serie.isPublished } : null,
         canal: previewCanal(serie && serie.channelId),
         submittedAt: e.submittedAt,
+        // Item 10: episódio de obra de vídeo. O moderador assiste pelo player
+        // do site (a URL assinada já é entregue ao admin para rascunho:
+        // GET /api/bunny/signed-url).
+        content_type: (serie && serie.content_type) ?? 'hiqua',
+        ...(videoAutor.ehObraDeVideo(serie)
+          ? { video: { videoId: e.bunnyVideoId ?? null, pronto: videoAutor.temVideoPronto(e), estado: videoAutor.resumo(e).estado } }
+          : {}),
       };
     });
 
-    const itens = [...itensSerie, ...itensEpisodio]
+    // Frente A, item 7: edições de episódio PUBLICADO enviadas pelo autor
+    // (`tipo: 'revisao'`, `id` = id do episódio). Leitura à parte e num
+    // try/catch próprio, como a curadoria acima: a fila é o único caminho do
+    // Master para publicar e não cai por causa de um bloco novo.
+    let itensRevisao = [];
+    try {
+      itensRevisao = await itensDeRevisao();
+    } catch (err) {
+      logger.error('[AdminPortal] edições de publicados indisponíveis na fila de aprovação', err && err.message);
+    }
+
+    const itens = [...itensSerie, ...itensEpisodio, ...itensRevisao]
       .sort((a, b) => new Date(a.submittedAt) - new Date(b.submittedAt));
 
     res.json({ itens, naoClassificadas, curadoria });
   } catch (err) {
     logger.error('[AdminPortal] GET /aprovacoes', err);
     res.status(500).json({ error: 'Erro ao montar a fila de aprovação.' });
+  }
+});
+
+/** Cards das edições de episódio publicado que estão na fila (item 7). */
+async function itensDeRevisao() {
+  const revisoes = await RevisaoEpisodio.find({ status: 'enviada' }).select('seriesId submittedAt panels._id').lean();
+  if (revisoes.length === 0) return [];
+  const [episodios, series] = await Promise.all([
+    Episode.find({ _id: { $in: revisoes.map(r => r._id) } }).select('title description thumbnail status panels._id').lean(),
+    Series.find({ _id: { $in: revisoes.map(r => r.seriesId) } }).select('title isPublished channelId').lean(),
+  ]);
+  const epPorId = new Map(episodios.map(e => [String(e._id), e]));
+  const seriePorId = new Map(series.map(s => [String(s._id), s]));
+  const canais = await Channel.find({ _id: { $in: series.map(s => s.channelId).filter(Boolean) } }).select('name').lean();
+  const canalPorId = new Map(canais.map(c => [String(c._id), c]));
+  return revisoes
+    // Episódio apagado depois do envio: a edição não tem mais para onde ir.
+    .filter(r => epPorId.has(String(r._id)))
+    .map(r => {
+      const ep = epPorId.get(String(r._id));
+      const serie = seriePorId.get(String(r.seriesId));
+      const canal = serie && serie.channelId ? canalPorId.get(String(serie.channelId)) : null;
+      return {
+        tipo: 'revisao',
+        id: r._id,
+        title: ep.title,
+        description: ep.description ?? null,
+        thumbnail: ep.thumbnail ?? null,
+        panelCount: (r.panels || []).length,
+        panelCountNoAr: (ep.panels || []).length,
+        serie: serie ? { id: serie._id, title: serie.title, isPublished: !!serie.isPublished } : null,
+        canal: serie && serie.channelId ? { id: serie.channelId, name: canal ? canal.name : null } : null,
+        submittedAt: r.submittedAt,
+      };
+    });
+}
+
+/**
+ * O que o leitor da fila precisa de um episódio (frente A, item 8): o mesmo
+ * formato de GET /api/content/episodes/:id que o WebtoonReader já lê
+ * (`panels` com `image_url`, `order` e `translationLayers`), mais a contagem
+ * de painéis com balão por idioma, para o moderador ver de relance se um
+ * idioma veio incompleto.
+ */
+const IDIOMAS_DO_LEITOR = ['pt', 'en', 'es', 'zh'];
+function episodioParaLeitura(episode, serie, panels) {
+  const porIdioma = Object.fromEntries(IDIOMAS_DO_LEITOR.map(l => [l, 0]));
+  for (const p of panels || []) {
+    const idiomas = new Set((p.translationLayers || []).map(c => c.language));
+    for (const l of IDIOMAS_DO_LEITOR) if (idiomas.has(l)) porIdioma[l] += 1;
+  }
+  return {
+    _id: episode._id,
+    title: episode.title,
+    episode_number: episode.episode_number,
+    description: episode.description ?? null,
+    thumbnail: episode.thumbnail ?? null,
+    status: episode.status,
+    submittedAt: episode.submittedAt ?? null,
+    serie: serie ? { id: serie._id, title: serie.title } : null,
+    panels: panels || [],
+    porIdioma,
+  };
+}
+
+// GET /api/admin/aprovacoes/episodes/:id/leitura — o episódio ENVIADO para
+// aprovação, inteiro, para o moderador ler no mesmo leitor do público antes de
+// aprovar (frente A, item 8). Só admin (requireAdmin: 401 sem login, 403 para
+// qualquer outra conta, inclusive o próprio autor, que lê o rascunho dele pelo
+// Meu Estúdio). Só item que está na fila: rascunho não enviado e episódio já
+// publicado respondem 404 (o publicado se lê pela rota pública). Não conta
+// visualização nem gera evento de leitura: não passa por /api/content.
+router.get('/aprovacoes/episodes/:id/leitura', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const episode = await Episode.findById(req.params.id)
+      .select('title episode_number description thumbnail status submittedAt panels seriesId')
+      .lean();
+    if (!episode || !episode.submittedAt || episode.status === 'published') {
+      return res.status(404).json({ error: 'Este episódio não está aguardando aprovação.' });
+    }
+    const serie = await Series.findById(episode.seriesId).select('title').lean();
+    res.json(episodioParaLeitura(episode, serie, episode.panels));
+  } catch (err) {
+    if (responderCastError(err, res, 'Episódio não encontrado.')) return;
+    logger.error('[AdminPortal] GET /aprovacoes/episodes/:id/leitura', err);
+    res.status(500).json({ error: 'Erro ao abrir o episódio para leitura.' });
+  }
+});
+
+// GET /api/admin/aprovacoes/revisoes/:id/leitura — a EDIÇÃO de um episódio
+// publicado que está na fila (frente A, item 7), no mesmo formato da leitura
+// do item 8: o moderador lê no leitor como o episódio vai ficar. `:id` é o id
+// do episódio. Só admin; só edição enviada (em rascunho do autor: 404).
+router.get('/aprovacoes/revisoes/:id/leitura', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const rev = await RevisaoEpisodio.findOne({ _id: req.params.id, status: 'enviada' }).lean();
+    const episode = rev ? await Episode.findById(rev._id).select('title episode_number description thumbnail status seriesId').lean() : null;
+    if (!rev || !episode) return res.status(404).json({ error: 'Esta edição não está aguardando aprovação.' });
+    const serie = await Series.findById(episode.seriesId).select('title').lean();
+    res.json({
+      ...episodioParaLeitura({ ...episode, submittedAt: rev.submittedAt, thumbnail: rev.thumbnail || episode.thumbnail }, serie, rev.panels),
+      revisao: true,
+    });
+  } catch (err) {
+    if (responderCastError(err, res, 'Edição não encontrada.')) return;
+    logger.error('[AdminPortal] GET /aprovacoes/revisoes/:id/leitura', err);
+    res.status(500).json({ error: 'Erro ao abrir a edição para leitura.' });
+  }
+});
+
+// POST /api/admin/aprovacoes/revisoes/:id/aprovar — aprova a edição de um
+// episódio publicado: os painéis da revisão passam a ser os do episódio, de
+// uma vez, e os arquivos que saíram são apagados do Bunny. NÃO dispara aviso
+// de capítulo novo nem recálculo (risco R7): é correção do que já está no ar.
+router.post('/aprovacoes/revisoes/:id/aprovar', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    const r = await revisaoService.aprovar(req.params.id);
+    await AdminLog.create({
+      adminId: req.user.id,
+      action: 'APROVAR_REVISAO_EPISODIO',
+      targetId: String(r.episode._id),
+      details: { title: r.episode.title, seriesId: String(r.episode.seriesId), totalPaineis: r.totalPaineis, apagadosDoBunny: r.apagadosDoBunny },
+    });
+    res.json(r);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (responderCastError(err, res, 'Edição não encontrada.')) return;
+    logger.error('[AdminPortal] POST /aprovacoes/revisoes/:id/aprovar', err);
+    res.status(500).json({ error: 'Erro ao aprovar a edição.' });
   }
 });
 
@@ -375,9 +529,22 @@ router.post('/aprovacoes/episodes/:id/aprovar', verifyToken, requireAdmin, async
       return res.status(400).json({ error: 'Episódio já publicado.' });
     }
 
-    const series = await Series.findById(episode.seriesId).select('isPublished').lean();
+    const series = await Series.findById(episode.seriesId).select('isPublished content_type').lean();
     if (!series || !series.isPublished) {
       return res.status(400).json({ error: 'Aprove a série primeiro — este episódio pertence a uma série ainda não publicada.' });
+    }
+
+    // Frente A, item 10: episódio de obra de vídeo só vai ao ar com o vídeo
+    // pronto, e quando o autor já não pode trocá-lo (mesmas regras do envio
+    // para aprovação, repetidas aqui porque é esta rota que publica).
+    if (videoAutor.ehObraDeVideo(series)) {
+      if (!videoAutor.temVideoPronto(episode)) {
+        return res.status(400).json({ error: 'O vídeo deste episódio não está pronto. Não é possível aprovar.' });
+      }
+      const trava = videoAutor.travaDeEnvio(episode);
+      if (trava) {
+        return res.status(400).json({ error: 'O autor ainda pode trocar o vídeo deste episódio (a autorização de envio não venceu). Aprove daqui a alguns minutos.', liberaEm: trava });
+      }
     }
 
     episode.status = 'published';
@@ -420,6 +587,21 @@ router.post('/aprovacoes/:tipo/:id/devolver', verifyToken, requireAdmin, async (
     // aqui, mapeado para o singular ANTES do check contra REF_TIPOS e de
     // qualquer gravação — refTipo salvo continua sempre 'episode'.
     const tipo = req.params.tipo === 'episodes' ? 'episode' : req.params.tipo;
+
+    // Frente A, item 7: devolver a EDIÇÃO de um episódio publicado. A edição
+    // volta para o autor com o motivo (que ele vê no Meu Estúdio e na
+    // conversa do canal); o episódio no ar não é tocado.
+    if (tipo === 'revisao' || tipo === 'revisoes') {
+      const r = await revisaoService.devolver(id, req.body.texto, req.user.id);
+      await AdminLog.create({
+        adminId: req.user.id,
+        action: 'DEVOLVER_REVISAO_EPISODIO',
+        targetId: String(id),
+        details: { texto: String(req.body.texto).trim(), canalId: r.canalId },
+      });
+      return res.json({ success: true, mensagem: r.mensagem, revisao: r.revisao });
+    }
+
     if (!REF_TIPOS.includes(tipo)) {
       return res.status(404).json({ error: 'Tipo inválido — use "series" ou "episode".' });
     }
@@ -473,6 +655,7 @@ router.post('/aprovacoes/:tipo/:id/devolver', verifyToken, requireAdmin, async (
 
     res.json({ success: true, mensagem });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     if (responderCastError(err, res, 'Recurso não encontrado.')) return;
     logger.error('[AdminPortal] POST /aprovacoes/:tipo/:id/devolver', err);
     res.status(500).json({ error: 'Erro ao devolver.' });

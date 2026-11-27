@@ -2,6 +2,65 @@
 import API_URL from '../config/api';
 import { getAnonymousId } from '../utils/anonymousId';
 
+/** Edição de um episódio publicado, sem os painéis (services/revisaoEpisodioService.js `resumo`). */
+export interface RevisaoResumo {
+  episodeId: string;
+  status: 'editando' | 'enviada';
+  submittedAt: string | null;
+  totalPaineis: number;
+  devolucao: { motivo: string; em: string } | null;
+  updatedAt?: string | null;
+}
+
+/** Estado do vídeo que o autor enviou (services/videoAutorService.js `resumo`). */
+export interface EstadoVideoEpisodio {
+  estado: 'sem-video' | 'enviando' | 'processando' | 'pronto' | 'erro';
+  videoId: string | null;
+  atualizadoEm: string | null;
+  pronto: boolean;
+}
+
+/** Autorização de curta duração para o envio TUS direto ao Bunny Stream. */
+export interface AutorizacaoEnvioVideo {
+  videoId: string;
+  libraryId: string;
+  endpoint: string;
+  assinatura: string;
+  expira: number;
+  validadeSegundos: number;
+  tamanhoMaximo: number;
+}
+
+/** GET /api/envio-episodio/config (services/envioEpisodioService.js). */
+export interface EnvioConfig {
+  limitePaineis: number;
+  limiteBytes: number;
+  alturaMaxima: number;
+  tamanhoMaximoParte: number;
+  arquivosPorParte: number;
+}
+
+/** Um arquivo a subir, com o recorte que o navegador faz antes. */
+export interface RecorteEnvio {
+  chave: string;
+  indice: number;
+  tipo: 'pagina' | 'balao' | 'capa';
+  idioma?: 'pt' | 'en' | 'es' | 'zh';
+  y: number | null;
+  altura: number | null;
+  largura: number | null;
+}
+
+export interface EnvioIniciado {
+  envioId: string;
+  totalPaineis: number;
+  totalPaginas: number;
+  totalBytes: number;
+  limiteBytes: number;
+  limitePaineis: number;
+  arquivos: RecorteEnvio[];
+}
+
 // Formato de PushSubscription.toJSON() (Web Push API) — o que POST /me/push/subscribe espera.
 export interface PushSubscriptionPayload {
   endpoint: string;
@@ -244,6 +303,9 @@ class ApiService {
         // achado no E2E da T7, invisível para os testes de componente, que
         // entregam `obra` já pronto.
         if (body.obra) error.obra = body.obra;
+        // Frente A: o envio de pasta recusado volta com a lista de problemas
+        // por arquivo (a tela mostra cada um no arquivo certo).
+        if (Array.isArray(body.problemas)) error.problemas = body.problemas;
         return error;
       };
 
@@ -924,7 +986,7 @@ class ApiService {
   // `tags` (Fase 5 Bloco 2, Task 6): até 8 slugs do vocabulário fechado —
   // PORTAL_SERIES_FIELDS passou a aceitar (INVERSÃO deliberada do contrato
   // do Bloco 1, ver routes/portal.js).
-  async createPortalSeries(data: { title: string; description?: string; content_rating_sugerida?: 'kids' | 'teen' | 'young' | null; channelId?: string; tags?: string[] }) {
+  async createPortalSeries(data: { title: string; description?: string; content_rating_sugerida?: 'kids' | 'teen' | 'young' | null; channelId?: string; tags?: string[]; content_type?: 'hiqua' | 'vcine' | 'hqcine' }) {
     return this.request<any>('/portal/series', { method: 'POST', body: JSON.stringify(data) });
   }
 
@@ -1013,6 +1075,119 @@ class ApiService {
     return response.json();
   }
 
+  // ─── Fase 7, frente A: envio da pasta do episódio em partes ────────────────
+  // Rota routes/envioEpisodio.js. Um pedido por parte (até tamanhoMaximoParte),
+  // nunca o episódio inteiro de uma vez. Quem orquestra: utils/envioPasta.ts.
+  async getEnvioEpisodioConfig() {
+    return this.request<EnvioConfig>('/envio-episodio/config');
+  }
+
+  async iniciarEnvioEpisodio(episodeId: string, arquivos: Array<{ nome: string; largura?: number; altura?: number; tamanho: number }>) {
+    return this.request<EnvioIniciado>(`/envio-episodio/${episodeId}/iniciar`, {
+      method: 'POST',
+      body: JSON.stringify({ arquivos }),
+    });
+  }
+
+  /**
+   * Uma parte: um campo por arquivo, nome do campo = chave. Erro com
+   * `status` e, quando o servidor manda, `falhas` (chaves que não chegaram ao
+   * Bunny: só elas precisam de nova tentativa) e `recusados`. Erro de rede
+   * sai sem `status`.
+   */
+  async enviarParteEpisodio(envioId: string, itens: Array<{ chave: string; blob: Blob; nome: string }>): Promise<{ recebidos: number; total: number }> {
+    const formData = new FormData();
+    for (const it of itens) formData.append(it.chave, it.blob, it.nome);
+    const response = await this.fetchAutenticado(`${API_URL}/envio-episodio/${envioId}/partes`, {
+      method: 'POST',
+      body: formData,
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error: any = new Error(body.error || `Erro ${response.status}`);
+      error.status = response.status;
+      if (Array.isArray(body.falhas)) error.falhas = body.falhas;
+      if (Array.isArray(body.recusados)) error.recusados = body.recusados;
+      throw error;
+    }
+    return body;
+  }
+
+  async concluirEnvioEpisodio(envioId: string) {
+    return this.request<{ episode: any; totalPaineis: number; apagadosDoBunny: number; naoApagados: string[] }>(`/envio-episodio/${envioId}/concluir`, { method: 'POST' });
+  }
+
+  async cancelarEnvioEpisodio(envioId: string) {
+    return this.request<{ cancelado: boolean }>(`/envio-episodio/${envioId}`, { method: 'DELETE' });
+  }
+
+  // ─── Fase 7, frente A, item 6: edição dos painéis um a um ──────────────────
+  // Rota routes/edicaoPaineis.js (dono em rascunho, ou admin). O painel é
+  // achado pelo _id; cada pedido grava só o painel dele.
+  async getPaineisEdicao(episodeId: string) {
+    return this.request<{
+      episodeId: string; modo: string; podeEditar: boolean; motivo: string | null;
+      panels: any[]; alturaMaxima: number; tamanhoMaximoArquivo: number; revisao?: any;
+    }>(`/edicao-paineis/${episodeId}`);
+  }
+
+  async apagarPaineisEdicao(episodeId: string, paineis: string[]) {
+    return this.request<{ removidos: string[]; totalPaineis: number; apagadosDoBunny: number; naoApagados: string[] }>(
+      `/edicao-paineis/${episodeId}/apagar`, { method: 'POST', body: JSON.stringify({ paineis }) });
+  }
+
+  /** PUT multipart de UM arquivo (campo "arquivo"); erro com `status`, como o envio em partes. */
+  private async enviarArquivoDePainel(caminho: string, arquivo: Blob, nome: string): Promise<{ panel: any }> {
+    const formData = new FormData();
+    formData.append('arquivo', arquivo, nome);
+    const response = await this.fetchAutenticado(`${API_URL}${caminho}`, { method: 'PUT', body: formData });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error: any = new Error(body.error || `Erro ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return body;
+  }
+
+  async trocarImagemPainel(episodeId: string, painelId: string, arquivo: File) {
+    return this.enviarArquivoDePainel(`/edicao-paineis/${episodeId}/paineis/${painelId}/imagem`, arquivo, arquivo.name || 'painel');
+  }
+
+  async trocarBalaoPainel(episodeId: string, painelId: string, idioma: string, arquivo: File) {
+    return this.enviarArquivoDePainel(`/edicao-paineis/${episodeId}/paineis/${painelId}/baloes/${idioma}`, arquivo, arquivo.name || 'balao.png');
+  }
+
+  async removerBalaoPainel(episodeId: string, painelId: string, idioma: string) {
+    return this.request<{ panel: any; removido: boolean }>(`/edicao-paineis/${episodeId}/paineis/${painelId}/baloes/${idioma}`, { method: 'DELETE' });
+  }
+
+  // ─── Fase 7, frente A, item 9: vídeo do episódio de V-Show e Anicom ────────
+  // routes/portal.js. O arquivo vai do navegador direto ao Bunny Stream
+  // (utils/envioVideoTus.ts); aqui só a autorização e o estado do vídeo.
+  async autorizarEnvioVideo(episodeId: string, dados: { tamanho?: number; tipo?: string; renovar?: boolean } = {}) {
+    return this.request<AutorizacaoEnvioVideo>(`/portal/episodios/${episodeId}/video/autorizacao`, { method: 'POST', body: JSON.stringify(dados) });
+  }
+
+  async getEstadoVideoEpisodio(episodeId: string) {
+    return this.request<EstadoVideoEpisodio>(`/portal/episodios/${episodeId}/video`);
+  }
+
+  // ─── Fase 7, frente A, item 7: edição de episódio publicado (lado do autor) ─
+  // routes/portal.js. A edição nasce sozinha na 1a mudança da grade ou no
+  // reenvio da pasta; aqui o autor vê o estado, envia para aprovação e desiste.
+  async getPortalRevisoes(seriesId: string) {
+    return this.request<{ revisoes: RevisaoResumo[] }>(`/portal/series/${seriesId}/revisoes`);
+  }
+
+  async enviarRevisaoEpisodio(episodeId: string) {
+    return this.request<{ revisao: RevisaoResumo }>(`/portal/episodios/${episodeId}/revisao/enviar`, { method: 'POST' });
+  }
+
+  async descartarRevisaoEpisodio(episodeId: string) {
+    return this.request<{ descartada: boolean; apagadosDoBunny: number }>(`/portal/episodios/${episodeId}/revisao`, { method: 'DELETE' });
+  }
+
   // ─── Fase 5 Bloco 1, Task 10: canal público (leitor) ───────────────────────
   // GET /api/channels/:id — shape pinado: followersCount (número) + isFollowing
   // (bool, false se anônimo), SEM o array followers[] (dado pessoal). Público
@@ -1069,10 +1244,27 @@ class ApiService {
     return this.request<any>(`/admin/aprovacoes/episodes/${id}/aprovar`, { method: 'POST' });
   }
 
+  // Frente A, item 8: o episódio enviado para aprovação, inteiro, para o
+  // moderador ler no WebtoonReader (rota só de admin, routes/adminPortal.js).
+  async getLeituraAprovacao(id: string) {
+    return this.request<any>(`/admin/aprovacoes/episodes/${id}/leitura`);
+  }
+
+  // Frente A, item 7: edição de episódio PUBLICADO na fila (`tipo: 'revisao'`,
+  // `id` = id do episódio). Ler no leitor e aprovar; devolver usa a rota
+  // genérica logo abaixo, com tipo 'revisao'.
+  async getLeituraRevisao(id: string) {
+    return this.request<any>(`/admin/aprovacoes/revisoes/${id}/leitura`);
+  }
+
+  async aprovarRevisaoAdmin(id: string) {
+    return this.request<any>(`/admin/aprovacoes/revisoes/${id}/aprovar`, { method: 'POST' });
+  }
+
   // tipo aceita 'series' | 'episode' | 'episodes' (o backend normaliza o
   // plural — ver routes/adminPortal.js) — a UI sempre manda o `item.tipo`
   // devolvido por getAdminAprovacoes, que já é singular.
-  async devolverAprovacao(tipo: 'series' | 'episode' | 'episodes', id: string, texto: string) {
+  async devolverAprovacao(tipo: 'series' | 'episode' | 'episodes' | 'revisao', id: string, texto: string) {
     return this.request<{ success: boolean; mensagem: any }>(`/admin/aprovacoes/${tipo}/${id}/devolver`, {
       method: 'POST',
       body: JSON.stringify({ texto }),

@@ -355,3 +355,21 @@ describe('WebtoonReader — conteúdo bloqueado', () => {
     expect(screen.queryByRole('button', { name: /Quero assinar/i })).not.toBeInTheDocument();
   });
 });
+
+// Frente A, R2 (25/11/2026): no celular a imagem de 800 px é reduzida e a
+// altura do painel fica fracionária; sem sobreposição aparecia uma linha
+// escura entre duas fatias da mesma página. A medida de verdade (pixels do
+// print) é do scripts/e2eEnvioPasta.cjs no Chromium; aqui fica o pino para um
+// refactor do leitor não tirar a sobreposição sem ninguém ver.
+describe('WebtoonReader — emenda entre fatias', () => {
+  it('cada painel depois do primeiro sobe 1 px sobre o anterior; o primeiro não', async () => {
+    vi.mocked(api.getEpisode).mockResolvedValue(makeEpisode({
+      panels: [0, 1, 2].map(i => ({ _id: `p${i}`, image_url: `https://cdn.example.com/pagina-001-${i + 1}.jpg`, order: i, translationLayers: [] })),
+    }) as any);
+    render(<WebtoonReader webtoon={makeWebtoon()} user={makeUser({ isPremium: true, premiumExpiresAt: new Date(Date.now() + 86400000).toISOString() } as any)} onClose={vi.fn()} />);
+    const paineis = await screen.findAllByTestId('painel-leitor');
+    expect(paineis).toHaveLength(3);
+    expect(paineis.map(p => p.classList.contains('-mt-px'))).toEqual([false, true, true]);
+  });
+});
+
