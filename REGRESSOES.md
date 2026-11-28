@@ -30,6 +30,7 @@ Os 12 foram aprovados.
 
 | Commit | Data | Bug | Teste que protege | Status | Risco |
 |---|---|---|---|---|---|
+| (branch `fix/rotulo-audio-generico`) | 2026-11-27 | depois do conserto dos quatro "English", o player do video do autor mostrou "Audio", "Audio 1", "Audio 2", "Audio 3": e o nome que o Bunny da as faixas, diferentes entre si, e a regra 3 (nome do video, se unico) os aceitava. **Terceira vez** do mesmo defeito: o teste do item 1 usava faixas chamadas "English", nao os nomes reais do Bunny | `tests/frontend/rotulosDeAudio.test.tsx` — _video do autor com as faixas "Audio", "Audio 1"... do Bunny sai com os idiomas da plataforma (print-5)_ (e mais 2) | voltou, coberto-novo | medio |
 | (branch `fix/retorno-vin-27-11`, item 5) | 2026-11-27 | envio da pasta de quadrinhos "travou" na primeira tentativa (causa PROVAVEL, nao reproduzida em producao): episodio pequeno ia numa parte so e a barra ficava em 0 ate o fim; pedido de parte sem prazo ficava esperando para sempre; "Cancelar envio" desligado durante o envio | `tests/frontend/envioPasta.test.ts` — _o envio nao fica parado na tela_ (6 testes); `tests/frontend/envioPastaEpisodio.test.tsx` — _"Cancelar envio" funciona DURANTE o envio_ | coberto-novo (causa presumida) | medio |
 | (branch `fix/retorno-vin-27-11`, item 4) | 2026-11-27 | (funcao nova, promessa antiga) a hora e a bateria apareciam durante a leitura do quadrinho no app Android | `tests/frontend/leitorTelaCheia.test.tsx` — _abrir o leitor pede tela cheia para a pagina inteira_ (e mais 11: computador, previa, anuncio, voltar, troca de app, rolagem) | coberto-novo (jsdom); **aparelho: sem teste** | medio |
 | (branch `fix/retorno-vin-27-11`, item 3) | 2026-11-27 | (funcao nova, nao conserto) o autor nao tinha como excluir capitulo nem obra depois de enviar; so o admin apagava, e sem apagar arquivo | `tests/backend/exclusaoAutor.test.js` (15: dono, outro autor 404, rascunho/na fila/devolvido/publicado, titulo exigido no publicado, arquivos do Bunny, video do autor x do admin, fila limpa, log); `tests/frontend/exclusaoAutor.test.tsx` (10); `tests/frontend/api.portalT10.test.ts` (3) | coberto-novo | alto |
@@ -133,6 +134,30 @@ iguais); com o conserto, 11 de 11.
 **Sem teste (so no aparelho ou no Bunny).** Se a 1a faixa do arquivo do autor
 e mesmo a de portugues. Quando nao for, o admin corrige em Gerenciar Conteudo,
 "Faixas de Audio". O autor ainda nao tem esse campo no Meu Estudio.
+
+### Item 1b: "Audio", "Audio 1", "Audio 2", "Audio 3" no player (VOLTOU de novo, 27/11 21:18)
+
+**O que o cliente viu (print-5, docs/vin-27-11 fora do git).** "A parte do video
+nao mudou, ficou tudo como audio." Depois do PR #8, os quatro botoes passaram de
+"English" a "Audio", "Audio 1", "Audio 2", "Audio 3".
+
+**Causa.** O Bunny nomeia assim as faixas de um arquivo que nao traz o nome de
+cada uma. Os nomes sao diferentes entre si, entao a regra 3 de
+`utils/rotulosDeAudio.ts` (nome do video, se unico) os aceitava e a ordem
+combinada (PT-BR, English, Espanol, chines) nunca era usada.
+
+**Por que o teste nao pegou.** O teste do item 1 montava as faixas com
+`name: 'English'` (repetido, portanto descartado pela regra 3). O nome real que o
+Bunny entrega nao estava no teste. Agora a fixture `FAIXAS_DO_BUNNY` usa os nomes
+do print-5.
+
+**Conserto.** `nomeGenerico()`: nome que e so "audio/track/faixa/stereo/default/
+und..." com ou sem numero nao conta como nome. Nome que diz algo ("Audio
+dublado") continua valendo. Vale para video ja enviado e para envio novo (o texto
+e calculado no player, nada fica gravado).
+
+**Prova.** Os 2 testes novos falham com `utils/rotulosDeAudio.ts` de `origin/main`
+(02d93f0) e passam com o conserto; suite inteira 823 + 1459.
 
 ### Item 2: "Enviar capitulo" de video recusado por 13 minutos, fila vazia
 

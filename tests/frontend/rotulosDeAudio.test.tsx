@@ -74,6 +74,9 @@ const assinante: User = {
 
 // Como o Bunny entregou o vídeo do print-4: quatro faixas, todas "en".
 const QUATRO_FAIXAS_EN = [0, 1, 2, 3].map(id => ({ id, lang: 'en', name: 'English' }));
+// Como o Bunny entregou o vídeo do print-5 (27/11 21:18): nomes genéricos
+// numerados, idioma repetido. Os botões mostravam esses nomes.
+const FAIXAS_DO_BUNNY = ['Audio', 'Audio 1', 'Audio 2', 'Audio 3'].map((name, id) => ({ id, lang: 'en', name }));
 
 async function montarComFaixas(v: Video, faixas: any[]) {
   render(<VerticalPlayer video={v} user={assinante} onClose={vi.fn()} />);
@@ -129,6 +132,17 @@ describe('player de vídeo: um nome por faixa de áudio (retorno de 27/11/2026)'
     expect(botoesDeIdioma('PT-BR')).toEqual(['PT-BR', 'English', 'Español', '中文']);
   });
 
+  // Retorno do cliente em 27/11/2026 21:18 (print-5), DEPOIS do conserto acima:
+  // os botões passaram a "Audio", "Audio 1", "Audio 2", "Audio 3". O teste de
+  // cima usava faixas chamadas "English"; o Bunny chama as faixas assim, com
+  // nomes diferentes entre si mas que não dizem idioma nenhum.
+  it('vídeo do autor com as faixas "Audio", "Audio 1"... do Bunny sai com os idiomas da plataforma (print-5)', async () => {
+    await montarComFaixas(video(), FAIXAS_DO_BUNNY);
+    expect(botoesDeIdioma('PT-BR')).toEqual(['PT-BR', 'English', 'Español', '中文']);
+    expect(screen.queryByRole('button', { name: 'Audio' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Audio 1' })).toBeNull();
+  });
+
   it('o nome digitado pelo admin continua valendo', async () => {
     await montarComFaixas(video({ hlsAudioLabels: ['Port', 'Eng', 'Esp', 'Zhon'] }), QUATRO_FAIXAS_EN);
     expect(botoesDeIdioma('Port')).toEqual(['Port', 'Eng', 'Esp', 'Zhon']);
@@ -144,6 +158,27 @@ describe('rotulosDasFaixas', () => {
 
   it('mesmo idioma e nomes diferentes no vídeo: vale o nome que veio do vídeo', () => {
     expect(rotulosDasFaixas([{ lang: 'en', name: 'Dublado' }, { lang: 'en', name: 'Original' }], undefined, faixaN)).toEqual(['Dublado', 'Original']);
+  });
+
+  it('nome genérico do vídeo ("Audio N", "Track N", "Faixa N", "und") não vale como nome: cai na ordem combinada', () => {
+    const genericos = [
+      ['Audio', 'Audio 1', 'Audio 2', 'Audio 3'],
+      ['audio_0', 'audio_1', 'audio_2', 'audio_3'],
+      ['Track 1', 'Track 2', 'Track 3', 'Track 4'],
+      ['Faixa 1', 'Faixa 2', 'Áudio 3', 'Stereo'],
+      ['und', 'Default', 'Main', 'Unknown'],
+    ];
+    for (const nomes of genericos) {
+      for (const lang of ['en', 'und', '', undefined]) {
+        const faixas = nomes.map(name => ({ lang, name }));
+        expect(rotulosDasFaixas(faixas, undefined, faixaN)).toEqual(['PT-BR', 'English', 'Español', '中文']);
+      }
+    }
+  });
+
+  it('nome que diz alguma coisa continua valendo, mesmo com "audio" no meio', () => {
+    expect(rotulosDasFaixas([{ lang: 'en', name: 'Audio original' }, { lang: 'en', name: 'Audio dublado' }], undefined, faixaN))
+      .toEqual(['Audio original', 'Audio dublado']);
   });
 
   it('nome do admin só em uma posição: as outras não repetem o texto dela', () => {

@@ -17,7 +17,8 @@
  * REGRA, por faixa, na ordem:
  *  1. o nome que o admin digitou para aquela posição, se houver;
  *  2. o idioma da faixa, se NENHUMA outra faixa tem o mesmo idioma;
- *  3. o nome que veio do vídeo, se nenhuma outra faixa tem o mesmo nome;
+ *  3. o nome que veio do vídeo, se nenhuma outra faixa tem o mesmo nome e se
+ *     ele diz alguma coisa (ver NOME_GENERICO);
  *  4. a ordem combinada das faixas na plataforma: 1ª português, 2ª inglês,
  *     3ª espanhol, 4ª chinês (a mesma do "Faixas de Áudio" do admin);
  *  5. "Faixa N".
@@ -47,6 +48,19 @@ function rotuloDoIdioma(lang?: string | null): string | null {
 
 const chave = (texto: string) => texto.trim().toLowerCase();
 
+/**
+ * Nome de faixa que não diz idioma nem conteúdo: "Audio", "Audio 1", "audio_2",
+ * "Track 3", "Faixa 1", "Stereo", "und"...
+ *
+ * POR QUE (retorno do cliente em 27/11/2026 21:18, print-5): depois do
+ * conserto dos quatro "English", o vídeo do autor passou a mostrar "Audio",
+ * "Audio 1", "Audio 2", "Audio 3". É assim que o Bunny nomeia as faixas de um
+ * arquivo que não traz o nome de cada uma. São nomes diferentes entre si, então
+ * a regra 3 os aceitava. Agora eles não contam e a faixa cai na ordem combinada.
+ */
+const NOME_GENERICO = /^(audio|áudio|track|faixa|stream|sound|som|stereo|est[eé]reo|mono|default|main|und|unknown|undefined|null)?[\s_#.\-]*\d*$/i;
+export const nomeGenerico = (nome: string) => NOME_GENERICO.test(nome.trim());
+
 export function rotulosDasFaixas(
   faixas: FaixaDeAudio[],
   nomesDoEpisodio: Array<string | null | undefined> | null | undefined,
@@ -72,7 +86,7 @@ export function rotulosDasFaixas(
   }
 
   // 3. Nome que veio do vídeo, quando ele distingue a faixa das outras.
-  const nomes = faixas.map(f => (typeof f.name === 'string' && f.name.trim() ? f.name.trim() : null));
+  const nomes = faixas.map(f => (typeof f.name === 'string' && f.name.trim() && !nomeGenerico(f.name) ? f.name.trim() : null));
   for (let i = 0; i < total; i++) {
     const n = nomes[i];
     if (rotulos[i] === null && n && quantos(nomes, n) === 1 && !usados.has(chave(n))) fixar(i, n);
